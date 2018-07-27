@@ -12,6 +12,11 @@
  * You should have received a copy of the GNU General Public License along with
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2018 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #define pr_fmt(fmt)	"%s: " fmt, __func__
 
@@ -70,8 +75,6 @@ static void dspp_igc_install_property(struct drm_crtc *crtc);
 
 static void dspp_hist_install_property(struct drm_crtc *crtc);
 
-static void dspp_dither_install_property(struct drm_crtc *crtc);
-
 typedef void (*dspp_prop_install_func_t)(struct drm_crtc *crtc);
 
 static dspp_prop_install_func_t dspp_prop_install_func[SDE_DSPP_MAX];
@@ -88,7 +91,6 @@ static void sde_cp_ad_set_prop(struct sde_crtc *sde_crtc,
 		enum ad_property ad_prop);
 
 static void sde_cp_notify_hist_event(struct drm_crtc *crtc_drm, void *arg);
-static void sde_cp_update_ad_vsync_prop(struct sde_crtc *sde_crtc, u32 val);
 
 #define setup_dspp_prop_install_funcs(func) \
 do { \
@@ -102,7 +104,6 @@ do { \
 	func[SDE_DSPP_GC] = dspp_gc_install_property; \
 	func[SDE_DSPP_IGC] = dspp_igc_install_property; \
 	func[SDE_DSPP_HIST] = dspp_hist_install_property; \
-	func[SDE_DSPP_DITHER] = dspp_dither_install_property; \
 } while (0)
 
 typedef void (*lm_prop_install_func_t)(struct drm_crtc *crtc);
@@ -138,8 +139,6 @@ enum {
 	SDE_CP_CRTC_DSPP_AD_INPUT,
 	SDE_CP_CRTC_DSPP_AD_ASSERTIVENESS,
 	SDE_CP_CRTC_DSPP_AD_BACKLIGHT,
-	SDE_CP_CRTC_DSPP_AD_STRENGTH,
-	SDE_CP_CRTC_DSPP_AD_VSYNC_COUNT,
 	SDE_CP_CRTC_DSPP_MAX,
 	/* DSPP features end */
 
@@ -409,7 +408,6 @@ void sde_cp_crtc_init(struct drm_crtc *crtc)
 	if (IS_ERR(sde_crtc->hist_blob))
 		sde_crtc->hist_blob = NULL;
 
-	sde_crtc->ad_vsync_count = 0;
 	mutex_init(&sde_crtc->crtc_cp_lock);
 	INIT_LIST_HEAD(&sde_crtc->active_list);
 	INIT_LIST_HEAD(&sde_crtc->dirty_list);
@@ -760,13 +758,6 @@ static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 			}
 			hw_lm->ops.setup_gc(hw_lm, &hw_cfg);
 			break;
-		case SDE_CP_CRTC_DSPP_DITHER:
-			if (!hw_dspp || !hw_dspp->ops.setup_pa_dither) {
-				ret = -EINVAL;
-				continue;
-			}
-			hw_dspp->ops.setup_pa_dither(hw_dspp, &hw_cfg);
-			break;
 		case SDE_CP_CRTC_DSPP_HIST_CTRL:
 			if (!hw_dspp || !hw_dspp->ops.setup_histogram) {
 				ret = -EINVAL;
@@ -790,9 +781,6 @@ static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 			ad_cfg.prop = AD_MODE;
 			ad_cfg.hw_cfg = &hw_cfg;
 			hw_dspp->ops.setup_ad(hw_dspp, &ad_cfg);
-			sde_crtc->ad_vsync_count = 0;
-			sde_cp_update_ad_vsync_prop(sde_crtc,
-					sde_crtc->ad_vsync_count);
 			break;
 		case SDE_CP_CRTC_DSPP_AD_INIT:
 			if (!hw_dspp || !hw_dspp->ops.setup_ad) {
@@ -802,9 +790,6 @@ static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 			ad_cfg.prop = AD_INIT;
 			ad_cfg.hw_cfg = &hw_cfg;
 			hw_dspp->ops.setup_ad(hw_dspp, &ad_cfg);
-			sde_crtc->ad_vsync_count = 0;
-			sde_cp_update_ad_vsync_prop(sde_crtc,
-					sde_crtc->ad_vsync_count);
 			break;
 		case SDE_CP_CRTC_DSPP_AD_CFG:
 			if (!hw_dspp || !hw_dspp->ops.setup_ad) {
@@ -814,9 +799,6 @@ static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 			ad_cfg.prop = AD_CFG;
 			ad_cfg.hw_cfg = &hw_cfg;
 			hw_dspp->ops.setup_ad(hw_dspp, &ad_cfg);
-			sde_crtc->ad_vsync_count = 0;
-			sde_cp_update_ad_vsync_prop(sde_crtc,
-					sde_crtc->ad_vsync_count);
 			break;
 		case SDE_CP_CRTC_DSPP_AD_INPUT:
 			if (!hw_dspp || !hw_dspp->ops.setup_ad) {
@@ -826,9 +808,6 @@ static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 			ad_cfg.prop = AD_INPUT;
 			ad_cfg.hw_cfg = &hw_cfg;
 			hw_dspp->ops.setup_ad(hw_dspp, &ad_cfg);
-			sde_crtc->ad_vsync_count = 0;
-			sde_cp_update_ad_vsync_prop(sde_crtc,
-					sde_crtc->ad_vsync_count);
 			break;
 		case SDE_CP_CRTC_DSPP_AD_ASSERTIVENESS:
 			if (!hw_dspp || !hw_dspp->ops.setup_ad) {
@@ -838,9 +817,6 @@ static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 			ad_cfg.prop = AD_ASSERTIVE;
 			ad_cfg.hw_cfg = &hw_cfg;
 			hw_dspp->ops.setup_ad(hw_dspp, &ad_cfg);
-			sde_crtc->ad_vsync_count = 0;
-			sde_cp_update_ad_vsync_prop(sde_crtc,
-					sde_crtc->ad_vsync_count);
 			break;
 		case SDE_CP_CRTC_DSPP_AD_BACKLIGHT:
 			if (!hw_dspp || !hw_dspp->ops.setup_ad) {
@@ -850,21 +826,6 @@ static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 			ad_cfg.prop = AD_BACKLIGHT;
 			ad_cfg.hw_cfg = &hw_cfg;
 			hw_dspp->ops.setup_ad(hw_dspp, &ad_cfg);
-			sde_crtc->ad_vsync_count = 0;
-			sde_cp_update_ad_vsync_prop(sde_crtc,
-					sde_crtc->ad_vsync_count);
-			break;
-		case SDE_CP_CRTC_DSPP_AD_STRENGTH:
-			if (!hw_dspp || !hw_dspp->ops.setup_ad) {
-				ret = -EINVAL;
-				continue;
-			}
-			ad_cfg.prop = AD_STRENGTH;
-			ad_cfg.hw_cfg = &hw_cfg;
-			hw_dspp->ops.setup_ad(hw_dspp, &ad_cfg);
-			sde_crtc->ad_vsync_count = 0;
-			sde_cp_update_ad_vsync_prop(sde_crtc,
-					sde_crtc->ad_vsync_count);
 			break;
 		default:
 			ret = -EINVAL;
@@ -903,7 +864,6 @@ void sde_cp_crtc_apply_properties(struct drm_crtc *crtc)
 	u32 sde_dspp_feature = SDE_DSPP_MAX;
 	struct msm_drm_private *priv = NULL;
 	struct sde_kms *sde_kms = NULL;
-	bool mdss_bus_vote = false;
 
 	if (!crtc || !crtc->dev) {
 		DRM_ERROR("invalid crtc %pK dev %pK\n", crtc,
@@ -946,26 +906,22 @@ void sde_cp_crtc_apply_properties(struct drm_crtc *crtc)
 			DRM_DEBUG_DRIVER("Dirty list is empty\n");
 			goto exit;
 		}
-		set_dspp_flush = true;
-	}
-
-	if (!list_empty(&sde_crtc->ad_active)) {
 		sde_cp_ad_set_prop(sde_crtc, AD_IPC_RESET);
-		sde_cp_ad_set_prop(sde_crtc, AD_VSYNC_UPDATE);
-		sde_cp_update_ad_vsync_prop(sde_crtc, sde_crtc->ad_vsync_count);
+		set_dspp_flush = true;
 	}
 
 	list_for_each_entry_safe(prop_node, n, &sde_crtc->dirty_list,
 				dirty_list) {
 		sde_dspp_feature = crtc_feature_map[prop_node->feature];
-		if (!mdss_bus_vote && HIGH_BUS_VOTE_NEEDED(prop_node->feature)
-			&& !reg_dmav1_dspp_feature_support(sde_dspp_feature)) {
+		if (!sde_crtc->mdss_bus_vote &&
+			HIGH_BUS_VOTE_NEEDED(prop_node->feature) &&
+			!reg_dmav1_dspp_feature_support(sde_dspp_feature)) {
 			sde_power_scale_reg_bus(&priv->phandle,
 				sde_kms->core_client,
 				VOTE_INDEX_HIGH, false);
 			pr_debug("Vote HIGH for data bus: feature %d\n",
 					prop_node->feature);
-			mdss_bus_vote = true;
+			sde_crtc->mdss_bus_vote = true;
 		}
 		sde_cp_crtc_setfeature(prop_node, sde_crtc);
 		/* Set the flush flag to true */
@@ -974,11 +930,11 @@ void sde_cp_crtc_apply_properties(struct drm_crtc *crtc)
 		else
 			set_lm_flush = true;
 	}
-	if (mdss_bus_vote) {
+	if (sde_crtc->mdss_bus_vote) {
 		sde_power_scale_reg_bus(&priv->phandle, sde_kms->core_client,
 			VOTE_INDEX_LOW, false);
 		pr_debug("Vote LOW for data bus\n");
-		mdss_bus_vote = false;
+		sde_crtc->mdss_bus_vote = false;
 	}
 
 	list_for_each_entry_safe(prop_node, n, &sde_crtc->ad_dirty,
@@ -1462,18 +1418,12 @@ static void dspp_ad_install_property(struct drm_crtc *crtc)
 		sde_cp_crtc_install_range_property(crtc,
 			"SDE_DSPP_AD_V4_ASSERTIVENESS",
 			SDE_CP_CRTC_DSPP_AD_ASSERTIVENESS, 0, (BIT(8) - 1), 0);
-		sde_cp_crtc_install_range_property(crtc,
-			"SDE_DSPP_AD_V4_STRENGTH",
-			SDE_CP_CRTC_DSPP_AD_STRENGTH, 0, (BIT(10) - 1), 0);
 		sde_cp_crtc_install_range_property(crtc, "SDE_DSPP_AD_V4_INPUT",
 			SDE_CP_CRTC_DSPP_AD_INPUT, 0, U16_MAX, 0);
 		sde_cp_crtc_install_range_property(crtc,
 				"SDE_DSPP_AD_V4_BACKLIGHT",
 			SDE_CP_CRTC_DSPP_AD_BACKLIGHT, 0, (BIT(16) - 1),
 			0);
-		sde_cp_crtc_install_range_property(crtc,
-			"SDE_DSPP_AD_V4_VSYNC_COUNT",
-			SDE_CP_CRTC_DSPP_AD_VSYNC_COUNT, 0, U32_MAX, 0);
 		break;
 	default:
 		DRM_ERROR("version %d not supported\n", version);
@@ -1601,31 +1551,6 @@ static void dspp_hist_install_property(struct drm_crtc *crtc)
 	}
 }
 
-static void dspp_dither_install_property(struct drm_crtc *crtc)
-{
-	char feature_name[256];
-	struct sde_kms *kms = NULL;
-	struct sde_mdss_cfg *catalog = NULL;
-	u32 version;
-
-	kms = get_kms(crtc);
-	catalog = kms->catalog;
-
-	version = catalog->dspp[0].sblk->dither.version >> 16;
-	snprintf(feature_name, ARRAY_SIZE(feature_name), "%s%d",
-		"SDE_DSPP_PA_DITHER_V", version);
-	switch (version) {
-	case 1:
-		sde_cp_crtc_install_blob_property(crtc, feature_name,
-			SDE_CP_CRTC_DSPP_DITHER,
-			sizeof(struct drm_msm_pa_dither));
-		break;
-	default:
-		DRM_ERROR("version %d not supported\n", version);
-		break;
-	}
-}
-
 static void sde_cp_update_list(struct sde_cp_node *prop_node,
 		struct sde_crtc *crtc, bool dirty_list)
 {
@@ -1636,7 +1561,6 @@ static void sde_cp_update_list(struct sde_cp_node *prop_node,
 	case SDE_CP_CRTC_DSPP_AD_INPUT:
 	case SDE_CP_CRTC_DSPP_AD_ASSERTIVENESS:
 	case SDE_CP_CRTC_DSPP_AD_BACKLIGHT:
-	case SDE_CP_CRTC_DSPP_AD_STRENGTH:
 		if (dirty_list)
 			list_add_tail(&prop_node->dirty_list, &crtc->ad_dirty);
 		else
@@ -1684,9 +1608,6 @@ static int sde_cp_ad_validate_prop(struct sde_cp_node *prop_node,
 			break;
 		case SDE_CP_CRTC_DSPP_AD_BACKLIGHT:
 			ad_prop = AD_BACKLIGHT;
-			break;
-		case SDE_CP_CRTC_DSPP_AD_STRENGTH:
-			ad_prop = AD_STRENGTH;
 			break;
 		default:
 			/* Not an AD property */
@@ -1885,11 +1806,6 @@ static void sde_cp_ad_set_prop(struct sde_crtc *sde_crtc,
 		hw_cfg.displayh = num_mixers * hw_lm->cfg.out_width;
 		hw_cfg.displayv = hw_lm->cfg.out_height;
 		hw_cfg.mixer_info = hw_lm;
-
-		if (ad_prop == AD_VSYNC_UPDATE) {
-			hw_cfg.payload = &sde_crtc->ad_vsync_count;
-			hw_cfg.len = sizeof(sde_crtc->ad_vsync_count);
-		}
 		ad_cfg.prop = ad_prop;
 		ad_cfg.hw_cfg = &hw_cfg;
 		ret = hw_dspp->ops.validate_ad(hw_dspp, (u32 *)&ad_prop);
@@ -2120,36 +2036,4 @@ int sde_cp_hist_interrupt(struct drm_crtc *crtc_drm, bool en,
 	}
 exit:
 	return ret;
-}
-
-void sde_cp_update_ad_vsync_count(struct drm_crtc *crtc, u32 val)
-{
-	struct sde_crtc *sde_crtc;
-
-	if (!crtc) {
-		DRM_ERROR("invalid crtc %pK\n", crtc);
-		return;
-	}
-
-	sde_crtc = to_sde_crtc(crtc);
-	if (!sde_crtc) {
-		DRM_ERROR("invalid sde_crtc %pK\n", sde_crtc);
-		return;
-	}
-
-	sde_crtc->ad_vsync_count = val;
-	sde_cp_update_ad_vsync_prop(sde_crtc, val);
-}
-
-static void sde_cp_update_ad_vsync_prop(struct sde_crtc *sde_crtc, u32 val)
-{
-	struct sde_cp_node *prop_node = NULL;
-
-	list_for_each_entry(prop_node, &sde_crtc->feature_list, feature_list) {
-		if (prop_node->feature == SDE_CP_CRTC_DSPP_AD_VSYNC_COUNT) {
-			prop_node->prop_val = val;
-			pr_debug("AD vsync count updated to %d\n", val);
-			return;
-		}
-	}
 }

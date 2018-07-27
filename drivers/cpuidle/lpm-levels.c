@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  * Copyright (C) 2006-2007 Adam Belay <abelay@novell.com>
  * Copyright (C) 2009 Intel Corporation
  *
@@ -11,6 +11,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
+ */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2018 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
  */
 
 #define pr_fmt(fmt) "%s: " fmt, KBUILD_MODNAME
@@ -619,7 +624,7 @@ static int cpu_power_select(struct cpuidle_device *dev,
 
 	next_event_us = (uint32_t)(ktime_to_us(get_next_event_time(dev->cpu)));
 
-	if (is_cpu_biased(dev->cpu) && (!cpu_isolated(dev->cpu)))
+	if (is_cpu_biased(dev->cpu))
 		goto done_select;
 
 	for (i = 0; i < cpu->nlevels; i++) {

@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -2690,7 +2690,6 @@ _aware(struct kgsl_device *device)
 {
 	int status = 0;
 	struct gmu_device *gmu = &device->gmu;
-	unsigned int state = device->state;
 
 	switch (device->state) {
 	case KGSL_STATE_RESET:
@@ -2735,17 +2734,13 @@ _aware(struct kgsl_device *device)
 				 * GPU will not be powered on
 				 */
 				WARN_ONCE(1, "Failed to recover GMU\n");
-				if (device->snapshot)
-					device->snapshot->recovered = false;
-				kgsl_pwrctrl_set_state(device, state);
+				device->snapshot->recovered = false;
 			} else {
-				if (device->snapshot)
-					device->snapshot->recovered = true;
-				kgsl_pwrctrl_set_state(device,
-					KGSL_STATE_AWARE);
+				device->snapshot->recovered = true;
 			}
 
 			clear_bit(GMU_FAULT, &gmu->flags);
+			kgsl_pwrctrl_set_state(device, KGSL_STATE_AWARE);
 			return status;
 		}
 

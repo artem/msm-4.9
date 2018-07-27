@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -222,13 +222,7 @@ static void ipa3_send_nop_desc(struct work_struct *work)
 	tx_pkt->no_unmap_dma = true;
 	tx_pkt->sys = sys;
 	spin_lock_bh(&sys->spinlock);
-	if (unlikely(!sys->nop_pending)) {
-		spin_unlock_bh(&sys->spinlock);
-		kmem_cache_free(ipa3_ctx->tx_pkt_wrapper_cache, tx_pkt);
-		return;
-	}
 	list_add_tail(&tx_pkt->link, &sys->head_desc_list);
-	sys->nop_pending = false;
 	spin_unlock_bh(&sys->spinlock);
 
 	memset(&nop_xfer, 0, sizeof(nop_xfer));
@@ -277,7 +271,6 @@ int ipa3_send(struct ipa3_sys_context *sys,
 	int result;
 	u32 mem_flag = GFP_ATOMIC;
 	const struct ipa_gsi_ep_config *gsi_ep_cfg;
-	bool send_nop = false;
 
 	if (unlikely(!in_atomic))
 		mem_flag = GFP_KERNEL;
@@ -300,17 +293,16 @@ int ipa3_send(struct ipa3_sys_context *sys,
 		mem_flag);
 	if (!gsi_xfer_elem_array) {
 		IPAERR("Failed to alloc mem for gsi xfer array.\n");
-		return -ENOMEM;
+		return -EFAULT;
 	}
 
 	spin_lock_bh(&sys->spinlock);
 
 	for (i = 0; i < num_desc; i++) {
 		tx_pkt = kmem_cache_zalloc(ipa3_ctx->tx_pkt_wrapper_cache,
-					   GFP_ATOMIC);
+					   mem_flag);
 		if (!tx_pkt) {
 			IPAERR("failed to alloc tx wrapper\n");
-			result = -ENOMEM;
 			goto failure;
 		}
 
@@ -327,7 +319,6 @@ int ipa3_send(struct ipa3_sys_context *sys,
 			if (ipa_populate_tag_field(&desc[i], tx_pkt,
 				&tag_pyld_ret)) {
 				IPAERR("Failed to populate tag field\n");
-				result = -EFAULT;
 				goto failure_dma_map;
 			}
 		}
@@ -367,7 +358,6 @@ int ipa3_send(struct ipa3_sys_context *sys,
 		}
 		if (dma_mapping_error(ipa3_ctx->pdev, tx_pkt->mem.phys_base)) {
 			IPAERR("failed to do dma map.\n");
-			result = -EFAULT;
 			goto failure_dma_map;
 		}
 
@@ -414,19 +404,14 @@ int ipa3_send(struct ipa3_sys_context *sys,
 			gsi_xfer_elem_array, true);
 	if (result != GSI_STATUS_SUCCESS) {
 		IPAERR("GSI xfer failed.\n");
-		result = -EFAULT;
 		goto failure;
 	}
 	kfree(gsi_xfer_elem_array);
 
-	if (sys->use_comm_evt_ring && !sys->nop_pending) {
-		sys->nop_pending = true;
-		send_nop = true;
-	}
 	spin_unlock_bh(&sys->spinlock);
 
 	/* set the timer for sending the NOP descriptor */
-	if (send_nop) {
+	if (sys->use_comm_evt_ring && !hrtimer_active(&sys->db_timer)) {
 		ktime_t time = ktime_set(0, IPA_TX_SEND_COMPL_NOP_DELAY_NS);
 
 		IPADBG_LOW("scheduling timer for ch %lu\n",
@@ -465,7 +450,7 @@ failure:
 	kfree(gsi_xfer_elem_array);
 
 	spin_unlock_bh(&sys->spinlock);
-	return result;
+	return -EFAULT;
 }
 
 /**
@@ -3544,11 +3529,6 @@ static int ipa_gsi_setup_channel(struct ipa_sys_connect_params *in,
 	dma_addr_t dma_addr;
 	dma_addr_t evt_dma_addr;
 	int result;
-	gfp_t mem_flag = GFP_KERNEL;
-
-	if (in->client == IPA_CLIENT_APPS_WAN_CONS ||
-		in->client == IPA_CLIENT_APPS_WAN_PROD)
-		mem_flag = GFP_ATOMIC;
 
 	if (!ep) {
 		IPAERR("EP context is empty\n");
@@ -3586,7 +3566,7 @@ static int ipa_gsi_setup_channel(struct ipa_sys_connect_params *in,
 		gsi_evt_ring_props.ring_base_vaddr =
 			dma_alloc_coherent(ipa3_ctx->pdev,
 			gsi_evt_ring_props.ring_len,
-			&evt_dma_addr, mem_flag);
+			&evt_dma_addr, GFP_KERNEL);
 		if (!gsi_evt_ring_props.ring_base_vaddr) {
 			IPAERR("fail to dma alloc %u bytes\n",
 				gsi_evt_ring_props.ring_len);
@@ -3656,7 +3636,7 @@ static int ipa_gsi_setup_channel(struct ipa_sys_connect_params *in,
 		gsi_channel_props.ring_len = 2 * in->desc_fifo_sz;
 	gsi_channel_props.ring_base_vaddr =
 		dma_alloc_coherent(ipa3_ctx->pdev, gsi_channel_props.ring_len,
-			&dma_addr, mem_flag);
+			&dma_addr, GFP_KERNEL);
 	if (!gsi_channel_props.ring_base_vaddr) {
 		IPAERR("fail to dma alloc %u bytes\n",
 			gsi_channel_props.ring_len);

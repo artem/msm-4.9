@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #ifndef _CAM_IFE_CSID_HW_H_
 #define _CAM_IFE_CSID_HW_H_
@@ -360,6 +365,7 @@ struct cam_ife_csid_tpg_cfg  {
  * @dt:          Data type
  * @cnt:         Cid resource reference count.
  * @tpg_set:     Tpg used for this cid resource
+ * @pixel_count: Pixel resource connected
  *
  */
 struct cam_ife_csid_cid_data {

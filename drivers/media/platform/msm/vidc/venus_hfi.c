@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
+ */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
  */
 
 #include <asm/dma-iommu.h>
@@ -59,8 +64,6 @@ struct tzbsp_resp {
 
 /* Poll interval in uS */
 #define POLL_INTERVAL_US 50
-
-#define VENUS_AXI_HALT_ACK_TIMEOUT_US		500000
 
 enum tzbsp_video_state {
 	TZBSP_VIDEO_STATE_SUSPEND = 0,
@@ -2748,6 +2751,7 @@ static void venus_hfi_pm_handler(struct work_struct *work)
 	const int max_tries = 10;
 	struct venus_hfi_device *device = list_first_entry(
 			&hal_ctxt.dev_head, struct venus_hfi_device, list);
+	char msg[SUBSYS_CRASH_REASON_LEN];
 
 	if (!device) {
 		dprintk(VIDC_ERR, "%s: NULL device\n", __func__);
@@ -2764,6 +2768,9 @@ static void venus_hfi_pm_handler(struct work_struct *work)
 		dprintk(VIDC_WARN, "Failed to PC for %d times\n",
 				device->skip_pc_count);
 		device->skip_pc_count = 0;
+		snprintf(msg, sizeof(msg),
+			"Failed to prepare for PC, rc : %d\n", rc);
+		subsystem_crash_reason("venus", msg);
 		__process_fatal_error(device);
 		return;
 	}
@@ -2852,41 +2859,13 @@ exit:
 	mutex_unlock(&device->lock);
 }
 
-static int __halt_axi(struct venus_hfi_device *device)
+static void venus_hfi_crash_reason(struct hfi_sfr_struct *vsfr)
 {
-	u32 reg;
-	int rc = 0;
+	char msg[SUBSYS_CRASH_REASON_LEN];
 
-	if (!device) {
-		dprintk(VIDC_ERR, "Invalid input: %pK\n", device);
-		return -EINVAL;
-	}
-
-	/*
-	 * Driver needs to make sure that clocks are enabled to read Venus AXI
-	 * registers. If not skip AXI HALT.
-	 */
-	if (!device->power_enabled) {
-		dprintk(VIDC_WARN,
-			"Clocks are OFF, skipping AXI HALT\n");
-		return -EINVAL;
-	}
-
-	/* Halt AXI and AXI IMEM VBIF Access */
-	reg = __read_register(device, VENUS_WRAPPER_AXI_HALT);
-	reg |= BRIC_AXI_HALT;
-	__write_register(device, VENUS_WRAPPER_AXI_HALT, reg);
-
-	/* Request for AXI bus port halt */
-	rc = readl_poll_timeout(device->hal_data->register_base
-			+ VENUS_WRAPPER_AXI_HALT_STATUS,
-			reg, reg & BRIC_AXI_HALT_ACK,
-			POLL_INTERVAL_US,
-			VENUS_AXI_HALT_ACK_TIMEOUT_US);
-	if (rc)
-		dprintk(VIDC_WARN, "AXI bus port halt timeout\n");
-
-	return rc;
+	snprintf(msg, sizeof(msg), "SFR Message from FW : %s",
+						vsfr->rg_data);
+	subsystem_crash_reason("venus", msg);
 }
 
 static void __process_sys_error(struct venus_hfi_device *device)
@@ -2894,9 +2873,6 @@ static void __process_sys_error(struct venus_hfi_device *device)
 	struct hfi_sfr_struct *vsfr = NULL;
 
 	__set_state(device, VENUS_STATE_DEINIT);
-
-	if (__halt_axi(device))
-		dprintk(VIDC_WARN, "Failed to halt AXI after SYS_ERROR\n");
 
 	vsfr = (struct hfi_sfr_struct *)device->sfr.align_virtual_addr;
 	if (vsfr) {
@@ -2911,6 +2887,7 @@ static void __process_sys_error(struct venus_hfi_device *device)
 
 		dprintk(VIDC_ERR, "SFR Message from FW: %s\n",
 				vsfr->rg_data);
+		venus_hfi_crash_reason(vsfr);
 	}
 }
 
@@ -3028,9 +3005,11 @@ static int __response_handler(struct venus_hfi_device *device)
 			}
 		};
 
-		if (vsfr)
+		if (vsfr) {
 			dprintk(VIDC_ERR, "SFR Message from FW: %s\n",
 					vsfr->rg_data);
+			venus_hfi_crash_reason(vsfr);
+		}
 
 		dprintk(VIDC_ERR, "Received watchdog timeout\n");
 		packets[packet_count++] = info;

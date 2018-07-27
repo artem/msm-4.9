@@ -30,7 +30,6 @@ Currently, these files are in /proc/sys/vm:
 - dirty_writeback_centisecs
 - drop_caches
 - extfrag_threshold
-- extra_free_kbytes
 - hugepages_treat_as_movable
 - hugetlb_shm_group
 - laptop_mode
@@ -63,8 +62,8 @@ Currently, these files are in /proc/sys/vm:
 - user_reserve_kbytes
 - vfs_cache_pressure
 - watermark_scale_factor
+- watermark_high_factor_slope
 - zone_reclaim_mode
-- want_old_faultaround_pte
 
 ==============================================================
 
@@ -239,21 +238,6 @@ implies that the allocation will succeed as long as watermarks are met.
 
 The kernel will not compact memory in a zone if the
 fragmentation index is <= extfrag_threshold. The default value is 500.
-
-==============================================================
-
-extra_free_kbytes
-
-This parameter tells the VM to keep extra free memory between the threshold
-where background reclaim (kswapd) kicks in, and the threshold where direct
-reclaim (by allocating processes) kicks in.
-
-This is useful for workloads that require low latency memory allocations
-and have a bounded burstiness in memory allocations, for example a
-realtime application that receives and transmits network traffic
-(causing in-kernel memory allocations) with a maximum total message burst
-size of 200MB may need 200MB of extra free memory to avoid direct reclaim
-related latencies.
 
 ==============================================================
 
@@ -854,6 +838,20 @@ that the number of free pages kswapd maintains for latency reasons is
 too small for the allocation bursts occurring in the system. This knob
 can then be used to tune kswapd aggressiveness accordingly.
 
+=============================================================
+
+watermark_high_factor_slope:
+
+This factor is high mark for watermark_scale_factor.
+The unit is in percent.
+Max value is 1000 and min value is 100. (High watermark is the same as
+low water mark) Low watermark is min_wmark_pages + watermark_scale_factor.
+and high watermark is
+min_wmark_pages+(watermark_scale_factor * watermark_high_factor_slope).
+
+The default value is 200.
+
+
 ==============================================================
 
 zone_reclaim_mode:
@@ -891,26 +889,5 @@ of other processes running on other nodes will not be affected.
 Allowing regular swap effectively restricts allocations to the local
 node unless explicitly overridden by memory policies or cpuset
 configurations.
-
-=============================================================
-
-want_old_faultaround_pte:
-
-By default faultaround code produces young pte. When want_old_faultaround_pte is
-set to 1, faultaround produces old ptes.
-
-During sparse file access faultaround gets more pages mapped and when all of
-them are young (default), under memory pressure, this makes vmscan swap out anon
-pages instead, or to drop other page cache pages which otherwise stay resident.
-Setting want_old_faultaround_pte to 1 avoids this.
-
-Making the faultaround ptes old can result in performance regression on some
-architectures. This is due to cycles spent in micro-faults which would take page
-walk to set young bit in the pte. One such known test that shows a regression on
-x86 is unixbench shell8. Set want_old_faultaround_pte to 1 on architectures
-which does not show this regression or if the workload shows overall performance
-benefit with old faultaround ptes.
-
-The default value is 0.
 
 ============ End of Document =================================

@@ -204,12 +204,10 @@ bool is_sde_plane_virtual(struct drm_plane *plane);
  * sde_plane_confirm_hw_rsvps - reserve an sbuf resource, if needed
  * @plane: Pointer to DRM plane object
  * @state: Pointer to plane state
- * @cstate: Pointer to crtc state containing the resource pool
  * Returns: Zero on success
  */
 int sde_plane_confirm_hw_rsvps(struct drm_plane *plane,
-		const struct drm_plane_state *state,
-		struct drm_crtc_state *cstate);
+		const struct drm_plane_state *state);
 
 /**
  * sde_plane_get_ctl_flush - get control flush mask
@@ -222,11 +220,11 @@ void sde_plane_get_ctl_flush(struct drm_plane *plane, struct sde_hw_ctl *ctl,
 		u32 *flush_sspp, u32 *flush_rot);
 
 /**
- * sde_plane_rot_get_prefill - calculate rotator start prefill
+ * sde_plane_rot_calc_prefill - calculate rotator start prefill
  * @plane: Pointer to drm plane
- * return: prefill time in lines
+ * return: prefill time in line
  */
-u32 sde_plane_rot_get_prefill(struct drm_plane *plane);
+u32 sde_plane_rot_calc_prefill(struct drm_plane *plane);
 
 /**
  * sde_plane_restore - restore hw state if previously power collapsed

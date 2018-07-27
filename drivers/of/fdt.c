@@ -31,8 +31,6 @@
 #include <asm/setup.h>  /* for COMMAND_LINE_SIZE */
 #include <asm/page.h>
 
-#include "of_private.h"
-
 /*
  * of_fdt_limit_memory - limit the number of regions in the /memory node
  * @limit: maximum entries
@@ -1271,8 +1269,6 @@ void __init unflatten_device_tree(void)
 
 	/* Get pointer to "/chosen" and "/aliases" nodes for use everywhere */
 	of_alias_scan(early_init_dt_alloc_memory_arch);
-
-	of_populate_phandle_cache_early();
 }
 
 /**

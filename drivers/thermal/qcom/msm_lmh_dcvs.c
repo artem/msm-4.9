@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -98,13 +98,13 @@ struct limits_dcvs_hw {
 	void *int_clr_reg;
 	void *min_freq_reg;
 	cpumask_t core_map;
-	struct delayed_work freq_poll_work;
+	struct timer_list poll_timer;
 	unsigned long max_freq;
 	unsigned long min_freq;
 	unsigned long hw_freq_limit;
 	struct device_attribute lmh_freq_attr;
 	struct list_head list;
-	bool is_irq_enabled;
+	atomic_t is_irq_enabled;
 	struct mutex access_lock;
 	struct __limits_cdev_data *cdev_data;
 	struct regulator *isens_reg;
@@ -184,37 +184,33 @@ notify_exit:
 	return max_limit;
 }
 
-static void limits_dcvs_poll(struct work_struct *work)
+static void limits_dcvs_poll(unsigned long data)
 {
 	unsigned long max_limit = 0;
-	struct limits_dcvs_hw *hw = container_of(work,
-					struct limits_dcvs_hw,
-					freq_poll_work.work);
+	struct limits_dcvs_hw *hw = (struct limits_dcvs_hw *)data;
 
-	mutex_lock(&hw->access_lock);
 	if (hw->max_freq == UINT_MAX)
 		limits_dcvs_get_freq_limits(cpumask_first(&hw->core_map),
 			&hw->max_freq, &hw->min_freq);
 	max_limit = limits_mitigation_notify(hw);
 	if (max_limit >= hw->max_freq) {
+		del_timer(&hw->poll_timer);
 		writel_relaxed(0xFF, hw->int_clr_reg);
-		hw->is_irq_enabled = true;
+		atomic_set(&hw->is_irq_enabled, 1);
 		enable_irq(hw->irq_num);
 	} else {
-		mod_delayed_work(system_highpri_wq, &hw->freq_poll_work,
-			 msecs_to_jiffies(LIMITS_POLLING_DELAY_MS));
+		mod_timer(&hw->poll_timer, jiffies + msecs_to_jiffies(
+			LIMITS_POLLING_DELAY_MS));
 	}
-	mutex_unlock(&hw->access_lock);
 }
 
 static void lmh_dcvs_notify(struct limits_dcvs_hw *hw)
 {
-	if (hw->is_irq_enabled) {
-		hw->is_irq_enabled = false;
+	if (atomic_dec_and_test(&hw->is_irq_enabled)) {
 		disable_irq_nosync(hw->irq_num);
 		limits_mitigation_notify(hw);
-		mod_delayed_work(system_highpri_wq, &hw->freq_poll_work,
-			 msecs_to_jiffies(LIMITS_POLLING_DELAY_MS));
+		mod_timer(&hw->poll_timer, jiffies + msecs_to_jiffies(
+			LIMITS_POLLING_DELAY_MS));
 	}
 }
 
@@ -222,9 +218,7 @@ static irqreturn_t lmh_dcvs_handle_isr(int irq, void *data)
 {
 	struct limits_dcvs_hw *hw = data;
 
-	mutex_lock(&hw->access_lock);
 	lmh_dcvs_notify(hw);
-	mutex_unlock(&hw->access_lock);
 
 	return IRQ_HANDLED;
 }
@@ -379,8 +373,8 @@ static int lmh_set_max_limit(int cpu, u32 freq)
 	ret = limits_dcvs_write(hw->affinity, LIMITS_SUB_FN_THERMAL,
 				  LIMITS_FREQ_CAP, max_freq,
 				  (max_freq == U32_MAX) ? 0 : 1, 1);
-	lmh_dcvs_notify(hw);
 	mutex_unlock(&hw->access_lock);
+	lmh_dcvs_notify(hw);
 
 	return ret;
 }
@@ -632,7 +626,9 @@ static int limits_dcvs_probe(struct platform_device *pdev)
 	}
 
 	mutex_init(&hw->access_lock);
-	INIT_DEFERRABLE_WORK(&hw->freq_poll_work, limits_dcvs_poll);
+	init_timer_deferrable(&hw->poll_timer);
+	hw->poll_timer.data = (unsigned long)hw;
+	hw->poll_timer.function = limits_dcvs_poll;
 	hw->osm_hw_reg = devm_ioremap(&pdev->dev, request_reg, 0x4);
 	if (!hw->osm_hw_reg) {
 		pr_err("register remap failed\n");
@@ -649,7 +645,7 @@ static int limits_dcvs_probe(struct platform_device *pdev)
 		pr_err("Error getting IRQ number. err:%d\n", hw->irq_num);
 		goto probe_exit;
 	}
-	hw->is_irq_enabled = true;
+	atomic_set(&hw->is_irq_enabled, 1);
 	ret = devm_request_threaded_irq(&pdev->dev, hw->irq_num, NULL,
 		lmh_dcvs_handle_isr, IRQF_TRIGGER_HIGH | IRQF_ONESHOT
 		| IRQF_NO_SUSPEND, hw->sensor_name, hw);

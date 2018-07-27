@@ -191,7 +191,8 @@ ENTRY(cpu_do_switch_mm)
 	isb
 	msr	ttbr0_el1, x0			// now update TTBR0
 	isb
-	b	post_ttbr_update_workaround	// Back to C code...
+	post_ttbr0_update_workaround
+	ret
 ENDPROC(cpu_do_switch_mm)
 
 	.pushsection ".idmap.text", "ax"
@@ -290,12 +291,6 @@ ENTRY(__cpu_setup)
 	cbz	x9, 2f
 	cmp	x9, #2
 	b.lt	1f
-#ifdef CONFIG_ARM64_ERRATUM_1024718
-	/* Disable hardware DBM on Kryo3S */
-	cpu_midr_match MIDR_KRYO3S, MIDR_CPU_VAR_REV(7, 12), \
-			MIDR_CPU_VAR_REV(7, 13), x1, x2, x3, x4
-	cbnz	x1, 1f
-#endif
 	orr	x10, x10, #TCR_HD		// hardware Dirty flag update
 1:	orr	x10, x10, #TCR_HA		// hardware Access flag update
 2:

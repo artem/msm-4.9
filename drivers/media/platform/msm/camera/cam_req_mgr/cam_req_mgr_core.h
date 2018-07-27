@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 #ifndef _CAM_REQ_MGR_CORE_H_
 #define _CAM_REQ_MGR_CORE_H_
 
@@ -31,8 +36,6 @@
 #define CRM_WORKQ_NUM_TASKS 60
 
 #define MAX_SYNC_COUNT 65535
-
-#define SYNC_LINK_SOF_CNT_MAX_LMT 1
 
 /**
  * enum crm_workq_task_type
@@ -134,7 +137,6 @@ enum cam_req_mgr_link_state {
  * @validate_only : Whether to validate only and/or update settings
  * @self_link     : To indicate whether the check is for the given link or the
  *                  other sync link
- * @open_req_cnt  : Count of open requests yet to be serviced in the kernel.
  */
 struct cam_req_mgr_traverse {
 	int32_t                       idx;
@@ -144,7 +146,6 @@ struct cam_req_mgr_traverse {
 	struct cam_req_mgr_req_queue *in_q;
 	bool                          validate_only;
 	bool                          self_link;
-	int32_t                      open_req_cnt;
 };
 
 /**
@@ -300,11 +301,6 @@ struct cam_req_mgr_connected_device {
  * @sync_self_ref        : reference sync count against which the difference
  *                         between sync_counts for a given link is checked
  * @frame_skip_flag      : flag that determines if a frame needs to be skipped
- * @sync_link_sof_skip   : flag determines if a pkt is not available for a given
- *                         frame in a particular link skip corresponding
- *                         frame in sync link as well.
- * @open_req_cnt         : Counter to keep track of open requests that are yet
- *                         to be serviced in the kernel.
  *
  */
 struct cam_req_mgr_core_link {
@@ -327,8 +323,6 @@ struct cam_req_mgr_core_link {
 	int64_t                              sof_counter;
 	int64_t                              sync_self_ref;
 	bool                                 frame_skip_flag;
-	bool                                 sync_link_sof_skip;
-	int32_t                              open_req_cnt;
 };
 
 /**

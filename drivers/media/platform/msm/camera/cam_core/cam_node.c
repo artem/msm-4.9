@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #include <linux/debugfs.h>
 #include <linux/videodev2.h>
@@ -381,6 +386,7 @@ int cam_node_shutdown(struct cam_node *node)
 	for (i = 0; i < node->ctx_size; i++) {
 		if (node->ctx_list[i].dev_hdl >= 0) {
 			cam_context_shutdown(&(node->ctx_list[i]));
+			cam_destroy_device_hdl(node->ctx_list[i].dev_hdl);
 			cam_context_putref(&(node->ctx_list[i]));
 		}
 	}

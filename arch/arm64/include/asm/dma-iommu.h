@@ -25,7 +25,6 @@ struct dma_iommu_mapping {
 	dma_addr_t		base;
 	u32			min_iova_align;
 	struct page		*guard_page;
-	u32			force_guard_page_len;
 
 	struct dma_fast_smmu_mapping *fast;
 };

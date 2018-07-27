@@ -76,9 +76,6 @@ void dump_stack_minidump(u64 sp)
 	struct md_region ksp_entry, ktsk_entry;
 	u32 cpu = smp_processor_id();
 
-	if (is_idle_task(current))
-		return;
-
 	if (sp < KIMAGE_VADDR || sp > -256UL)
 		sp = current_stack_pointer;
 

@@ -8,6 +8,11 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2018 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #define pr_fmt(fmt)	"arm_arch_timer: " fmt
 
@@ -443,14 +448,14 @@ static void arch_counter_set_user_access(void)
 {
 	u32 cntkctl = arch_timer_get_cntkctl();
 
-	/* Disable user access to the timers and the physical counter */
+	/* Disable user access to the timers */
 	/* Also disable virtual event stream */
 	cntkctl &= ~(ARCH_TIMER_USR_PT_ACCESS_EN
 			| ARCH_TIMER_USR_VT_ACCESS_EN
-			| ARCH_TIMER_VIRT_EVT_EN
-			| ARCH_TIMER_USR_PCT_ACCESS_EN);
+			| ARCH_TIMER_VIRT_EVT_EN);
 
-	/* Enable user access to the virtual counter */
+	/* Enable user access to the virtual and physical counters */
+	cntkctl |= ARCH_TIMER_USR_PCT_ACCESS_EN;
 	if (IS_ENABLED(CONFIG_ARM_ARCH_TIMER_VCT_ACCESS))
 		cntkctl |= ARCH_TIMER_USR_VCT_ACCESS_EN;
 	else

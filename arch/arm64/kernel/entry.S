@@ -223,7 +223,7 @@ alternative_else_nop_endif
 	 * Cavium erratum 27456 (broadcast TLBI instructions may cause I-cache
 	 * corruption).
 	 */
-	bl	post_ttbr_update_workaround
+	post_ttbr0_update_workaround
 	.endif
 1:
 	.if	\el != 0
@@ -601,9 +601,9 @@ el0_sync_compat:
 	cmp	x24, #ESR_ELx_EC_UNKNOWN	// unknown exception in EL0
 	b.eq	el0_undef
 	cmp	x24, #ESR_ELx_EC_CP15_32	// CP15 MRC/MCR trap
-	b.eq	el0_cp15_32_compat
+	b.eq	el0_undef
 	cmp	x24, #ESR_ELx_EC_CP15_64	// CP15 MRRC/MCRR trap
-	b.eq	el0_cp15_64_compat
+	b.eq	el0_undef
 	cmp	x24, #ESR_ELx_EC_CP14_MR	// CP14 MRC/MCR trap
 	b.eq	el0_undef
 	cmp	x24, #ESR_ELx_EC_CP14_LS	// CP14 LDC/STC trap
@@ -621,28 +621,6 @@ el0_svc_compat:
 	uxtw	scno, w7			// syscall number in w7 (r7)
 	mov     sc_nr, #__NR_compat_syscalls
 	b	el0_svc_naked
-
-el0_cp15_32_compat:
-	/*
-	 * AArch32 CP15 MRC/MCR trap handling
-	 */
-	enable_dbg_and_irq
-	ct_user_exit
-	mov	x0, x25
-	mov	x1, sp
-	bl	do_cp15_32_instr_compat
-	b	ret_to_user
-
-el0_cp15_64_compat:
-	/*
-	 * AArch32 CP15 MRRC/MCRR trap handling
-	 */
-	enable_dbg_and_irq
-	ct_user_exit
-	mov	x0, x25
-	mov	x1, sp
-	bl	do_cp15_64_instr_compat
-	b	ret_to_user
 
 	.align	6
 el0_irq_compat:
@@ -670,14 +648,11 @@ el0_ia:
 	mrs	x26, far_el1
 	// enable interrupts before calling the main handler
 	enable_dbg_and_irq
-#ifdef CONFIG_TRACE_IRQFLAGS
-	bl	trace_hardirqs_off
-#endif
 	ct_user_exit
 	mov	x0, x26
 	mov	x1, x25
 	mov	x2, sp
-	bl	do_el0_ia_bp_hardening
+	bl	do_mem_abort
 	b	ret_to_user
 el0_fpsimd_acc:
 	/*
@@ -978,9 +953,7 @@ __ni_sys_trace:
 	tramp_map_kernel	x30
 #ifdef CONFIG_RANDOMIZE_BASE
 	adr	x30, tramp_vectors + PAGE_SIZE
-#ifndef CONFIG_ARCH_MSM8996
-	isb
-#endif
+alternative_insn isb, nop, ARM64_WORKAROUND_QCOM_FALKOR_E1003
 	ldr	x30, [x30]
 #else
 	ldr	x30, =vectors

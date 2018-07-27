@@ -15,6 +15,11 @@
  * You should have received a copy of the GNU General Public License along with
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2018 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #define pr_fmt(fmt)	"[drm:%s:%d] " fmt, __func__, __LINE__
 #include <linux/sort.h>
@@ -1403,58 +1408,6 @@ static void _sde_crtc_program_lm_output_roi(struct drm_crtc *crtc)
 	}
 }
 
-/**
- * _sde_crtc_calc_inline_prefill - calculate rotator start prefill
- * @crtc: Pointer to drm crtc
- * return: prefill time in lines
- */
-static u32 _sde_crtc_calc_inline_prefill(struct drm_crtc *crtc)
-{
-	struct sde_kms *sde_kms;
-
-	if (!crtc) {
-		SDE_ERROR("invalid parameters\n");
-		return 0;
-	}
-
-	sde_kms = _sde_crtc_get_kms(crtc);
-	if (!sde_kms || !sde_kms->catalog) {
-		SDE_ERROR("invalid kms\n");
-		return 0;
-	}
-
-	return sde_kms->catalog->sbuf_prefill + sde_kms->catalog->sbuf_headroom;
-}
-
-uint64_t sde_crtc_get_sbuf_clk(struct drm_crtc_state *state)
-{
-	struct sde_crtc_state *cstate;
-	u64 tmp;
-
-	if (!state) {
-		SDE_ERROR("invalid crtc state\n");
-		return 0;
-	}
-	cstate = to_sde_crtc_state(state);
-
-	/*
-	 * Select the max of the current and previous frame's user mode
-	 * clock setting so that reductions in clock voting don't take effect
-	 * until the current frame has completed.
-	 *
-	 * If the sbuf_clk_rate[] FIFO hasn't yet been updated in this commit
-	 * cycle (as part of the CRTC's atomic check), compare the current
-	 * clock value against sbuf_clk_rate[1] instead of comparing the
-	 * sbuf_clk_rate[0]/sbuf_clk_rate[1] values.
-	 */
-	if (cstate->sbuf_clk_shifted)
-		tmp = cstate->sbuf_clk_rate[0];
-	else
-		tmp = sde_crtc_get_property(cstate, CRTC_PROP_ROT_CLK);
-
-	return max_t(u64, cstate->sbuf_clk_rate[1], tmp);
-}
-
 static void _sde_crtc_blend_setup_mixer(struct drm_crtc *crtc,
 		struct drm_crtc_state *old_state, struct sde_crtc *sde_crtc,
 		struct sde_crtc_mixer *mixer)
@@ -1470,11 +1423,12 @@ static void _sde_crtc_blend_setup_mixer(struct drm_crtc *crtc,
 	struct sde_hw_stage_cfg *stage_cfg;
 	struct sde_rect plane_crtc_roi;
 
-	u32 flush_mask, flush_sbuf, prefill;
+	u32 flush_mask, flush_sbuf;
 	uint32_t stage_idx, lm_idx;
 	int zpos_cnt[SDE_STAGE_MAX + 1] = { 0 };
 	int i;
 	bool bg_alpha_enable = false;
+	u32 prefill = 0;
 
 	if (!sde_crtc || !crtc->state || !mixer) {
 		SDE_ERROR("invalid sde_crtc or mixer\n");
@@ -1486,7 +1440,7 @@ static void _sde_crtc_blend_setup_mixer(struct drm_crtc *crtc,
 	stage_cfg = &sde_crtc->stage_cfg;
 	cstate = to_sde_crtc_state(crtc->state);
 
-	cstate->sbuf_prefill_line = _sde_crtc_calc_inline_prefill(crtc);
+	cstate->sbuf_prefill_line = 0;
 	sde_crtc->sbuf_flush_mask_old = sde_crtc->sbuf_flush_mask_all;
 	sde_crtc->sbuf_flush_mask_all = 0x0;
 	sde_crtc->sbuf_flush_mask_delta = 0x0;
@@ -1504,9 +1458,8 @@ static void _sde_crtc_blend_setup_mixer(struct drm_crtc *crtc,
 		pstate = to_sde_plane_state(state);
 		fb = state->fb;
 
-		/* assume all rotated planes report the same prefill amount */
-		prefill = sde_plane_rot_get_prefill(plane);
-		if (prefill)
+		prefill = sde_plane_rot_calc_prefill(plane);
+		if (prefill > cstate->sbuf_prefill_line)
 			cstate->sbuf_prefill_line = prefill;
 
 		sde_plane_get_ctl_flush(plane, ctl, &flush_mask, &flush_sbuf);
@@ -2511,6 +2464,9 @@ static void sde_crtc_frame_event_work(struct kthread_work *work)
 							SDE_EVTLOG_FUNC_CASE3);
 		}
 
+		if (fevent->event & SDE_ENCODER_FRAME_EVENT_DONE)
+			sde_core_perf_crtc_update(crtc, 0, false);
+
 		if (fevent->event & (SDE_ENCODER_FRAME_EVENT_DONE
 					| SDE_ENCODER_FRAME_EVENT_ERROR))
 			frame_done = true;
@@ -2593,8 +2549,6 @@ void sde_crtc_complete_commit(struct drm_crtc *crtc,
 	sde_crtc = to_sde_crtc(crtc);
 	SDE_EVT32_VERBOSE(DRMID(crtc));
 	smmu_state = &sde_crtc->smmu_state;
-
-	sde_core_perf_crtc_update(crtc, 0, false);
 
 	/* complete secure transitions if any */
 	if (smmu_state->transition_type == POST_COMMIT)
@@ -3275,7 +3229,8 @@ static void sde_crtc_atomic_begin(struct drm_crtc *crtc,
 	 * smmu state is attached,
 	 */
 	if ((smmu_state->state != DETACHED) &&
-			(smmu_state->state != DETACH_ALL_REQ))
+			(smmu_state->state != DETACH_ALL_REQ) &&
+			sde_crtc->enabled)
 		sde_cp_crtc_apply_properties(crtc);
 
 	/*
@@ -4054,9 +4009,6 @@ static struct drm_crtc_state *sde_crtc_duplicate_state(struct drm_crtc *crtc)
 	/* clear destination scaler dirty bit */
 	cstate->ds_dirty = false;
 
-	/* record whether or not the sbuf_clk_rate fifo has been shifted */
-	cstate->sbuf_clk_shifted = false;
-
 	/* duplicate base helper */
 	__drm_atomic_helper_crtc_duplicate_state(crtc, &cstate->base);
 
@@ -4251,7 +4203,6 @@ static void sde_crtc_handle_power_event(u32 event_type, void *arg)
 
 static void sde_crtc_disable(struct drm_crtc *crtc)
 {
-	struct sde_kms *sde_kms;
 	struct sde_crtc *sde_crtc;
 	struct sde_crtc_state *cstate;
 	struct drm_encoder *encoder;
@@ -4264,12 +4215,6 @@ static void sde_crtc_disable(struct drm_crtc *crtc)
 
 	if (!crtc || !crtc->dev || !crtc->dev->dev_private || !crtc->state) {
 		SDE_ERROR("invalid crtc\n");
-		return;
-	}
-
-	sde_kms = _sde_crtc_get_kms(crtc);
-	if (!sde_kms) {
-		SDE_ERROR("invalid kms\n");
 		return;
 	}
 
@@ -4294,7 +4239,6 @@ static void sde_crtc_disable(struct drm_crtc *crtc)
 	event.type = DRM_EVENT_CRTC_POWER;
 	event.length = sizeof(u32);
 	sde_cp_crtc_suspend(crtc);
-	sde_cp_update_ad_vsync_count(crtc, 0);
 	power_on = 0;
 	msm_mode_object_event_notify(&crtc->base, crtc->dev, &event,
 			(u8 *)&power_on);
@@ -4339,9 +4283,7 @@ static void sde_crtc_disable(struct drm_crtc *crtc)
 	}
 	spin_unlock_irqrestore(&sde_crtc->spin_lock, flags);
 
-	/* avoid clk/bw downvote if cont-splash is enabled */
-	if (!sde_kms->splash_data.cont_splash_en)
-		sde_core_perf_crtc_update(crtc, 0, true);
+	sde_core_perf_crtc_update(crtc, 0, true);
 
 	drm_for_each_encoder(encoder, crtc->dev) {
 		if (encoder->crtc != crtc)
@@ -4707,12 +4649,6 @@ static int sde_crtc_atomic_check(struct drm_crtc *crtc,
 	_sde_crtc_setup_is_ppsplit(state);
 	_sde_crtc_setup_lm_bounds(crtc, state);
 
-	/* record current/previous sbuf clock rate for later */
-	cstate->sbuf_clk_rate[0] = cstate->sbuf_clk_rate[1];
-	cstate->sbuf_clk_rate[1] = sde_crtc_get_property(
-			cstate, CRTC_PROP_ROT_CLK);
-	cstate->sbuf_clk_shifted = true;
-
 	 /* get plane state for all drm planes associated with crtc state */
 	drm_atomic_crtc_state_for_each_plane_state(plane, pstate, state) {
 		if (IS_ERR_OR_NULL(pstate)) {
@@ -4724,7 +4660,7 @@ static int sde_crtc_atomic_check(struct drm_crtc *crtc,
 
 		/* identify attached planes that are not in the delta state */
 		if (!drm_atomic_get_existing_plane_state(state->state, plane)) {
-			rc = sde_plane_confirm_hw_rsvps(plane, pstate, state);
+			rc = sde_plane_confirm_hw_rsvps(plane, pstate);
 			if (rc) {
 				SDE_ERROR("crtc%d confirmation hw failed %d\n",
 						crtc->base.id, rc);

@@ -270,9 +270,6 @@ static int mem_share_do_ramdump(void)
 {
 	int i = 0, ret;
 	char *client_name = NULL;
-	u32 source_vmlist[1] = {VMID_MSS_MSA};
-	int dest_vmids[1] = {VMID_HLOS};
-	int dest_perms[1] = {PERM_READ|PERM_WRITE|PERM_EXEC};
 
 	for (i = 0; i < num_clients; i++) {
 
@@ -297,33 +294,6 @@ static int mem_share_do_ramdump(void)
 			pr_err("memshare:%s memblock is not allotted\n",
 			client_name);
 			continue;
-		}
-
-		if (memblock[i].hyp_mapping &&
-			memblock[i].peripheral ==
-			DHMS_MEM_PROC_MPSS_V01) {
-			pr_debug("memshare: hypervisor unmapping  for client id: %d\n",
-				memblock[i].client_id);
-			if (memblock[i].alloc_request)
-				continue;
-			ret = hyp_assign_phys(
-					memblock[i].phy_addr,
-					memblock[i].size,
-					source_vmlist,
-					1, dest_vmids,
-					dest_perms, 1);
-			if (ret) {
-				/*
-				 * This is an error case as hyp
-				 * mapping was successful
-				 * earlier but during unmap
-				 * it lead to failure.
-				 */
-				pr_err("memshare: %s, failed to map the region to APPS\n",
-					__func__);
-			} else {
-				memblock[i].hyp_mapping = 0;
-			}
 		}
 
 		ramdump_segments_tmp = kcalloc(1,
@@ -352,7 +322,8 @@ static int mem_share_do_ramdump(void)
 static int modem_notifier_cb(struct notifier_block *this, unsigned long code,
 					void *_cmd)
 {
-	int i, ret, size = 0;
+	int i;
+	int ret;
 	u32 source_vmlist[1] = {VMID_MSS_MSA};
 	int dest_vmids[1] = {VMID_HLOS};
 	int dest_perms[1] = {PERM_READ|PERM_WRITE|PERM_EXEC};
@@ -364,7 +335,8 @@ static int modem_notifier_cb(struct notifier_block *this, unsigned long code,
 
 	case SUBSYS_BEFORE_SHUTDOWN:
 		bootup_request++;
-		for (i = 0; i < MAX_CLIENTS; i++)
+		for (i = 0; ((i < MAX_CLIENTS) &&
+			!memblock[i].guarantee); i++)
 			memblock[i].alloc_request = 0;
 		break;
 
@@ -393,7 +365,6 @@ static int modem_notifier_cb(struct notifier_block *this, unsigned long code,
 	case SUBSYS_AFTER_POWERUP:
 		pr_debug("memshare: Modem has booted up\n");
 		for (i = 0; i < MAX_CLIENTS; i++) {
-			size = memblock[i].size;
 			if (memblock[i].free_memory > 0 &&
 					bootup_request >= 2) {
 				memblock[i].free_memory -= 1;
@@ -402,15 +373,14 @@ static int modem_notifier_cb(struct notifier_block *this, unsigned long code,
 					memblock[i].client_id);
 			}
 
-			if (memblock[i].free_memory == 0 &&
-				memblock[i].peripheral ==
-				DHMS_MEM_PROC_MPSS_V01 &&
-				!memblock[i].guarantee &&
-				memblock[i].allotted &&
-				!memblock[i].alloc_request) {
-				pr_debug("memshare: hypervisor unmapping  for client id: %d\n",
-					memblock[i].client_id);
-				if (memblock[i].hyp_mapping) {
+			if (memblock[i].free_memory == 0) {
+				if (memblock[i].peripheral ==
+					DHMS_MEM_PROC_MPSS_V01 &&
+					!memblock[i].guarantee &&
+					memblock[i].allotted &&
+					!memblock[i].alloc_request) {
+					pr_debug("memshare: hypervisor unmapping  for client id: %d\n",
+						memblock[i].client_id);
 					ret = hyp_assign_phys(
 							memblock[i].phy_addr,
 							memblock[i].size,
@@ -430,22 +400,13 @@ static int modem_notifier_cb(struct notifier_block *this, unsigned long code,
 					} else {
 						memblock[i].hyp_mapping = 0;
 					}
+					dma_free_attrs(memsh_drv->dev,
+						memblock[i].size,
+						memblock[i].virtual_addr,
+						memblock[i].phy_addr,
+						attrs);
+					free_client(i);
 				}
-				if (memblock[i].client_id == 1) {
-					/*
-					 *	Check if the client id
-					 *	is of diag so that free
-					 *	the memory region of
-					 *	client's size + guard
-					 *	bytes of 4K.
-					 */
-					size += MEMSHARE_GUARD_BYTES;
-				}
-				dma_free_attrs(memsh_drv->dev,
-					size, memblock[i].virtual_addr,
-					memblock[i].phy_addr,
-					attrs);
-				free_client(i);
 			}
 		}
 		bootup_request++;
@@ -580,6 +541,7 @@ static int handle_alloc_generic_req(void *req_h, void *req, void *conn_h)
 			memblock[client_id].allotted = 1;
 			memblock[client_id].size = alloc_req->num_bytes;
 			memblock[client_id].peripheral = alloc_req->proc_id;
+			memblock[client_id].alloc_request = 1;
 		}
 	}
 	pr_debug("memshare: In %s, free memory count for client id: %d = %d",
@@ -587,7 +549,6 @@ static int handle_alloc_generic_req(void *req_h, void *req, void *conn_h)
 		memblock[client_id].free_memory);
 
 	memblock[client_id].sequence_id = alloc_req->sequence_id;
-	memblock[client_id].alloc_request = 1;
 
 	fill_alloc_response(alloc_resp, client_id, &resp);
 	/*
@@ -645,7 +606,7 @@ static int handle_free_generic_req(void *req_h, void *req, void *conn_h)
 {
 	struct mem_free_generic_req_msg_v01 *free_req;
 	struct mem_free_generic_resp_msg_v01 free_resp;
-	int rc, flag = 0, ret = 0, size = 0;
+	int rc, flag = 0, ret = 0;
 	uint32_t client_id;
 	u32 source_vmlist[1] = {VMID_MSS_MSA};
 	int dest_vmids[1] = {VMID_HLOS};
@@ -679,18 +640,7 @@ static int handle_free_generic_req(void *req_h, void *req, void *conn_h)
 			pr_err("memshare: %s, failed to unmap the region\n",
 				__func__);
 		}
-		size = memblock[client_id].size;
-		if (memblock[client_id].client_id == 1) {
-			/*
-			 *	Check if the client id
-			 *	is of diag so that free
-			 *	the memory region of
-			 *	client's size + guard
-			 *	bytes of 4K.
-			 */
-			size += MEMSHARE_GUARD_BYTES;
-		}
-		dma_free_attrs(memsh_drv->dev, size,
+		dma_free_attrs(memsh_drv->dev, memblock[client_id].size,
 			memblock[client_id].virtual_addr,
 			memblock[client_id].phy_addr,
 			attrs);
@@ -1025,6 +975,7 @@ static int memshare_child_probe(struct platform_device *pdev)
 			return rc;
 		}
 		memblock[num_clients].allotted = 1;
+		memblock[num_clients].alloc_request = 1;
 		shared_hyp_mapping(num_clients);
 	}
 

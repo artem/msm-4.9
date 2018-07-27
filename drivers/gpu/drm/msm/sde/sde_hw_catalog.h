@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -909,11 +909,6 @@ struct sde_perf_cfg {
  * @max_mixer_blendstages max layer mixer blend stages or
  *                       supported z order
  * @max_wb_linewidth   max writeback line width support.
- * @max_display_width   maximum display width support.
- * @max_display_height  maximum display height support.
- * @max_lm_per_display  maximum layer mixer per display
- * @min_display_width   minimum display width support.
- * @min_display_height  minimum display height support.
  * @qseed_type         qseed2 or qseed3 support.
  * @csc_type           csc or csc_10bit support.
  * @smart_dma_rev      Supported version of SmartDMA feature.
@@ -923,7 +918,6 @@ struct sde_perf_cfg {
  * @ubwc_version       UBWC feature version (0x0 for not supported)
  * @has_sbuf           indicate if stream buffer is available
  * @sbuf_headroom      stream buffer headroom in lines
- * @sbuf_prefill       stream buffer prefill default in lines
  * @has_idle_pc        indicate if idle power collapse feature is supported
  * @has_hdr            HDR feature support
  * @dma_formats        Supported formats for dma pipe
@@ -940,13 +934,6 @@ struct sde_mdss_cfg {
 	u32 max_mixer_width;
 	u32 max_mixer_blendstages;
 	u32 max_wb_linewidth;
-
-	u32 max_display_width;
-	u32 max_display_height;
-	u32 min_display_width;
-	u32 min_display_height;
-	u32 max_lm_per_display;
-
 	u32 qseed_type;
 	u32 csc_type;
 	u32 smart_dma_rev;
@@ -957,7 +944,6 @@ struct sde_mdss_cfg {
 	u32 ubwc_version;
 	bool has_sbuf;
 	u32 sbuf_headroom;
-	u32 sbuf_prefill;
 	bool has_idle_pc;
 	u32 vbif_qos_nlvl;
 	u32 ts_prefill_rev;

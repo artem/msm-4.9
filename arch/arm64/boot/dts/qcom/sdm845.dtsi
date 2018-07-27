@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -8,6 +8,11 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
+ */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
  */
 
 #include "skeleton64.dtsi"
@@ -87,7 +92,7 @@
 				qcom,dump-size = <0xa000>;
 			};
 			L1_TLB_0: l1-tlb {
-				qcom,dump-size = <0x6000>;
+				qcom,dump-size = <0x3000>;
 			};
 		};
 
@@ -118,7 +123,7 @@
 				qcom,dump-size = <0xa000>;
 			};
 			L1_TLB_100: l1-tlb {
-				qcom,dump-size = <0x6000>;
+				qcom,dump-size = <0x3000>;
 			};
 		};
 
@@ -149,7 +154,7 @@
 				qcom,dump-size = <0xa000>;
 			};
 			L1_TLB_200: l1-tlb {
-				qcom,dump-size = <0x6000>;
+				qcom,dump-size = <0x3000>;
 			};
 		};
 
@@ -180,7 +185,7 @@
 				qcom,dump-size = <0xa000>;
 			};
 			L1_TLB_300: l1-tlb {
-				qcom,dump-size = <0x6000>;
+				qcom,dump-size = <0x3000>;
 			};
 		};
 
@@ -211,7 +216,7 @@
 				qcom,dump-size = <0x14000>;
 			};
 			L1_TLB_400: l1-tlb {
-				qcom,dump-size = <0x6800>;
+				qcom,dump-size = <0x3c00>;
 			};
 		};
 
@@ -242,7 +247,7 @@
 				qcom,dump-size = <0x14000>;
 			};
 			L1_TLB_500: l1-tlb {
-				qcom,dump-size = <0x6800>;
+				qcom,dump-size = <0x3c00>;
 			};
 		};
 
@@ -273,7 +278,7 @@
 				qcom,dump-size = <0x14000>;
 			};
 			L1_TLB_600: l1-tlb {
-				qcom,dump-size = <0x6800>;
+				qcom,dump-size = <0x3c00>;
 			};
 		};
 
@@ -304,7 +309,7 @@
 				qcom,dump-size = <0x14000>;
 			};
 			L1_TLB_700: l1-tlb {
-				qcom,dump-size = <0x6800>;
+				qcom,dump-size = <0x3c00>;
 			};
 		};
 
@@ -1490,10 +1495,8 @@
 
 		qcom,restore-after-cx-collapse;
 
-		qcom,clk-rates = <400000 20000000 25000000
-					50000000 100000000 201500000>;
-		qcom,bus-speed-mode = "SDR12", "SDR25", "SDR50", "DDR50",
-				      "SDR104";
+		qcom,clk-rates = <400000 20000000 25000000 40000000 80000000>;
+		qcom,bus-speed-mode = "DDR50";
 
 		qcom,devfreq,freq-table = <50000000 201500000>;
 		clocks = <&clock_gcc GCC_SDCC2_AHB_CLK>,
@@ -1539,7 +1542,8 @@
 					  "gpll0_mss_clk", "snoc_axi_clk",
 					  "mnoc_axi_clk";
 
-		interrupts = <0 266 1>;
+		interrupts = <0 266 1>,
+			     <GIC_SPI 390 IRQ_TYPE_EDGE_RISING>;
 		vdd_cx-supply = <&pm8998_s9_level>;
 		vdd_cx-voltage = <RPMH_REGULATOR_LEVEL_TURBO>;
 		vdd_mx-supply = <&pm8998_s6_level>;
@@ -1549,7 +1553,6 @@
 		qcom,firmware-name = "modem";
 		qcom,pil-self-auth;
 		qcom,sysmon-id = <0>;
-		qcom,minidump-id = <3>;
 		qcom,ssctl-instance-id = <0x12>;
 		qcom,override-acc;
 		qcom,signal-aop;
@@ -1909,11 +1912,6 @@
 			reg = <0x65c 4>;
 		};
 
-		dload_type@1c {
-			compatible = "qcom,msm-imem-dload-type";
-			reg = <0x1c 0x4>;
-		};
-
 		boot_stats@6b0 {
 			compatible = "qcom,msm-imem-boot_stats";
 			reg = <0x6b0 32>;
@@ -2051,35 +2049,35 @@
 		};
 		qcom,l1_tlb_dump0 {
 			qcom,dump-node = <&L1_TLB_0>;
-			qcom,dump-id = <0x120>;
+			qcom,dump-id = <0x20>;
 		};
 		qcom,l1_tlb_dump100 {
 			qcom,dump-node = <&L1_TLB_100>;
-			qcom,dump-id = <0x121>;
+			qcom,dump-id = <0x21>;
 		};
 		qcom,l1_tlb_dump200 {
 			qcom,dump-node = <&L1_TLB_200>;
-			qcom,dump-id = <0x122>;
+			qcom,dump-id = <0x22>;
 		};
 		qcom,l1_tlb_dump300 {
 			qcom,dump-node = <&L1_TLB_300>;
-			qcom,dump-id = <0x123>;
+			qcom,dump-id = <0x23>;
 		};
 		qcom,l1_tlb_dump400 {
 			qcom,dump-node = <&L1_TLB_400>;
-			qcom,dump-id = <0x124>;
+			qcom,dump-id = <0x24>;
 		};
 		qcom,l1_tlb_dump500 {
 			qcom,dump-node = <&L1_TLB_500>;
-			qcom,dump-id = <0x125>;
+			qcom,dump-id = <0x25>;
 		};
 		qcom,l1_tlb_dump600 {
 			qcom,dump-node = <&L1_TLB_600>;
-			qcom,dump-id = <0x126>;
+			qcom,dump-id = <0x26>;
 		};
 		qcom,l1_tlb_dump700 {
 			qcom,dump-node = <&L1_TLB_700>;
-			qcom,dump-id = <0x127>;
+			qcom,dump-id = <0x27>;
 		};
 	};
 
@@ -3775,57 +3773,57 @@
 		compatible = "qcom,mem-dump";
 		memory-region = <&dump_mem>;
 
-		rpmh {
+		rpmh_dump {
 			qcom,dump-size = <0x2000000>;
 			qcom,dump-id = <0xec>;
 		};
 
-		fcm {
-			qcom,dump-size = <0x8400>;
+		fcm_dump {
+			qcom,dump-size = <0x400>;
 			qcom,dump-id = <0xee>;
 		};
 
-		rpm_sw {
+		rpm_sw_dump {
 			qcom,dump-size = <0x28000>;
 			qcom,dump-id = <0xea>;
 		};
 
-		pmic {
+		pmic_dump {
 			qcom,dump-size = <0x10000>;
 			qcom,dump-id = <0xe4>;
 		};
 
-		tmc_etf {
+		tmc_etf_dump {
 			qcom,dump-size = <0x10000>;
 			qcom,dump-id = <0xf0>;
 		};
 
-		tmc_etfswao {
+		tmc_etf_swao_dump {
 			qcom,dump-size = <0x8400>;
 			qcom,dump-id = <0xf1>;
 		};
 
-		tmc_etr_reg {
+		tmc_etr_reg_dump {
 			qcom,dump-size = <0x1000>;
 			qcom,dump-id = <0x100>;
 		};
 
-		tmc_etf_reg {
+		tmc_etf_reg_dump {
 			qcom,dump-size = <0x1000>;
 			qcom,dump-id = <0x101>;
 		};
 
-		etfswao_reg {
+		tmc_etf_swao_reg_dump {
 			qcom,dump-size = <0x1000>;
 			qcom,dump-id = <0x102>;
 		};
 
-		misc_data {
+		misc_data_dump {
 			qcom,dump-size = <0x1000>;
 			qcom,dump-id = <0xe8>;
 		};
 
-		tpdm_swao {
+		tpdm_swao_dump {
 			qcom,dump-size = <0x512>;
 			qcom,dump-id = <0xf2>;
 		};

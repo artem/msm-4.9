@@ -11,6 +11,11 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2018 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #define pr_fmt(fmt) "msm-dsi-catalog:[%s] " fmt, __func__
 #include <linux/errno.h>
@@ -67,8 +72,6 @@ static void dsi_catalog_cmn_init(struct dsi_ctrl_hw *ctrl,
 	ctrl->ops.error_intr_ctrl = dsi_ctrl_hw_cmn_error_intr_ctrl;
 	ctrl->ops.get_error_mask = dsi_ctrl_hw_cmn_get_error_mask;
 	ctrl->ops.get_hw_version = dsi_ctrl_hw_cmn_get_hw_version;
-	ctrl->ops.wait_for_cmd_mode_mdp_idle =
-		dsi_ctrl_hw_cmn_wait_for_cmd_mode_mdp_idle;
 
 	switch (version) {
 	case DSI_CTRL_VERSION_1_4:
@@ -214,6 +217,7 @@ static void dsi_catalog_phy_3_0_init(struct dsi_phy_hw *phy)
 	phy->ops.ulps_ops.is_lanes_in_ulps =
 		dsi_phy_hw_v3_0_is_lanes_in_ulps;
 	phy->ops.phy_timing_val = dsi_phy_hw_timing_val_v3_0;
+	phy->ops.clamp_ctrl = dsi_phy_hw_v3_0_clamp_ctrl;
 	phy->ops.phy_lane_reset = dsi_phy_hw_v3_0_lane_reset;
 	phy->ops.toggle_resync_fifo = dsi_phy_hw_v3_0_toggle_resync_fifo;
 }

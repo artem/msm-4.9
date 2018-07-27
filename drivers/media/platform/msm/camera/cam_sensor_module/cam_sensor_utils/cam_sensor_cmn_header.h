@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #ifndef _CAM_SENSOR_CMN_HEADER_
 #define _CAM_SENSOR_CMN_HEADER_
@@ -27,7 +32,6 @@
 #define MAX_POWER_CONFIG 12
 
 #define MAX_PER_FRAME_ARRAY 32
-#define BATCH_SIZE_MAX      16
 
 #define CAM_SENSOR_NAME    "cam-sensor"
 #define CAM_ACTUATOR_NAME  "cam-actuator"

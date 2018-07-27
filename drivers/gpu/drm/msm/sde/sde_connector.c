@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -413,23 +413,16 @@ void sde_connector_schedule_status_work(struct drm_connector *connector,
 	if (!c_conn)
 		return;
 
-	/* Return if there is no change in ESD status check condition */
-	if (en == c_conn->esd_status_check)
-		return;
-
 	sde_connector_get_info(connector, &info);
 	if (c_conn->ops.check_status &&
 		(info.capabilities & MSM_DISPLAY_ESD_ENABLED)) {
-		if (en) {
+		if (en)
 			/* Schedule ESD status check */
 			schedule_delayed_work(&c_conn->status_work,
 				msecs_to_jiffies(STATUS_CHECK_INTERVAL_MS));
-			c_conn->esd_status_check = true;
-		} else {
+		else
 			/* Cancel any pending ESD status check */
 			cancel_delayed_work_sync(&c_conn->status_work);
-			c_conn->esd_status_check = false;
-		}
 	}
 }
 
@@ -478,12 +471,8 @@ static int _sde_connector_update_power_locked(struct sde_connector *c_conn)
 	}
 	c_conn->last_panel_power_mode = mode;
 
-	mutex_unlock(&c_conn->lock);
 	if (mode != SDE_MODE_DPMS_ON)
 		sde_connector_schedule_status_work(connector, false);
-	else
-		sde_connector_schedule_status_work(connector, true);
-	mutex_lock(&c_conn->lock);
 
 	return rc;
 }
@@ -1733,10 +1722,9 @@ status_dead:
 			conn->base.base.id, conn->encoder->base.id);
 	panel_dead = true;
 	event.type = DRM_EVENT_PANEL_DEAD;
-	event.length = sizeof(bool);
+	event.length = sizeof(u32);
 	msm_mode_object_event_notify(&conn->base.base,
 		conn->base.dev, &event, (u8 *)&panel_dead);
-	sde_encoder_display_failure_notification(conn->encoder);
 }
 
 static const struct drm_connector_helper_funcs sde_connector_helper_ops = {

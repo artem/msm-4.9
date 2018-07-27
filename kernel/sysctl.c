@@ -17,6 +17,11 @@
  * The list_for_each() macro wasn't appropriate for the sysctl loop.
  *  Removed it and replaced it with older style, 03/23/00, Bill Wendling
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #include <linux/module.h>
 #include <linux/aio.h>
@@ -127,9 +132,7 @@ static int __maybe_unused three = 3;
 static int __maybe_unused four = 4;
 static unsigned long one_ul = 1;
 static int one_hundred = 100;
-#ifdef CONFIG_PERF_EVENTS
 static int one_thousand = 1000;
-#endif
 #ifdef CONFIG_PRINTK
 static int ten_thousand = 10000;
 #endif
@@ -316,46 +319,7 @@ static struct ctl_table kern_table[] = {
 		.extra1		= &zero,
 		.extra2		= &sysctl_sched_group_upmigrate_pct,
 	},
-	{
-		.procname	= "sched_boost",
-		.data		= &sysctl_sched_boost,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= sched_boost_handler,
-		.extra1         = &zero,
-		.extra2		= &three,
-	},
-	{
-		.procname	= "sched_walt_rotate_big_tasks",
-		.data		= &sysctl_sched_walt_rotate_big_tasks,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec_minmax,
-		.extra1		= &zero,
-		.extra2		= &one,
-	},
-	{
-		.procname	= "sched_initial_task_util",
-		.data		= &sysctl_sched_init_task_load_pct,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec,
-	},
 #endif
-	{
-		.procname	= "sched_upmigrate",
-		.data		= &sysctl_sched_capacity_margin,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= sched_updown_migrate_handler,
-	},
-	{
-		.procname	= "sched_downmigrate",
-		.data		= &sysctl_sched_capacity_margin_down,
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= sched_updown_migrate_handler,
-	},
 #ifdef CONFIG_SCHED_DEBUG
 	{
 		.procname	= "sched_min_granularity_ns",
@@ -397,7 +361,23 @@ static struct ctl_table kern_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec,
 	},
+	{
+		.procname	= "sched_boost",
+		.data		= &sysctl_sched_boost,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= sched_boost_handler,
+		.extra1         = &zero,
+		.extra2		= &three,
+	},
 #endif
+	{
+		.procname	= "sched_initial_task_util",
+		.data		= &sysctl_sched_initial_task_util,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+	},
 	{
 		.procname	= "sched_cstate_aware",
 		.data		= &sysctl_sched_cstate_aware,
@@ -413,6 +393,20 @@ static struct ctl_table kern_table[] = {
 		.proc_handler	= sched_proc_update_handler,
 		.extra1		= &min_wakeup_granularity_ns,
 		.extra2		= &max_wakeup_granularity_ns,
+	},
+	{
+		.procname	= "sched_upmigrate",
+		.data		= &sysctl_sched_capacity_margin,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= sched_updown_migrate_handler,
+	},
+	{
+		.procname	= "sched_downmigrate",
+		.data		= &sysctl_sched_capacity_margin_down,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= sched_updown_migrate_handler,
 	},
 #ifdef CONFIG_SMP
 	{
@@ -1486,15 +1480,6 @@ static struct ctl_table vm_table[] = {
 		.extra1		= &zero,
 		.extra2		= &one_hundred,
 	},
-	{
-		.procname       = "want_old_faultaround_pte",
-		.data           = &want_old_faultaround_pte,
-		.maxlen         = sizeof(want_old_faultaround_pte),
-		.mode           = 0644,
-		.proc_handler   = proc_dointvec_minmax,
-		.extra1         = &zero,
-		.extra2         = &one,
-	},
 #ifdef CONFIG_HUGETLB_PAGE
 	{
 		.procname	= "nr_hugepages",
@@ -1592,16 +1577,17 @@ static struct ctl_table vm_table[] = {
 		.maxlen		= sizeof(watermark_scale_factor),
 		.mode		= 0644,
 		.proc_handler	= watermark_scale_factor_sysctl_handler,
-		.extra1		= &zero,
-		.extra2		= &zero,
+		.extra1		= &one,
+		.extra2		= &one_thousand,
 	},
 	{
-		.procname	= "extra_free_kbytes",
-		.data		= &extra_free_kbytes,
-		.maxlen		= sizeof(extra_free_kbytes),
+		.procname	= "watermark_high_factor_slope",
+		.data		= &watermark_high_factor_slope,
+		.maxlen		= sizeof(watermark_high_factor_slope),
 		.mode		= 0644,
-		.proc_handler	= min_free_kbytes_sysctl_handler,
-		.extra1		= &zero,
+		.proc_handler	= watermark_scale_factor_sysctl_handler,
+		.extra1		= &one_hundred,
+		.extra2		= &one_thousand,
 	},
 	{
 		.procname	= "percpu_pagelist_fraction",

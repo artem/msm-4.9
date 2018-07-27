@@ -11,6 +11,11 @@
  * Adapted from arch/x86 version.
  *
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2018 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #ifndef _ASM_ARM64_FIXMAP_H
 #define _ASM_ARM64_FIXMAP_H

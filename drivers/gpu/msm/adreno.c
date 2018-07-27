@@ -10,6 +10,11 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2018 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 #include <linux/module.h>
 #include <linux/uaccess.h>
 #include <linux/sched.h>
@@ -1483,7 +1488,7 @@ static void _set_secvid(struct kgsl_device *device)
 		adreno_writereg64(adreno_dev,
 			ADRENO_REG_RBBM_SECVID_TSB_TRUSTED_BASE,
 			ADRENO_REG_RBBM_SECVID_TSB_TRUSTED_BASE_HI,
-			KGSL_IOMMU_SECURE_BASE(&device->mmu));
+			KGSL_IOMMU_SECURE_BASE);
 		adreno_writereg(adreno_dev,
 			ADRENO_REG_RBBM_SECVID_TSB_TRUSTED_SIZE,
 			KGSL_IOMMU_SECURE_SIZE);
@@ -2072,7 +2077,7 @@ static int adreno_getproperty(struct kgsl_device *device,
 				 * anything to mmap().
 				 */
 				shadowprop.gpuaddr =
-					(unsigned long)device->memstore.gpuaddr;
+					(unsigned int) device->memstore.gpuaddr;
 				shadowprop.size = device->memstore.size;
 				/* GSL needs this to be set, even if it
 				 * appears to be meaningless
@@ -2919,7 +2924,7 @@ static void adreno_gmu_regwrite(struct kgsl_device *device,
 	 * i.e. act like normal writel()
 	 */
 	wmb();
-	__raw_writel(value, reg);
+	__raw_writel_no_log(value, reg);
 }
 
 static void adreno_gmu_regread(struct kgsl_device *device,

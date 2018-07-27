@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -8,6 +8,11 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
+ */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
  */
 
 #ifndef _CPASTOP_V170_110_H_
@@ -265,7 +270,7 @@ static struct cam_camnoc_specific
 			.access_type = CAM_REG_TYPE_READ_WRITE,
 			.masked_value = 0,
 			.offset = 0x434, /* SPECIFIC_IFE02_PRIORITYLUT_HIGH */
-			.value = 0x66666666,
+			.value = 0x66665555,
 		},
 		.urgency = {
 			.enable = true,
@@ -313,7 +318,7 @@ static struct cam_camnoc_specific
 			.access_type = CAM_REG_TYPE_READ_WRITE,
 			.masked_value = 0,
 			.offset = 0x834, /* SPECIFIC_IFE13_PRIORITYLUT_HIGH */
-			.value = 0x66666666,
+			.value = 0x66665555,
 		},
 		.urgency = {
 			.enable = true,

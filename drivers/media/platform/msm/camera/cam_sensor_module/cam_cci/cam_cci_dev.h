@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -8,6 +8,11 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
+ */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
  */
 
 #ifndef _CAM_CCI_DEV_H_
@@ -45,7 +50,13 @@
 #define CYCLES_PER_MICRO_SEC_DEFAULT 4915
 #define CCI_MAX_DELAY 1000000
 
+/* sony extension begin */
+#if 1
+#define CCI_TIMEOUT msecs_to_jiffies(50)
+#else
 #define CCI_TIMEOUT msecs_to_jiffies(500)
+#endif
+/* sony extension end */
 
 #define NUM_MASTERS 2
 #define NUM_QUEUES 2
@@ -144,7 +155,6 @@ struct cam_cci_master_info {
 	struct mutex mutex_q[NUM_QUEUES];
 	struct completion report_q[NUM_QUEUES];
 	atomic_t done_pending[NUM_QUEUES];
-	spinlock_t lock_q[NUM_QUEUES];
 };
 
 struct cam_cci_clk_params_t {

@@ -13,6 +13,7 @@ config ARM64
 	select ARCH_HAS_GCOV_PROFILE_ALL
 	select ARCH_HAS_GIGANTIC_PAGE
 	select ARCH_HAS_KCOV
+	select ARCH_HAS_CRASH_NOTES if CRASH_NOTES
 	select ARCH_HAS_SG_CHAIN
 	select ARCH_HAS_TICK_BROADCAST if GENERIC_CLOCKEVENTS_BROADCAST
 	select ARCH_USE_CMPXCHG_LOCKREF
@@ -110,7 +111,6 @@ config ARM64
 	select SPARSE_IRQ
 	select SYSCTL_EXCEPTION_TRACE
 	select THREAD_INFO_IN_TASK
-	select ARCH_SUPPORTS_SPECULATIVE_PAGE_FAULT
 	help
 	  ARM 64-bit (AArch64) Linux support.
 
@@ -430,20 +430,6 @@ config ARM64_ERRATUM_843419
 	  builds modules using the large memory model in order to avoid the use
 	  of the ADRP instruction, which can cause a subsequent memory access
 	  to use an incorrect address on Cortex-A53 parts up to r0p4.
-
-	  If unsure, say Y.
-
-config ARM64_ERRATUM_1024718
-	bool "Cortex-A55: 1024718: Update of DBM/AP bits without break before make might result in incorrect update"
-	default y
-	help
-	  This option adds work around for Arm Cortex-A55 Erratum 1024718.
-
-	  Affected Cortex-A55 cores (r0p0, r0p1, r1p0) could cause incorrect
-	  update of the hardware dirty bit when the DBM/AP bits are updated
-	  without a break-before-make. The work around is to disable the usage
-	  of hardware DBM locally on the affected cores. CPUs not affected by
-	  erratum will continue to use the feature.
 
 	  If unsure, say Y.
 
@@ -808,22 +794,6 @@ config UNMAP_KERNEL_AT_EL0
 
 	  If unsure, say Y.
 
-config HARDEN_BRANCH_PREDICTOR
-	bool "Harden the branch predictor against aliasing attacks" if EXPERT
-	help
-	  Speculation attacks against some high-performance processors rely on
-	  being able to manipulate the branch predictor for a victim context by
-	  executing aliasing branches in the attacker context.  Such attacks
-	  can be partially mitigated against by clearing internal branch
-	  predictor state and limiting the prediction logic in some situations.
-
-	  This config option will take CPU-specific actions to harden the
-	  branch predictor against aliasing attacks and may rely on specific
-	  instruction sequences or control bits being set by the system
-	  firmware.
-
-	  If unsure, say Y.
-
 menuconfig ARMV8_DEPRECATED
 	bool "Emulate deprecated/obsolete ARMv8 instructions"
 	depends on COMPAT
@@ -956,6 +926,15 @@ config ARM64_VHE
 	  Selecting this option allows the VHE feature to be detected
 	  at runtime, and does not affect processors that do not
 	  implement this feature.
+
+config ARM64_FLUSH_CONSOLE_ON_RESTART
+	bool "Force flush the console on restart"
+	help
+	  If the console is locked while the system is rebooted, the messages
+	  in the temporary logbuffer would not have propogated to all the
+	  console drivers. This option forces the console lock to be
+	  released if it failed to be acquired, which will cause all the
+	  pending messages to be flushed.
 
 endmenu
 
@@ -1155,6 +1134,18 @@ config BUILD_ARM64_DT_OVERLAY
 	depends on OF
 	help
 	  This option enables support for DT overlay compilation.
+
+config ARCH_HAS_CRASH_NOTES
+	bool
+
+config CRASH_NOTES
+	bool "Support storing crash notes at panic"
+	depends on !KEXEC
+	help
+	  Generate kdump style crash notes at the time of a panic and fill it
+	  with the crashed context to support analysis of the memory dump with
+	  tools like Redhat CRASH.
+
 endmenu
 
 menu "Userspace binary formats"

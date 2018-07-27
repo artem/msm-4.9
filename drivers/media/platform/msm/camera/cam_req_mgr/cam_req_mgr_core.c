@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #include <linux/module.h>
 #include <linux/of_platform.h>
@@ -230,7 +235,7 @@ static int __cam_req_mgr_traverse(struct cam_req_mgr_traverse *traverse_data)
 					traverse_data->in_q, curr_idx);
 				apply_data[tbl->pd].idx = curr_idx;
 
-				CAM_DBG(CAM_CRM, "req_id: %lld with pd of %d",
+				CAM_DBG(CAM_CRM, "req_id: %d with pd of %d",
 				apply_data[tbl->pd].req_id,
 				apply_data[tbl->pd].pd);
 				/*
@@ -248,11 +253,6 @@ static int __cam_req_mgr_traverse(struct cam_req_mgr_traverse *traverse_data)
 		}
 	} else {
 		/* This pd table is not ready to proceed with asked idx */
-		CAM_INFO(CAM_CRM,
-			"Skip Frame: req: %lld not ready pd: %d open_req count: %d",
-			CRM_GET_REQ_ID(traverse_data->in_q, curr_idx),
-			tbl->pd,
-			traverse_data->open_req_cnt);
 		SET_FAILURE_BIT(traverse_data->result, tbl->pd);
 		return -EAGAIN;
 	}
@@ -455,9 +455,6 @@ static int __cam_req_mgr_send_req(struct cam_req_mgr_core_link *link,
 				rc = dev->ops->apply_req(&apply_req);
 				if (rc < 0)
 					break;
-
-				if (pd == link->max_delay)
-					link->open_req_cnt--;
 			}
 		}
 	}
@@ -468,7 +465,6 @@ static int __cam_req_mgr_send_req(struct cam_req_mgr_core_link *link,
 		for (; i >= 0; i--) {
 			dev = &link->l_dev[i];
 			evt_data.evt_type = CAM_REQ_MGR_LINK_EVT_ERR;
-			evt_data.dev_hdl = dev->dev_hdl;
 			evt_data.link_hdl =  link->link_hdl;
 			evt_data.req_id = apply_req.request_id;
 			evt_data.u.error = CRM_KMD_ERR_BUBBLE;
@@ -518,7 +514,6 @@ static int __cam_req_mgr_check_link_is_ready(struct cam_req_mgr_core_link *link,
 	traverse_data.result = 0;
 	traverse_data.validate_only = validate_only;
 	traverse_data.self_link = self_link;
-	traverse_data.open_req_cnt = link->open_req_cnt;
 	/*
 	 *  Traverse through all pd tables, if result is success,
 	 *  apply the settings
@@ -669,7 +664,7 @@ static int __cam_req_mgr_validate_sof_cnt(
 		link->link_hdl, link->sof_counter,
 		sync_link->sof_counter, sync_diff, link->sync_self_ref);
 
-	if (sync_diff > SYNC_LINK_SOF_CNT_MAX_LMT) {
+	if (sync_diff != link->sync_self_ref) {
 		link->sync_link->frame_skip_flag = true;
 		CAM_WARN(CAM_CRM,
 			"Detected anomaly, skip link_hdl %x self_counter=%lld other_counter=%lld sync_self_ref=%lld",
@@ -713,16 +708,6 @@ static int __cam_req_mgr_process_sync_req(
 		link->link_hdl, req_id, link->sync_self_ref, link->sof_counter,
 		link->frame_skip_flag, link->sync_link->sync_self_ref);
 
-	if (sync_link->sync_link_sof_skip) {
-		CAM_DBG(CAM_CRM,
-			"No req applied on corresponding SOF on sync link: %x",
-			sync_link->link_hdl);
-		sync_link->sync_link_sof_skip = false;
-		/*It is to manage compensate inject delay for each pd*/
-		__cam_req_mgr_check_link_is_ready(link, slot->idx, true, true);
-		return -EINVAL;
-	}
-
 	if (link->sof_counter == -1) {
 		__cam_req_mgr_sof_cnt_initialize(link);
 	} else if ((link->frame_skip_flag) &&
@@ -740,7 +725,6 @@ static int __cam_req_mgr_process_sync_req(
 		CAM_DBG(CAM_CRM,
 			"Req: %lld [My link]not available link: %x, rc=%d",
 			req_id, link->link_hdl, rc);
-		link->sync_link_sof_skip = true;
 		goto failure;
 	}
 
@@ -789,7 +773,6 @@ static int __cam_req_mgr_process_sync_req(
 			"Req: %lld [Other link] not ready to apply on link: %x",
 			req_id, sync_link->link_hdl);
 		rc = -EPERM;
-		link->sync_link_sof_skip = true;
 		goto failure;
 	}
 
@@ -905,9 +888,6 @@ static int __cam_req_mgr_process_req(struct cam_req_mgr_core_link *link,
 			link->state = CAM_CRM_LINK_STATE_READY;
 		}
 		spin_unlock_bh(&link->link_state_spin_lock);
-
-		if (link->sync_link_sof_skip)
-			link->sync_link_sof_skip = false;
 
 		if (link->trigger_mask == link->subscribe_event) {
 			slot->status = CRM_SLOT_STATUS_REQ_APPLIED;
@@ -1449,6 +1429,8 @@ int cam_req_mgr_process_flush_req(void *priv, void *data)
 			CAM_DBG(CAM_CRM, "req_id %lld found at idx %d",
 				flush_info->req_id, idx);
 			slot = &in_q->slot[idx];
+/* sony extension start */
+#if 0
 			if (slot->status == CRM_SLOT_STATUS_REQ_PENDING ||
 				slot->status == CRM_SLOT_STATUS_REQ_APPLIED) {
 				CAM_WARN(CAM_CRM,
@@ -1457,6 +1439,8 @@ int cam_req_mgr_process_flush_req(void *priv, void *data)
 				mutex_unlock(&link->req.lock);
 				return -EINVAL;
 			}
+#endif
+/* sony extension end */
 			__cam_req_mgr_in_q_skip_idx(in_q, idx);
 		}
 	}
@@ -1523,7 +1507,6 @@ int cam_req_mgr_process_sched_req(void *priv, void *data)
 	slot->sync_mode = sched_req->sync_mode;
 	slot->skip_idx = 0;
 	slot->recover = sched_req->bubble_enable;
-	link->open_req_cnt++;
 	__cam_req_mgr_inc_idx(&in_q->wr_idx, 1, in_q->num_slots);
 	mutex_unlock(&link->req.lock);
 
@@ -1695,17 +1678,21 @@ int cam_req_mgr_process_error(void *priv, void *data)
 					evt_data.u.error = err_info->error;
 					if (device->ops &&
 						device->ops->process_evt)
-						rc = device->ops->process_evt(
-							&evt_data);
+						rc = device->ops->
+							process_evt(&evt_data);
 				}
 			}
 			/* Bring processing pointer to bubbled req id */
 			__cam_req_mgr_tbl_set_all_skip_cnt(&link->req.l_tbl);
 			in_q->rd_idx = idx;
 			in_q->slot[idx].status = CRM_SLOT_STATUS_REQ_ADDED;
+/* sony extension begin */
+#if 0
 			spin_lock_bh(&link->link_state_spin_lock);
 			link->state = CAM_CRM_LINK_STATE_ERR;
 			spin_unlock_bh(&link->link_state_spin_lock);
+#endif
+/* sony extension end */
 		}
 	}
 	mutex_unlock(&link->req.lock);
@@ -2466,12 +2453,18 @@ int cam_req_mgr_schedule_request(
 	sched->req_id = sched_req->req_id;
 	sched->sync_mode = sched_req->sync_mode;
 	sched->link_hdl = sched_req->link_hdl;
+/* sony extension begin */
+#if 1
+	sched->bubble_enable = 1;
+#else
 	if (session->force_err_recovery == AUTO_RECOVERY) {
 		sched->bubble_enable = sched_req->bubble_enable;
 	} else {
 		sched->bubble_enable =
 		(session->force_err_recovery == FORCE_ENABLE_RECOVERY) ? 1 : 0;
 	}
+#endif
+/* sony extension end */
 
 	rc = cam_req_mgr_process_sched_req(link, &task_data);
 
@@ -2540,13 +2533,11 @@ int cam_req_mgr_sync_config(
 	link1->sof_counter = -1;
 	link1->sync_self_ref = -1;
 	link1->frame_skip_flag = false;
-	link1->sync_link_sof_skip = false;
 	link1->sync_link = link2;
 
 	link2->sof_counter = -1;
 	link2->sync_self_ref = -1;
 	link2->frame_skip_flag = false;
-	link2->sync_link_sof_skip = false;
 	link2->sync_link = link1;
 
 	cam_session->sync_mode = sync_info->sync_mode;

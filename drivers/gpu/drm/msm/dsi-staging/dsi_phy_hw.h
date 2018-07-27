@@ -10,6 +10,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2018 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #ifndef _DSI_PHY_HW_H_
 #define _DSI_PHY_HW_H_
@@ -232,6 +237,14 @@ struct dsi_phy_hw_ops {
 	 */
 	int (*phy_timing_val)(struct dsi_phy_per_lane_cfgs *timing_val,
 				u32 *timing, u32 size);
+
+	/**
+	 * clamp_ctrl() - configure clamps for DSI lanes
+	 * @phy:        DSI PHY handle.
+	 * @enable:     boolean to specify clamp enable/disable.
+	 * Return:    error code.
+	 */
+	void (*clamp_ctrl)(struct dsi_phy_hw *phy, bool enable);
 
 	/**
 	 * phy_lane_reset() - Reset dsi phy lanes in case of error.

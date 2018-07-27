@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -8,6 +8,11 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
+ */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2018 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
  */
 
 #include <linux/slab.h>
@@ -186,10 +191,8 @@ static int cam_vfe_rdi_handle_irq_bottom_half(void *handler_priv,
 	struct cam_vfe_top_irq_evt_payload  *payload;
 	uint32_t                             irq_status0;
 
-	if (!handler_priv || !evt_payload_priv) {
-		CAM_ERR(CAM_ISP, "Invalid params");
+	if (!handler_priv || !evt_payload_priv)
 		return ret;
-	}
 
 	rdi_node = handler_priv;
 	rdi_priv = rdi_node->res_priv;

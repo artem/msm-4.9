@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -8,6 +8,11 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
+ */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
  */
 
 #ifndef _CAM_SENSOR_DEV_H_
@@ -90,8 +95,6 @@ struct intf_params {
  * @sensor_info: Sensor query cap structure
  * @bridge_intf: Bridge interface structure
  * @device_name: Sensor device structure
- * @streamon_count: Count to hold the number of times stream on called
- * @streamoff_count: Count to hold the number of times stream off called
  */
 struct cam_sensor_ctrl_t {
 	struct platform_device *pdev;
@@ -111,8 +114,6 @@ struct cam_sensor_ctrl_t {
 	struct  cam_sensor_query_cap sensor_info;
 	struct intf_params bridge_intf;
 	char device_name[20];
-	uint32_t streamon_count;
-	uint32_t streamoff_count;
 };
 
 #endif /* _CAM_SENSOR_DEV_H_ */

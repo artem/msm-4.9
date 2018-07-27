@@ -11,12 +11,16 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #define pr_fmt(fmt)	"msm-dsi-display:[%s] " fmt, __func__
 
 #include <linux/list.h>
 #include <linux/of.h>
-#include <linux/of_gpio.h>
 #include <linux/err.h>
 
 #include "msm_drv.h"
@@ -31,16 +35,22 @@
 #include "dsi_pwr.h"
 #include "sde_dbg.h"
 
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+#include "dsi_panel_driver.h"
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
+
 #define to_dsi_display(x) container_of(x, struct dsi_display, host)
 #define INT_BASE_10 10
 #define NO_OVERRIDE -1
 
 #define MISR_BUFF_SIZE	256
-#define ESD_MODE_STRING_MAX_LEN 256
 
 #define MAX_NAME_SIZE	64
 
-#define DSI_CLOCK_BITRATE_RADIX 10
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+#define DELAY_SET_BACKLIGHT_TIME 100
+#define SET_BRIGHTNESS_VALUE 2047
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 
 static DEFINE_MUTEX(dsi_display_list_lock);
 static LIST_HEAD(dsi_display_list);
@@ -49,44 +59,28 @@ static char dsi_display_secondary[MAX_CMDLINE_PARAM_LEN];
 static struct dsi_display_boot_param boot_displays[MAX_DSI_ACTIVE_DISPLAY];
 static struct device_node *default_active_node;
 static const struct of_device_id dsi_display_dt_match[] = {
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+	{.compatible = "somc,dsi-display"},
+#else
 	{.compatible = "qcom,dsi-display"},
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 	{}
 };
 
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+enum {
+	DSI_DISPLAY_MODE_SWITCH_NONE = 0,
+	DSI_DISPLAY_MODE_SWITCH_SEND,
+	DSI_DISPLAY_MODE_SWITCH_SKIP,
+	DSI_DISPLAY_MODE_SWITCH_SKIP2,
+};
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
+
 static struct dsi_display *main_display;
 
-static void dsi_display_mask_ctrl_error_interrupts(struct dsi_display *display)
+struct dsi_display *dsi_display_get_main_display(void)
 {
-	int i;
-	struct dsi_display_ctrl *ctrl;
-
-	if (!display)
-		return;
-
-	for (i = 0; (i < display->ctrl_count) &&
-			(i < MAX_DSI_CTRLS_PER_DISPLAY); i++) {
-		ctrl = &display->ctrl[i];
-		if (!ctrl)
-			continue;
-		dsi_ctrl_mask_error_status_interrupts(ctrl->ctrl);
-	}
-}
-
-static void dsi_display_ctrl_irq_update(struct dsi_display *display, bool en)
-{
-	int i;
-	struct dsi_display_ctrl *ctrl;
-
-	if (!display)
-		return;
-
-	for (i = 0; (i < display->ctrl_count) &&
-			(i < MAX_DSI_CTRLS_PER_DISPLAY); i++) {
-		ctrl = &display->ctrl[i];
-		if (!ctrl)
-			continue;
-		dsi_ctrl_irq_update(ctrl->ctrl, en);
-	}
+	return main_display;
 }
 
 void dsi_rect_intersect(const struct dsi_rect *r1,
@@ -165,7 +159,11 @@ error:
 	return rc;
 }
 
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+int dsi_display_cmd_engine_enable(struct dsi_display *display)
+#else
 static int dsi_display_cmd_engine_enable(struct dsi_display *display)
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 {
 	int rc = 0;
 	int i;
@@ -209,7 +207,11 @@ done:
 	return rc;
 }
 
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+int dsi_display_cmd_engine_disable(struct dsi_display *display)
+#else
 static int dsi_display_cmd_engine_disable(struct dsi_display *display)
+#endif  /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 {
 	int rc = 0;
 	int i;
@@ -307,104 +309,12 @@ end:
 	dsi_panel_release_panel_lock(display->panel);
 }
 
-static irqreturn_t dsi_display_panel_te_irq_handler(int irq, void *data)
-{
-	struct dsi_display *display = (struct dsi_display *)data;
-
-	/*
-	 * This irq handler is used for sole purpose of identifying
-	 * ESD attacks on panel and we can safely assume IRQ_HANDLED
-	 * in case of display not being initalized yet
-	 */
-	if (!display)
-		return IRQ_HANDLED;
-
-	complete_all(&display->esd_te_gate);
-	return IRQ_HANDLED;
-}
-
-static void dsi_display_change_te_irq_status(struct dsi_display *display,
-					bool enable)
-{
-	if (!display) {
-		pr_err("Invalid params\n");
-		return;
-	}
-
-	/* Handle unbalanced irq enable/disbale calls */
-	if (enable && !display->is_te_irq_enabled) {
-		enable_irq(gpio_to_irq(display->disp_te_gpio));
-		display->is_te_irq_enabled = true;
-	} else if (!enable && display->is_te_irq_enabled) {
-		disable_irq(gpio_to_irq(display->disp_te_gpio));
-		display->is_te_irq_enabled = false;
-	}
-}
-
-static void dsi_display_register_te_irq(struct dsi_display *display)
-{
-	int rc = 0;
-	struct platform_device *pdev;
-	struct device *dev;
-
-	pdev = display->pdev;
-	if (!pdev) {
-		pr_err("invalid platform device\n");
-		return;
-	}
-
-	dev = &pdev->dev;
-	if (!dev) {
-		pr_err("invalid device\n");
-		return;
-	}
-
-	if (!gpio_is_valid(display->disp_te_gpio)) {
-		rc = -EINVAL;
-		goto error;
-	}
-
-	init_completion(&display->esd_te_gate);
-
-	rc = devm_request_irq(dev, gpio_to_irq(display->disp_te_gpio),
-			dsi_display_panel_te_irq_handler, IRQF_TRIGGER_FALLING,
-			"TE_GPIO", display);
-	if (rc) {
-		pr_err("TE request_irq failed for ESD rc:%d\n", rc);
-		goto error;
-	}
-
-	disable_irq(gpio_to_irq(display->disp_te_gpio));
-	display->is_te_irq_enabled = false;
-
-	return;
-
-error:
-	/* disable the TE based ESD check */
-	pr_warn("Unable to register for TE IRQ\n");
-	if (display->panel->esd_config.status_mode == ESD_MODE_PANEL_TE)
-		display->panel->esd_config.esd_enabled = false;
-}
-
-static bool dsi_display_is_te_based_esd(struct dsi_display *display)
-{
-	u32 status_mode = 0;
-
-	if (!display->panel) {
-		pr_err("Invalid panel data\n");
-		return false;
-	}
-
-	status_mode = display->panel->esd_config.status_mode;
-
-	if (status_mode == ESD_MODE_PANEL_TE &&
-			gpio_is_valid(display->disp_te_gpio))
-		return true;
-	return false;
-}
-
 /* Allocate memory for cmd dma tx buffer */
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+int dsi_host_alloc_cmd_tx_buffer(struct dsi_display *display)
+#else
 static int dsi_host_alloc_cmd_tx_buffer(struct dsi_display *display)
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 {
 	int rc = 0, cnt = 0;
 	struct dsi_display_ctrl *display_ctrl;
@@ -482,6 +392,7 @@ static bool dsi_display_validate_reg_read(struct dsi_panel *panel)
 	int i, j = 0;
 	int len = 0, *lenp;
 	int group = 0, count = 0;
+	struct dsi_display_mode *mode;
 	struct drm_panel_esd_config *config;
 
 	if (!panel)
@@ -490,7 +401,8 @@ static bool dsi_display_validate_reg_read(struct dsi_panel *panel)
 	config = &(panel->esd_config);
 
 	lenp = config->status_valid_params ?: config->status_cmds_rlen;
-	count = config->status_cmd.count;
+	mode = panel->cur_mode;
+	count = mode->priv_info->cmd_sets[DSI_CMD_SET_PANEL_STATUS].count;
 
 	for (i = 0; i < count; i++)
 		len += lenp[i];
@@ -513,27 +425,6 @@ static bool dsi_display_validate_reg_read(struct dsi_panel *panel)
 	return false;
 }
 
-static void dsi_display_parse_te_gpio(struct dsi_display *display)
-{
-	struct platform_device *pdev;
-	struct device *dev;
-
-	pdev = display->pdev;
-	if (!pdev) {
-		pr_err("Inavlid platform device\n");
-		return;
-	}
-
-	dev = &pdev->dev;
-	if (!dev) {
-		pr_err("Inavlid platform device\n");
-		return;
-	}
-
-	display->disp_te_gpio = of_get_named_gpio(dev->of_node,
-					"qcom,platform-te-gpio", 0);
-}
-
 static int dsi_display_read_status(struct dsi_display_ctrl *ctrl,
 		struct dsi_panel *panel)
 {
@@ -542,16 +433,8 @@ static int dsi_display_read_status(struct dsi_display_ctrl *ctrl,
 	struct dsi_cmd_desc *cmds;
 	u32 flags = 0;
 
-	if (!panel || !ctrl || !ctrl->ctrl)
+	if (!panel)
 		return -EINVAL;
-
-	/*
-	 * When DSI controller is not in initialized state, we do not want to
-	 * report a false ESD failure and hence we defer until next read
-	 * happen.
-	 */
-	if (dsi_ctrl_validate_host_state(ctrl->ctrl))
-		return 1;
 
 	/* acquire panel_lock to make sure no commands are in progress */
 	dsi_panel_acquire_panel_lock(panel);
@@ -560,14 +443,14 @@ static int dsi_display_read_status(struct dsi_display_ctrl *ctrl,
 	lenp = config->status_valid_params ?: config->status_cmds_rlen;
 	count = config->status_cmd.count;
 	cmds = config->status_cmd.cmds;
+	if (cmds->last_command) {
+		cmds->msg.flags |= MIPI_DSI_MSG_LASTCOMMAND;
+		flags |= DSI_CTRL_CMD_LAST_COMMAND;
+	}
 	flags |= (DSI_CTRL_CMD_FETCH_MEMORY | DSI_CTRL_CMD_READ);
 
 	for (i = 0; i < count; ++i) {
 		memset(config->status_buf, 0x0, SZ_4K);
-		if (cmds[i].last_command) {
-			cmds[i].msg.flags |= MIPI_DSI_MSG_LASTCOMMAND;
-			flags |= DSI_CTRL_CMD_LAST_COMMAND;
-		}
 		cmds[i].msg.rx_buf = config->status_buf;
 		cmds[i].msg.rx_len = config->status_cmds_rlen[i];
 		rc = dsi_ctrl_cmd_transfer(ctrl->ctrl, &cmds[i].msg, flags);
@@ -651,17 +534,12 @@ static int dsi_display_status_reg_read(struct dsi_display *display)
 
 		rc = dsi_display_validate_status(ctrl, display->panel);
 		if (rc <= 0) {
-			pr_err("[%s] read status failed on slave,rc=%d\n",
+			pr_err("[%s] read status failed on master,rc=%d\n",
 			       display->name, rc);
 			goto exit;
 		}
 	}
 exit:
-	if (rc <= 0) {
-		dsi_display_ctrl_irq_update(display, false);
-		dsi_display_mask_ctrl_error_interrupts(display);
-	}
-
 	dsi_display_cmd_engine_disable(display);
 done:
 	return rc;
@@ -679,19 +557,10 @@ static int dsi_display_status_bta_request(struct dsi_display *display)
 
 static int dsi_display_status_check_te(struct dsi_display *display)
 {
-	int rc = 1;
-	int const esd_te_timeout = msecs_to_jiffies(3*20);
+	int rc = 0;
 
-	dsi_display_change_te_irq_status(display, true);
-
-	reinit_completion(&display->esd_te_gate);
-	if (!wait_for_completion_timeout(&display->esd_te_gate,
-				esd_te_timeout)) {
-		pr_err("ESD check failed\n");
-		rc = -EINVAL;
-	}
-
-	dsi_display_change_te_irq_status(display, false);
+	pr_debug(" ++\n");
+	/* TODO: wait for TE interrupt from panel */
 
 	return rc;
 }
@@ -1104,190 +973,6 @@ error:
 	return len;
 }
 
-static ssize_t debugfs_esd_trigger_check(struct file *file,
-				  const char __user *user_buf,
-				  size_t user_len,
-				  loff_t *ppos)
-{
-	struct dsi_display *display = file->private_data;
-	char *buf;
-	int rc = 0;
-	u32 esd_trigger;
-
-	if (!display)
-		return -ENODEV;
-
-	if (*ppos)
-		return 0;
-
-	if (user_len > sizeof(u32))
-		return -EINVAL;
-
-	buf = kzalloc(user_len, GFP_KERNEL);
-	if (!buf)
-		return -ENOMEM;
-
-	if (copy_from_user(buf, user_buf, user_len)) {
-		rc = -EINVAL;
-		goto error;
-	}
-
-	buf[user_len] = '\0'; /* terminate the string */
-
-	if (kstrtouint(buf, 10, &esd_trigger)) {
-		rc = -EINVAL;
-		goto error;
-	}
-
-	if (esd_trigger != 1) {
-		rc = -EINVAL;
-		goto error;
-	}
-
-	display->esd_trigger = esd_trigger;
-
-	if (display->esd_trigger) {
-		rc = dsi_panel_trigger_esd_attack(display->panel);
-		if (rc) {
-			pr_err("Failed to trigger ESD attack\n");
-			return rc;
-		}
-	}
-
-	rc = user_len;
-error:
-	kfree(buf);
-	return rc;
-}
-
-static ssize_t debugfs_alter_esd_check_mode(struct file *file,
-				  const char __user *user_buf,
-				  size_t user_len,
-				  loff_t *ppos)
-{
-	struct dsi_display *display = file->private_data;
-	struct drm_panel_esd_config *esd_config;
-	char *buf;
-	int rc = 0;
-	size_t len = min_t(size_t, user_len, ESD_MODE_STRING_MAX_LEN);
-
-	if (!display)
-		return -ENODEV;
-
-	if (*ppos)
-		return 0;
-
-	buf = kzalloc(len, GFP_KERNEL);
-	if (!buf)
-		return -ENOMEM;
-
-	if (copy_from_user(buf, user_buf, user_len)) {
-		rc = -EINVAL;
-		goto error;
-	}
-
-	buf[len] = '\0'; /* terminate the string */
-	if (!display->panel) {
-		rc = -EINVAL;
-		goto error;
-	}
-
-	esd_config = &display->panel->esd_config;
-	if (!esd_config) {
-		pr_err("Invalid panel esd config\n");
-		rc = -EINVAL;
-		goto error;
-	}
-
-	if (!esd_config->esd_enabled)
-		goto error;
-
-	if (!strcmp(buf, "te_signal_check\n")) {
-		esd_config->status_mode = ESD_MODE_PANEL_TE;
-		dsi_display_change_te_irq_status(display, true);
-	}
-
-	if (!strcmp(buf, "reg_read\n")) {
-		rc = dsi_panel_parse_esd_reg_read_configs(display->panel,
-						display->panel_of);
-		if (rc) {
-			pr_err("failed to alter esd check mode,rc=%d\n",
-						rc);
-			rc = user_len;
-			goto error;
-		}
-		esd_config->status_mode = ESD_MODE_REG_READ;
-		if (dsi_display_is_te_based_esd(display))
-			dsi_display_change_te_irq_status(display, false);
-	}
-
-	rc = len;
-error:
-	kfree(buf);
-	return rc;
-}
-
-static ssize_t debugfs_read_esd_check_mode(struct file *file,
-				 char __user *user_buf,
-				 size_t user_len,
-				 loff_t *ppos)
-{
-	struct dsi_display *display = file->private_data;
-	struct drm_panel_esd_config *esd_config;
-	char *buf;
-	int rc = 0;
-	size_t len = min_t(size_t, user_len, ESD_MODE_STRING_MAX_LEN);
-
-	if (!display)
-		return -ENODEV;
-
-	if (*ppos)
-		return 0;
-
-	if (!display->panel) {
-		pr_err("invalid panel data\n");
-		return -EINVAL;
-	}
-
-	buf = kzalloc(len, GFP_KERNEL);
-	if (!buf)
-		return -ENOMEM;
-
-	esd_config = &display->panel->esd_config;
-	if (!esd_config) {
-		pr_err("Invalid panel esd config\n");
-		rc = -EINVAL;
-		goto error;
-	}
-
-	if (!esd_config->esd_enabled) {
-		rc = snprintf(buf, len, "ESD feature not enabled");
-		goto output_mode;
-	}
-
-	if (esd_config->status_mode == ESD_MODE_REG_READ)
-		rc = snprintf(buf, len, "reg_read");
-
-	if (esd_config->status_mode == ESD_MODE_PANEL_TE)
-		rc = snprintf(buf, len, "te_signal_check");
-
-output_mode:
-	if (!rc) {
-		rc = -EINVAL;
-		goto error;
-	}
-
-	if (copy_to_user(user_buf, buf, len)) {
-		rc = -EFAULT;
-		goto error;
-	}
-
-	*ppos += len;
-
-error:
-	kfree(buf);
-	return len;
-}
 
 static const struct file_operations dump_info_fops = {
 	.open = simple_open,
@@ -1298,17 +983,6 @@ static const struct file_operations misr_data_fops = {
 	.open = simple_open,
 	.read = debugfs_misr_read,
 	.write = debugfs_misr_setup,
-};
-
-static const struct file_operations esd_trigger_fops = {
-	.open = simple_open,
-	.write = debugfs_esd_trigger_check,
-};
-
-static const struct file_operations esd_check_mode_fops = {
-	.open = simple_open,
-	.write = debugfs_alter_esd_check_mode,
-	.read = debugfs_read_esd_check_mode,
 };
 
 static int dsi_display_debugfs_init(struct dsi_display *display)
@@ -1334,30 +1008,6 @@ static int dsi_display_debugfs_init(struct dsi_display *display)
 	if (IS_ERR_OR_NULL(dump_file)) {
 		rc = PTR_ERR(dump_file);
 		pr_err("[%s] debugfs create dump info file failed, rc=%d\n",
-		       display->name, rc);
-		goto error_remove_dir;
-	}
-
-	dump_file = debugfs_create_file("esd_trigger",
-					0644,
-					dir,
-					display,
-					&esd_trigger_fops);
-	if (IS_ERR_OR_NULL(dump_file)) {
-		rc = PTR_ERR(dump_file);
-		pr_err("[%s] debugfs for esd trigger file failed, rc=%d\n",
-		       display->name, rc);
-		goto error_remove_dir;
-	}
-
-	dump_file = debugfs_create_file("esd_check_mode",
-					0644,
-					dir,
-					display,
-					&esd_check_mode_fops);
-	if (IS_ERR_OR_NULL(dump_file)) {
-		rc = PTR_ERR(dump_file);
-		pr_err("[%s] debugfs for esd check mode failed, rc=%d\n",
 		       display->name, rc);
 		goto error_remove_dir;
 	}
@@ -1574,9 +1224,19 @@ static int dsi_display_set_clamp(struct dsi_display *display, bool enable)
 	m_ctrl = &display->ctrl[display->cmd_master_idx];
 	ulps_enabled = display->ulps_enabled;
 
+	/*
+	 * Clamp control can be either through the DSI controller or
+	 * the DSI PHY depending on hardware variation
+	 */
 	rc = dsi_ctrl_set_clamp_state(m_ctrl->ctrl, enable, ulps_enabled);
 	if (rc) {
-		pr_err("DSI Clamp state change(%d) failed\n", enable);
+		pr_err("DSI ctrl clamp state change(%d) failed\n", enable);
+		return rc;
+	}
+
+	rc = dsi_phy_set_clamp_state(m_ctrl->phy, enable);
+	if (rc) {
+		pr_err("DSI phy clamp state change(%d) failed\n", enable);
 		return rc;
 	}
 
@@ -1590,7 +1250,18 @@ static int dsi_display_set_clamp(struct dsi_display *display, bool enable)
 			pr_err("DSI Clamp state change(%d) failed\n", enable);
 			return rc;
 		}
+
+		rc = dsi_phy_set_clamp_state(ctrl->phy, enable);
+		if (rc) {
+			pr_err("DSI phy clamp state change(%d) failed\n",
+				enable);
+			return rc;
+		}
+
+		pr_debug("Clamps %s for ctrl%d\n",
+			enable ? "enabled" : "disabled", i);
 	}
+
 	display->clamp_enabled = enable;
 	return 0;
 }
@@ -2586,7 +2257,7 @@ static ssize_t dsi_host_transfer(struct mipi_dsi_host *host,
 				 const struct mipi_dsi_msg *msg)
 {
 	struct dsi_display *display = to_dsi_display(host);
-	int rc = 0, ret = 0;
+	int rc = 0;
 
 	if (!host || !msg) {
 		pr_err("Invalid params\n");
@@ -2644,17 +2315,13 @@ static ssize_t dsi_host_transfer(struct mipi_dsi_host *host,
 	}
 
 error_disable_cmd_engine:
-	ret = dsi_display_cmd_engine_disable(display);
-	if (ret) {
-		pr_err("[%s]failed to disable DSI cmd engine, rc=%d\n",
-				display->name, ret);
-	}
+	(void)dsi_display_cmd_engine_disable(display);
 error_disable_clks:
-	ret = dsi_display_clk_ctrl(display->dsi_clk_handle,
+	rc = dsi_display_clk_ctrl(display->dsi_clk_handle,
 			DSI_ALL_CLKS, DSI_CLK_OFF);
-	if (ret) {
+	if (rc) {
 		pr_err("[%s] failed to disable all DSI clocks, rc=%d\n",
-		       display->name, ret);
+		       display->name, rc);
 	}
 error:
 	return rc;
@@ -2880,14 +2547,33 @@ static void dsi_display_ctrl_isr_configure(struct dsi_display *display, bool en)
 	}
 }
 
+static void dsi_display_ctrl_irq_update(struct dsi_display *display, bool en)
+{
+	int i;
+	struct dsi_display_ctrl *ctrl;
+
+	if (!display)
+		return;
+
+	for (i = 0; (i < display->ctrl_count) &&
+			(i < MAX_DSI_CTRLS_PER_DISPLAY); i++) {
+		ctrl = &display->ctrl[i];
+		if (!ctrl)
+			continue;
+		dsi_ctrl_irq_update(ctrl->ctrl, en);
+	}
+}
+
 int dsi_pre_clkoff_cb(void *priv,
 			   enum dsi_clk_type clk,
+			   enum dsi_lclk_type l_type,
 			   enum dsi_clk_state new_state)
 {
 	int rc = 0;
 	struct dsi_display *display = priv;
 
-	if ((clk & DSI_LINK_CLK) && (new_state == DSI_CLK_OFF)) {
+	if ((clk & DSI_LINK_CLK) && (new_state == DSI_CLK_OFF) &&
+		(l_type && DSI_LINK_LP_CLK)) {
 		/*
 		 * If ULPS feature is enabled, enter ULPS first.
 		 * However, when blanking the panel, we should enter ULPS
@@ -2937,13 +2623,14 @@ int dsi_pre_clkoff_cb(void *priv,
 
 int dsi_post_clkon_cb(void *priv,
 			   enum dsi_clk_type clk,
+			   enum dsi_lclk_type l_type,
 			   enum dsi_clk_state curr_state)
 {
 	int rc = 0;
 	struct dsi_display *display = priv;
 	bool mmss_clamp = false;
 
-	if (clk & DSI_CORE_CLK) {
+	if ((clk & DSI_LINK_CLK) && (l_type & DSI_LINK_LP_CLK)) {
 		mmss_clamp = display->clamp_enabled;
 		/*
 		 * controller setup is needed if coming out of idle
@@ -2951,6 +2638,13 @@ int dsi_post_clkon_cb(void *priv,
 		 */
 		if (mmss_clamp)
 			dsi_display_ctrl_setup(display);
+
+		/*
+		 * Phy setup is needed if coming out of idle
+		 * power collapse with clamps enabled.
+		 */
+		if (display->phy_idle_power_off || mmss_clamp)
+			dsi_display_phy_idle_on(display, mmss_clamp);
 
 		if (display->ulps_enabled && mmss_clamp) {
 			/*
@@ -2990,17 +2684,11 @@ int dsi_post_clkon_cb(void *priv,
 			goto error;
 		}
 
-		/*
-		 * Phy setup is needed if coming out of idle
-		 * power collapse with clamps enabled.
-		 */
-		if (display->phy_idle_power_off || mmss_clamp)
-			dsi_display_phy_idle_on(display, mmss_clamp);
-
 		/* enable dsi to serve irqs */
 		dsi_display_ctrl_irq_update(display, true);
 	}
-	if (clk & DSI_LINK_CLK) {
+
+	if ((clk & DSI_LINK_CLK) && (l_type & DSI_LINK_HS_CLK)) {
 		/*
 		 * Toggle the resync FIFO everytime clock changes, except
 		 * when cont-splash screen transition is going on.
@@ -3025,6 +2713,7 @@ error:
 
 int dsi_post_clkoff_cb(void *priv,
 			    enum dsi_clk_type clk_type,
+			    enum dsi_lclk_type l_type,
 			    enum dsi_clk_state curr_state)
 {
 	int rc = 0;
@@ -3055,6 +2744,7 @@ int dsi_post_clkoff_cb(void *priv,
 
 int dsi_pre_clkon_cb(void *priv,
 			  enum dsi_clk_type clk_type,
+			  enum dsi_lclk_type l_type,
 			  enum dsi_clk_state new_state)
 {
 	int rc = 0;
@@ -3258,9 +2948,9 @@ static int dsi_display_parse_dt(struct dsi_display *display)
 		display->panel_of = of_node;
 	}
 
-	/* Parse TE gpio */
-	dsi_display_parse_te_gpio(display);
-
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+	dsi_panel_driver_detection(display->pdev, &(display->panel_of));
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 error:
 	return rc;
 }
@@ -3290,6 +2980,13 @@ static int dsi_display_res_init(struct dsi_display *display)
 			goto error_ctrl_put;
 		}
 	}
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+	rc = dsi_panel_driver_create_fs(display);
+	if (rc) {
+		pr_err("%s: faild dsi_panel_driver_create_fs rc=%d\n", __func__, rc);
+		return rc;
+	}
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 
 	display->panel = dsi_panel_get(&display->pdev->dev, display->panel_of,
 						display->cmdline_topology);
@@ -3926,229 +3623,6 @@ int dsi_display_splash_res_cleanup(struct  dsi_display *display)
 	return rc;
 }
 
-static int dsi_display_force_update_dsi_clk(struct dsi_display *display)
-{
-	int rc = 0;
-
-	rc = dsi_display_link_clk_force_update_ctrl(display->dsi_clk_handle);
-
-	if (!rc) {
-		pr_info("dsi bit clk has been configured to %d\n",
-			display->cached_clk_rate);
-
-		atomic_set(&display->clkrate_change_pending, 0);
-	} else {
-		pr_err("Failed to configure dsi bit clock '%d'. rc = %d\n",
-			display->cached_clk_rate, rc);
-	}
-
-	return rc;
-}
-
-static int dsi_display_request_update_dsi_bitrate(struct dsi_display *display,
-					u32 bit_clk_rate)
-{
-	int rc = 0;
-	int i;
-
-	pr_debug("%s:bit rate:%d\n", __func__, bit_clk_rate);
-	if (!display->panel) {
-		pr_err("Invalid params\n");
-		return -EINVAL;
-	}
-
-	if (bit_clk_rate == 0) {
-		pr_err("Invalid bit clock rate\n");
-		return -EINVAL;
-	}
-
-	display->config.bit_clk_rate_hz = bit_clk_rate;
-
-	for (i = 0; i < display->ctrl_count; i++) {
-		struct dsi_display_ctrl *dsi_disp_ctrl = &display->ctrl[i];
-		struct dsi_ctrl *ctrl = dsi_disp_ctrl->ctrl;
-		u32 num_of_lanes = 0;
-		u32 bpp = 3;
-		u64 bit_rate, pclk_rate, bit_rate_per_lane, byte_clk_rate;
-		struct dsi_host_common_cfg *host_cfg;
-
-		mutex_lock(&ctrl->ctrl_lock);
-
-		host_cfg = &display->panel->host_config;
-		if (host_cfg->data_lanes & DSI_DATA_LANE_0)
-			num_of_lanes++;
-		if (host_cfg->data_lanes & DSI_DATA_LANE_1)
-			num_of_lanes++;
-		if (host_cfg->data_lanes & DSI_DATA_LANE_2)
-			num_of_lanes++;
-		if (host_cfg->data_lanes & DSI_DATA_LANE_3)
-			num_of_lanes++;
-
-		if (num_of_lanes == 0) {
-			pr_err("Invalid lane count\n");
-			rc = -EINVAL;
-			goto error;
-		}
-
-		bit_rate = display->config.bit_clk_rate_hz * num_of_lanes;
-		bit_rate_per_lane = bit_rate;
-		do_div(bit_rate_per_lane, num_of_lanes);
-		pclk_rate = bit_rate;
-		do_div(pclk_rate, (8 * bpp));
-		byte_clk_rate = bit_rate_per_lane;
-		do_div(byte_clk_rate, 8);
-		pr_debug("bit_clk_rate = %llu, bit_clk_rate_per_lane = %llu\n",
-			 bit_rate, bit_rate_per_lane);
-		pr_debug("byte_clk_rate = %llu, pclk_rate = %llu\n",
-			  byte_clk_rate, pclk_rate);
-
-		ctrl->clk_freq.byte_clk_rate = byte_clk_rate;
-		ctrl->clk_freq.pix_clk_rate = pclk_rate;
-		rc = dsi_clk_set_link_frequencies(display->dsi_clk_handle,
-			ctrl->clk_freq, ctrl->cell_index);
-		if (rc) {
-			pr_err("Failed to update link frequencies\n");
-			goto error;
-		}
-
-		ctrl->host_config.bit_clk_rate_hz = bit_clk_rate;
-error:
-		mutex_unlock(&ctrl->ctrl_lock);
-
-		/* TODO: recover ctrl->clk_freq in case of failure */
-		if (rc)
-			return rc;
-	}
-
-	return 0;
-}
-
-static ssize_t sysfs_dynamic_dsi_clk_read(struct device *dev,
-	struct device_attribute *attr, char *buf)
-{
-	int rc = 0;
-	struct dsi_display *display;
-	struct dsi_display_ctrl *m_ctrl;
-	struct dsi_ctrl *ctrl;
-
-	display = dev_get_drvdata(dev);
-	if (!display) {
-		pr_err("Invalid display\n");
-		return -EINVAL;
-	}
-
-	mutex_lock(&display->display_lock);
-
-	m_ctrl = &display->ctrl[display->cmd_master_idx];
-	ctrl = m_ctrl->ctrl;
-	if (ctrl)
-		display->cached_clk_rate = ctrl->clk_freq.
-					byte_clk_rate * 8;
-
-	rc = snprintf(buf, PAGE_SIZE, "%d\n", display->cached_clk_rate);
-	pr_debug("%s: read dsi clk rate %d\n", __func__,
-		display->cached_clk_rate);
-
-	mutex_unlock(&display->display_lock);
-
-	return rc;
-}
-
-static ssize_t sysfs_dynamic_dsi_clk_write(struct device *dev,
-	struct device_attribute *attr, const char *buf, size_t count)
-{
-	int rc = 0;
-	int clk_rate;
-	struct dsi_display *display;
-
-	display = dev_get_drvdata(dev);
-	if (!display) {
-		pr_err("Invalid display\n");
-		return -EINVAL;
-	}
-
-	rc = kstrtoint(buf, DSI_CLOCK_BITRATE_RADIX, &clk_rate);
-	if (rc) {
-		pr_err("%s: kstrtoint failed. rc=%d\n", __func__, rc);
-		return rc;
-	}
-
-	if (clk_rate <= 0) {
-		pr_err("%s: bitrate should be greater than 0\n", __func__);
-		return -EINVAL;
-	}
-
-	if (clk_rate == display->cached_clk_rate) {
-		pr_info("%s: ignore duplicated DSI clk setting\n", __func__);
-		return count;
-	}
-
-	pr_info("%s: bitrate param value: '%d'\n", __func__, clk_rate);
-
-	mutex_lock(&display->display_lock);
-
-	display->cached_clk_rate = clk_rate;
-	rc = dsi_display_request_update_dsi_bitrate(display, clk_rate);
-	if (!rc) {
-		pr_info("%s: bit clk is ready to be configured to '%d'\n",
-			__func__, clk_rate);
-	} else {
-		pr_err("%s: Failed to prepare to configure '%d'. rc = %d\n",
-			__func__, clk_rate, rc);
-		/*Caching clock failed, so don't go on doing so.*/
-		atomic_set(&display->clkrate_change_pending, 0);
-		display->cached_clk_rate = 0;
-
-		mutex_unlock(&display->display_lock);
-
-		return rc;
-	}
-	atomic_set(&display->clkrate_change_pending, 1);
-
-	mutex_unlock(&display->display_lock);
-
-	return count;
-
-}
-
-static DEVICE_ATTR(dynamic_dsi_clock, 0644,
-			sysfs_dynamic_dsi_clk_read,
-			sysfs_dynamic_dsi_clk_write);
-
-static struct attribute *dynamic_dsi_clock_fs_attrs[] = {
-	&dev_attr_dynamic_dsi_clock.attr,
-	NULL,
-};
-static struct attribute_group dynamic_dsi_clock_fs_attrs_group = {
-	.attrs = dynamic_dsi_clock_fs_attrs,
-};
-
-static int dsi_display_sysfs_init(struct dsi_display *display)
-{
-	int rc = 0;
-	struct device *dev = &display->pdev->dev;
-
-	if (display->panel->panel_mode == DSI_OP_CMD_MODE)
-		rc = sysfs_create_group(&dev->kobj,
-			&dynamic_dsi_clock_fs_attrs_group);
-	pr_debug("[%s] dsi_display_sysfs_init:%d,panel mode:%d\n",
-		display->name, rc, display->panel->panel_mode);
-	return rc;
-
-}
-
-static int dsi_display_sysfs_deinit(struct dsi_display *display)
-{
-	struct device *dev = &display->pdev->dev;
-
-	if (display->panel->panel_mode == DSI_OP_CMD_MODE)
-		sysfs_remove_group(&dev->kobj,
-			&dynamic_dsi_clock_fs_attrs_group);
-
-	return 0;
-
-}
-
 /**
  * dsi_display_bind - bind dsi device with controlling device
  * @dev:        Pointer to base of platform device
@@ -4196,15 +3670,6 @@ static int dsi_display_bind(struct device *dev,
 		goto error;
 	}
 
-	atomic_set(&display->clkrate_change_pending, 0);
-	display->cached_clk_rate = 0;
-
-	rc = dsi_display_sysfs_init(display);
-	if (rc) {
-		pr_err("[%s] sysfs init failed, rc=%d\n", display->name, rc);
-		goto error;
-	}
-
 	memset(&info, 0x0, sizeof(info));
 
 	for (i = 0; i < display->ctrl_count; i++) {
@@ -4225,10 +3690,16 @@ static int dsi_display_bind(struct device *dev,
 			goto error_ctrl_deinit;
 		}
 
-		memcpy(&info.c_clks[i], &display_ctrl->ctrl->clk_info.core_clks,
-			sizeof(struct dsi_core_clk_info));
-		memcpy(&info.l_clks[i], &display_ctrl->ctrl->clk_info.link_clks,
-			sizeof(struct dsi_link_clk_info));
+		memcpy(&info.c_clks[i],
+				(&display_ctrl->ctrl->clk_info.core_clks),
+				sizeof(struct dsi_core_clk_info));
+		memcpy(&info.l_hs_clks[i],
+				(&display_ctrl->ctrl->clk_info.hs_link_clks),
+				sizeof(struct dsi_link_hs_clk_info));
+		memcpy(&info.l_lp_clks[i],
+				(&display_ctrl->ctrl->clk_info.lp_link_clks),
+				sizeof(struct dsi_link_lp_clk_info));
+
 		info.c_clks[i].phandle = &priv->phandle;
 		info.bus_handle[i] =
 			display_ctrl->ctrl->axi_bus_info.bus_handle;
@@ -4337,13 +3808,16 @@ static int dsi_display_bind(struct device *dev,
 		}
 	}
 
-	/* register te irq handler */
-	dsi_display_register_te_irq(display);
-
 	/* Initialize resources for continuous splash */
 	rc = dsi_display_splash_res_init(display);
 	if (rc)
 		pr_err("Continuous splash resource init failed, rc=%d\n", rc);
+
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+	if (display->is_cont_splash_enabled) {
+		dsi_panel_driver_active_touch_reset(display->panel);
+	}
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 
 	goto error;
 
@@ -4359,7 +3833,6 @@ error_ctrl_deinit:
 		(void)dsi_phy_drv_deinit(display_ctrl->phy);
 		(void)dsi_ctrl_drv_deinit(display_ctrl->ctrl);
 	}
-	(void)dsi_display_sysfs_deinit(display);
 	(void)dsi_display_debugfs_deinit(display);
 error:
 	mutex_unlock(&display->display_lock);
@@ -4417,9 +3890,6 @@ static void dsi_display_unbind(struct device *dev,
 			pr_err("[%s] failed to deinit ctrl%d driver, rc=%d\n",
 			       display->name, i, rc);
 	}
-
-	atomic_set(&display->clkrate_change_pending, 0);
-	(void)dsi_display_sysfs_deinit(display);
 	(void)dsi_display_debugfs_deinit(display);
 
 	mutex_unlock(&display->display_lock);
@@ -4556,6 +4026,12 @@ int dsi_display_dev_probe(struct platform_device *pdev)
 		pr_debug("Component_add success: %s\n", display->name);
 		if (!display_from_cmdline)
 			default_active_node = pdev->dev.of_node;
+
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+		if (display->panel->spec_pdata->oled_disp) {
+			dsi_panel_driver_oled_short_det_init_works(display);
+		}
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 	}
 	return rc;
 }
@@ -5152,10 +4628,6 @@ int dsi_display_set_mode(struct dsi_display *display,
 	adj_mode = *mode;
 	adjust_timing_by_ctrl_count(display, &adj_mode);
 
-	/*For dynamic DSI setting, use specified clock rate */
-	if (display->cached_clk_rate > 0)
-		adj_mode.priv_info->clk_rate_hz = display->cached_clk_rate;
-
 	rc = dsi_display_validate_mode_set(display, &adj_mode, flags);
 	if (rc) {
 		pr_err("[%s] mode cannot be set\n", display->name);
@@ -5402,6 +4874,33 @@ end:
 			DSI_ALL_CLKS, DSI_CLK_OFF);
 }
 
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+static void dsi_display_set_backlight_det_tmr_func(unsigned long func_data)
+{
+	struct dsi_display *display =
+		(struct dsi_display *)func_data;
+
+	schedule_work(&display->set_backlight_work);
+}
+
+static void dsi_display_set_backlight_work(struct work_struct *work)
+{
+	struct dsi_display *display = NULL;
+	int rc = 0;
+
+	display =  container_of(work, struct dsi_display, set_backlight_work);
+
+	pr_info("[%s] set backlight\n", display->name);
+	rc = dsi_panel_set_backlight(display->panel, SET_BRIGHTNESS_VALUE);
+	if (rc) {
+		pr_err("[%s] set backlight error , rc=%d\n",
+				display->name, rc);
+		return;
+	}
+	dsi_panel_driver_reset_chargemon_exit();
+}
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
+
 static int dsi_display_cb_error_handler(void *data,
 		uint32_t event_idx, uint32_t instance_idx,
 		uint32_t data0, uint32_t data1,
@@ -5451,6 +4950,14 @@ static void dsi_display_register_error_handler(struct dsi_display *display)
 				dsi_display_handle_fifo_overflow);
 	INIT_WORK(&display->lp_rx_timeout_work,
 				dsi_display_handle_lp_rx_timeout);
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+	INIT_WORK(&display->set_backlight_work,
+				dsi_display_set_backlight_work);
+
+	setup_timer(&display->det_timer,
+			dsi_display_set_backlight_det_tmr_func,
+			(unsigned long)display);
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 
 	memset(&event_info, 0, sizeof(event_info));
 
@@ -5484,6 +4991,9 @@ static void dsi_display_unregister_error_handler(struct dsi_display *display)
 int dsi_display_prepare(struct dsi_display *display)
 {
 	int rc = 0;
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+	int chargemon_exit = 0;
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 	struct dsi_display_mode *mode;
 
 	if (!display) {
@@ -5501,15 +5011,12 @@ int dsi_display_prepare(struct dsi_display *display)
 	mode = display->panel->cur_mode;
 
 	if (mode->dsi_mode_flags & DSI_MODE_FLAG_DMS) {
-		if (display->is_cont_splash_enabled) {
-			pr_err("DMS is not supposed to be set on first frame\n");
-			return -EINVAL;
-		}
 		/* update dsi ctrl for new mode */
 		rc = dsi_display_pre_switch(display);
 		if (rc)
 			pr_err("[%s] panel pre-prepare-res-switch failed, rc=%d\n",
-					display->name, rc);
+				   display->name, rc);
+
 		goto error;
 	}
 
@@ -5592,19 +5099,18 @@ int dsi_display_prepare(struct dsi_display *display)
 		goto error_host_engine_off;
 	}
 
+	rc = dsi_display_soft_reset(display);
+	if (rc) {
+		pr_err("[%s] failed soft reset, rc=%d\n", display->name, rc);
+		goto error_ctrl_link_off;
+	}
+
 	if (!display->is_cont_splash_enabled) {
 		/*
-		 * For continuous splash usecase, skip panel prepare and
-		 * ctl reset since the pnael and ctrl is already in active
-		 * state and panel on commands are not needed
+		 * For continuous splash usecase we skip panel
+		 * prepare since the pnael is already in
+		 * active state and panel on commands are not needed
 		 */
-		rc = dsi_display_soft_reset(display);
-		if (rc) {
-			pr_err("[%s] failed soft reset, rc=%d\n",
-					display->name, rc);
-			goto error_ctrl_link_off;
-		}
-
 		rc = dsi_panel_prepare(display->panel);
 		if (rc) {
 			pr_err("[%s] panel prepare failed, rc=%d\n",
@@ -5612,6 +5118,17 @@ int dsi_display_prepare(struct dsi_display *display)
 			goto error_ctrl_link_off;
 		}
 	}
+
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+	chargemon_exit = dsi_panel_driver_get_chargemon_exit();
+	pr_debug("[%s] check chargemon_exit = %d\n",
+			display->name, chargemon_exit);
+	if (chargemon_exit) {
+		pr_info("[%s] set timer\n", display->name);
+		mod_timer(&display->det_timer,
+			jiffies + msecs_to_jiffies(DELAY_SET_BACKLIGHT_TIME));
+	}
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 	goto error;
 
 error_ctrl_link_off:
@@ -5627,7 +5144,12 @@ error_ctrl_clk_off:
 	(void)dsi_display_clk_ctrl(display->dsi_clk_handle,
 			DSI_CORE_CLK, DSI_CLK_OFF);
 error_panel_post_unprep:
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+	if (!display->panel->lp11_init)
+		(void)dsi_panel_post_unprepare(display->panel);
+#else
 	(void)dsi_panel_post_unprepare(display->panel);
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 error:
 	mutex_unlock(&display->display_lock);
 	return rc;
@@ -5747,7 +5269,6 @@ int dsi_display_pre_kickoff(struct dsi_display *display,
 		struct msm_display_kickoff_params *params)
 {
 	int rc = 0;
-	int i;
 
 	/* check and setup MISR */
 	if (display->misr_enable)
@@ -5755,40 +5276,19 @@ int dsi_display_pre_kickoff(struct dsi_display *display,
 
 	rc = dsi_display_set_roi(display, params->rois);
 
-	/* dynamic DSI clock setting */
-	if (atomic_read(&display->clkrate_change_pending)) {
-		mutex_lock(&display->display_lock);
-		/*
-		 * acquire panel_lock to make sure no commands are in progress
-		 */
-		dsi_panel_acquire_panel_lock(display->panel);
-
-		/*
-		 * Wait for DSI command engine not to be busy sending data
-		 * from display engine.
-		 * If waiting fails, return "rc" instead of below "ret" so as
-		 * not to impact DRM commit. The clock updating would be
-		 * deferred to the next DRM commit.
-		 */
-		for (i = 0; i < display->ctrl_count; i++) {
-			struct dsi_ctrl *ctrl = display->ctrl[i].ctrl;
-			int ret = 0;
-
-			ret = dsi_ctrl_wait_for_cmd_mode_mdp_idle(ctrl);
-			if (ret)
-				goto wait_failure;
-		}
-
-		/*
-		 * Don't check the return value so as not to impact DRM commit
-		 * when error occurs.
-		 */
-		(void)dsi_display_force_update_dsi_clk(display);
-wait_failure:
-		/* release panel_lock */
-		dsi_panel_release_panel_lock(display->panel);
-		mutex_unlock(&display->display_lock);
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+	if (display->mode_switch_state == DSI_DISPLAY_MODE_SWITCH_SKIP2) {
+		display->mode_switch_state = DSI_DISPLAY_MODE_SWITCH_SKIP;
+	} else if (display->mode_switch_state == DSI_DISPLAY_MODE_SWITCH_SKIP) {
+		display->mode_switch_state = DSI_DISPLAY_MODE_SWITCH_SEND;
+	} else if (display->mode_switch_state == DSI_DISPLAY_MODE_SWITCH_SEND) {
+		rc = dsi_panel_switch(display->panel);
+		if (rc)
+			pr_err("[%s] failed to switch DSI panel mode, rc=%d\n",
+				   display->name, rc);
+		display->mode_switch_state = DSI_DISPLAY_MODE_SWITCH_NONE;
 	}
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 
 	return rc;
 }
@@ -5864,6 +5364,11 @@ int dsi_display_enable(struct dsi_display *display)
 
 		display->panel->panel_initialized = true;
 		pr_debug("cont splash enabled, display enable not required\n");
+
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+		rc = dsi_panel_driver_enable(display->panel);
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
+
 		return 0;
 	}
 
@@ -5872,12 +5377,14 @@ int dsi_display_enable(struct dsi_display *display)
 	mode = display->panel->cur_mode;
 
 	if (mode->dsi_mode_flags & DSI_MODE_FLAG_DMS) {
+#ifndef CONFIG_DRM_SDE_SPECIFIC_PANEL
 		rc = dsi_panel_post_switch(display->panel);
 		if (rc) {
 			pr_err("[%s] failed to switch DSI panel mode, rc=%d\n",
 				   display->name, rc);
 			goto error;
 		}
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 	} else {
 		rc = dsi_panel_enable(display->panel);
 		if (rc) {
@@ -5888,22 +5395,38 @@ int dsi_display_enable(struct dsi_display *display)
 	}
 
 	if (mode->priv_info->dsc_enabled) {
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+		mode->priv_info->dsc.pic_width = mode->timing.h_active * display->ctrl_count;
+#else
 		mode->priv_info->dsc.pic_width *= display->ctrl_count;
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 		rc = dsi_panel_update_pps(display->panel);
 		if (rc) {
 			pr_err("[%s] panel pps cmd update failed, rc=%d\n",
 				display->name, rc);
 			goto error;
 		}
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+		display->mode_switch_state = DSI_DISPLAY_MODE_SWITCH_SKIP2;
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 	}
 
 	if (mode->dsi_mode_flags & DSI_MODE_FLAG_DMS) {
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+		rc = dsi_panel_post_switch(display->panel);
+		if (rc) {
+			pr_err("[%s] failed to switch DSI panel mode, rc=%d\n",
+				   display->name, rc);
+			goto error;
+		}
+#else
 		rc = dsi_panel_switch(display->panel);
 		if (rc)
 			pr_err("[%s] failed to switch DSI panel mode, rc=%d\n",
 				   display->name, rc);
 
 		goto error;
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 	}
 
 	if (display->config.panel_mode == DSI_OP_VIDEO_MODE) {
@@ -5914,12 +5437,23 @@ int dsi_display_enable(struct dsi_display *display)
 			goto error_disable_panel;
 		}
 	} else if (display->config.panel_mode == DSI_OP_CMD_MODE) {
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+		if (!(mode->dsi_mode_flags & DSI_MODE_FLAG_DMS)) {
+			rc = dsi_display_cmd_engine_enable(display);
+			if (rc) {
+				pr_err("[%s]failed to enable DSI cmd engine, rc=%d\n",
+				       display->name, rc);
+				goto error_disable_panel;
+			}
+		}
+#else
 		rc = dsi_display_cmd_engine_enable(display);
 		if (rc) {
 			pr_err("[%s]failed to enable DSI cmd engine, rc=%d\n",
 			       display->name, rc);
 			goto error_disable_panel;
 		}
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 	} else {
 		pr_err("[%s] Invalid configuration\n", display->name);
 		rc = -EINVAL;
@@ -5946,10 +5480,19 @@ int dsi_display_post_enable(struct dsi_display *display)
 
 	mutex_lock(&display->display_lock);
 
+#ifdef CONFIG_DRM_SDE_SPECIFIC_PANEL
+	if (!display->panel->spec_pdata->display_onoff_state) {
+		rc = dsi_panel_post_enable(display->panel);
+		if (rc)
+			pr_err("[%s] panel post-enable failed, rc=%d\n",
+				display->name, rc);
+	}
+#else
 	rc = dsi_panel_post_enable(display->panel);
 	if (rc)
 		pr_err("[%s] panel post-enable failed, rc=%d\n",
 		       display->name, rc);
+#endif /* CONFIG_DRM_SDE_SPECIFIC_PANEL */
 
 	/* remove the clk vote for CMD mode panels */
 	if (display->config.panel_mode == DSI_OP_CMD_MODE)

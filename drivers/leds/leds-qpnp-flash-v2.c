@@ -1,4 +1,4 @@
-/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -8,6 +8,11 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
+ */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
  */
 
 #define pr_fmt(fmt)	"flashv2: %s: " fmt, __func__
@@ -99,8 +104,11 @@
 
 #define	VPH_DROOP_DEBOUNCE_US_TO_VAL(val_us)	(val_us / 8)
 #define	VPH_DROOP_HYST_MV_TO_VAL(val_mv)	(val_mv / 25)
+#define	VPH_DROOP_THRESH_MV_TO_VAL(val_mv)	((val_mv / 100) - 25)
 #define	VPH_DROOP_THRESH_VAL_TO_UV(val)		((val + 25) * 100000)
 #define	MITIGATION_THRSH_MA_TO_VAL(val_ma)	(val_ma / 100)
+#define	CURRENT_MA_TO_REG_VAL(curr_ma, ires_ua)	((curr_ma * 1000) / ires_ua - 1)
+#define	SAFETY_TMR_TO_REG_VAL(duration_ms)	((duration_ms / 10) - 1)
 #define	THERMAL_HYST_TEMP_TO_VAL(val, divisor)	(val / divisor)
 
 #define	FLASH_LED_ISC_WARMUP_DELAY_SHIFT	6
@@ -171,7 +179,6 @@ enum flash_charger_mitigation {
 };
 
 enum flash_led_type {
-	FLASH_LED_TYPE_UNKNOWN,
 	FLASH_LED_TYPE_FLASH,
 	FLASH_LED_TYPE_TORCH,
 };
@@ -204,14 +211,15 @@ struct flash_node_data {
 	int				current_ma;
 	int				prev_current_ma;
 	u8				duration;
+	int				duration_ms;
 	u8				id;
+	u8				type;
 	u8				ires_idx;
 	u8				default_ires_idx;
 	u8				hdrm_val;
 	u8				current_reg_val;
 	u8				strobe_ctrl;
 	u8				strobe_sel;
-	enum flash_led_type		type;
 	bool				led_on;
 };
 
@@ -226,7 +234,6 @@ struct flash_switch_data {
 	int				led_mask;
 	bool				regulator_on;
 	bool				enabled;
-	bool				symmetry_en;
 };
 
 /*
@@ -315,14 +322,6 @@ static int max_ires_curr_ma_table[MAX_IRES_LEVELS] = {
 	FLASH_LED_IRES12P5_MAX_CURR_MA, FLASH_LED_IRES10P0_MAX_CURR_MA,
 	FLASH_LED_IRES7P5_MAX_CURR_MA, FLASH_LED_IRES5P0_MAX_CURR_MA
 };
-
-static inline int get_current_reg_code(int target_curr_ma, int ires_ua)
-{
-	if (!ires_ua || !target_curr_ma || (target_curr_ma < (ires_ua / 1000)))
-		return 0;
-
-	return DIV_ROUND_UP(target_curr_ma * 1000, ires_ua) - 1;
-}
 
 static int qpnp_flash_led_read(struct qpnp_flash_led *led, u16 addr, u8 *data)
 {
@@ -549,7 +548,7 @@ static int qpnp_flash_led_init_settings(struct qpnp_flash_led *led)
 		return rc;
 
 	if (led->pdata->led1n2_iclamp_low_ma) {
-		val = get_current_reg_code(led->pdata->led1n2_iclamp_low_ma,
+		val = CURRENT_MA_TO_REG_VAL(led->pdata->led1n2_iclamp_low_ma,
 						led->fnode[LED1].ires_ua);
 		rc = qpnp_flash_led_masked_write(led,
 				FLASH_LED_REG_LED1N2_ICLAMP_LOW(led->base),
@@ -559,7 +558,7 @@ static int qpnp_flash_led_init_settings(struct qpnp_flash_led *led)
 	}
 
 	if (led->pdata->led1n2_iclamp_mid_ma) {
-		val = get_current_reg_code(led->pdata->led1n2_iclamp_mid_ma,
+		val = CURRENT_MA_TO_REG_VAL(led->pdata->led1n2_iclamp_mid_ma,
 						led->fnode[LED1].ires_ua);
 		rc = qpnp_flash_led_masked_write(led,
 				FLASH_LED_REG_LED1N2_ICLAMP_MID(led->base),
@@ -569,7 +568,7 @@ static int qpnp_flash_led_init_settings(struct qpnp_flash_led *led)
 	}
 
 	if (led->pdata->led3_iclamp_low_ma) {
-		val = get_current_reg_code(led->pdata->led3_iclamp_low_ma,
+		val = CURRENT_MA_TO_REG_VAL(led->pdata->led3_iclamp_low_ma,
 						led->fnode[LED3].ires_ua);
 		rc = qpnp_flash_led_masked_write(led,
 				FLASH_LED_REG_LED3_ICLAMP_LOW(led->base),
@@ -579,7 +578,7 @@ static int qpnp_flash_led_init_settings(struct qpnp_flash_led *led)
 	}
 
 	if (led->pdata->led3_iclamp_mid_ma) {
-		val = get_current_reg_code(led->pdata->led3_iclamp_mid_ma,
+		val = CURRENT_MA_TO_REG_VAL(led->pdata->led3_iclamp_mid_ma,
 						led->fnode[LED3].ires_ua);
 		rc = qpnp_flash_led_masked_write(led,
 				FLASH_LED_REG_LED3_ICLAMP_MID(led->base),
@@ -999,10 +998,9 @@ static void qpnp_flash_led_node_set(struct flash_node_data *fnode, int value)
 	}
 	fnode->current_ma = prgm_current_ma;
 	fnode->cdev.brightness = prgm_current_ma;
-	fnode->current_reg_val = get_current_reg_code(prgm_current_ma,
+	fnode->current_reg_val = CURRENT_MA_TO_REG_VAL(prgm_current_ma,
 					fnode->ires_ua);
-	if (prgm_current_ma)
-		fnode->led_on = true;
+	fnode->led_on = prgm_current_ma != 0;
 
 	if (led->pdata->chgr_mitigation_sel == FLASH_SW_CHARGER_MITIGATION) {
 		qpnp_flash_led_aggregate_max_current(fnode);
@@ -1094,71 +1092,6 @@ static int qpnp_flash_led_switch_disable(struct flash_switch_data *snode)
 	return 0;
 }
 
-static int qpnp_flash_led_symmetry_config(struct flash_switch_data *snode)
-{
-	struct qpnp_flash_led *led = dev_get_drvdata(&snode->pdev->dev);
-	int i, total_curr_ma = 0, num_leds = 0, prgm_current_ma;
-	enum flash_led_type type = FLASH_LED_TYPE_UNKNOWN;
-
-	for (i = 0; i < led->num_fnodes; i++) {
-		if (snode->led_mask & BIT(led->fnode[i].id)) {
-			if (led->fnode[i].type == FLASH_LED_TYPE_FLASH &&
-				led->fnode[i].led_on)
-				type = FLASH_LED_TYPE_FLASH;
-
-			if (led->fnode[i].type == FLASH_LED_TYPE_TORCH &&
-				led->fnode[i].led_on)
-				type = FLASH_LED_TYPE_TORCH;
-		}
-	}
-
-	if (type == FLASH_LED_TYPE_UNKNOWN) {
-		pr_err("Incorrect type possibly because of no active LEDs\n");
-		return -EINVAL;
-	}
-
-	for (i = 0; i < led->num_fnodes; i++) {
-		if ((snode->led_mask & BIT(led->fnode[i].id)) &&
-			(led->fnode[i].type == type)) {
-			total_curr_ma += led->fnode[i].current_ma;
-			num_leds++;
-		}
-	}
-
-	if (num_leds > 0 && total_curr_ma > 0) {
-		prgm_current_ma = total_curr_ma / num_leds;
-	} else {
-		pr_err("Incorrect configuration, num_leds: %d total_curr_ma: %d\n",
-			num_leds, total_curr_ma);
-		return -EINVAL;
-	}
-
-	if (prgm_current_ma == 0) {
-		pr_warn("prgm_curr_ma cannot be 0\n");
-		return 0;
-	}
-
-	pr_debug("num_leds: %d total: %d prgm_curr_ma: %d\n", num_leds,
-		total_curr_ma, prgm_current_ma);
-
-	for (i = 0; i < led->num_fnodes; i++) {
-		if (snode->led_mask & BIT(led->fnode[i].id) &&
-			led->fnode[i].current_ma != prgm_current_ma &&
-			led->fnode[i].type == type) {
-			qpnp_flash_led_node_set(&led->fnode[i],
-				prgm_current_ma);
-			pr_debug("%s LED %d current: %d code: %d ires_ua: %d\n",
-				(type == FLASH_LED_TYPE_FLASH) ?
-					"flash" : "torch",
-				led->fnode[i].id, prgm_current_ma,
-				led->fnode[i].current_reg_val,
-				led->fnode[i].ires_ua);
-		}
-	}
-
-	return 0;
-}
-
 static int qpnp_flash_led_switch_set(struct flash_switch_data *snode, bool on)
 {
 	struct qpnp_flash_led *led = dev_get_drvdata(&snode->pdev->dev);
@@ -1176,16 +1109,7 @@ static int qpnp_flash_led_switch_set(struct flash_switch_data *snode, bool on)
 		return rc;
 	}
 
-	/* Iterate over all active leds for this switch node */
-	if (snode->symmetry_en) {
-		rc = qpnp_flash_led_symmetry_config(snode);
-		if (rc < 0) {
-			pr_err("Failed to configure current symmetrically, rc=%d\n",
-				rc);
-			return rc;
-		}
-	}
-
+	/* Iterate over all leds for this switch node */
 	val = 0;
 	for (i = 0; i < led->num_fnodes; i++)
 		if (led->fnode[i].led_on &&
@@ -1405,9 +1329,149 @@ static ssize_t qpnp_flash_led_max_current_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d\n", max_current);
 }
 
+/* sysfs show function for flash_led_fault_status */
+static ssize_t qpnp_flash_led_fault_status_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	struct flash_switch_data *snode;
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+	struct qpnp_flash_led *led;
+	int rc;
+	uint val;
+
+	snode = container_of(led_cdev, struct flash_switch_data, cdev);
+	led = dev_get_drvdata(&snode->pdev->dev);
+
+	rc = regmap_read(led->regmap,
+			FLASH_LED_REG_LED_STATUS1(led->base), &val);
+	if (rc) {
+		pr_err("Unable to read fault status rc(%d)\n", rc);
+		return rc;
+	}
+	return scnprintf(buf, PAGE_SIZE, "%d\n", val);
+}
+
+/* sysfs store function for flash strobe */
+static ssize_t qpnp_flash_led_strobe_type_store(struct device *dev,
+			struct device_attribute *attr,
+			const char *buf, size_t count)
+{
+	struct flash_node_data *fnode;
+	unsigned long state;
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+	ssize_t ret = -EINVAL;
+
+	ret = kstrtoul(buf, 10, &state);
+	if (ret)
+		return ret;
+
+	fnode = container_of(led_cdev, struct flash_node_data, cdev);
+
+	/* '0' for sw strobe; '1' for hw strobe */
+	if (state == 1)
+		fnode->strobe_ctrl |= FLASH_LED_HW_SW_STROBE_SEL_BIT;
+	else
+		fnode->strobe_ctrl &= ~FLASH_LED_HW_SW_STROBE_SEL_BIT;
+
+	return count;
+}
+
+/* sysfs show function for flash duration */
+static ssize_t qpnp_flash_led_duration_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	struct qpnp_flash_led *led;
+	struct flash_node_data *flash_node;
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+
+	flash_node = container_of(led_cdev, struct flash_node_data, cdev);
+	led = dev_get_drvdata(&flash_node->pdev->dev);
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n", flash_node->duration_ms);
+}
+
+/* sysfs store function for flash duration */
+static ssize_t qpnp_flash_led_duration_store(struct device *dev,
+			struct device_attribute *attr,
+			const char *buf, size_t count)
+{
+	struct qpnp_flash_led *led;
+	struct flash_node_data *flash_node;
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+	ssize_t ret;
+	unsigned long state;
+
+	flash_node = container_of(led_cdev, struct flash_node_data, cdev);
+	led = dev_get_drvdata(&flash_node->pdev->dev);
+
+	ret = kstrtoul(buf, 10, &state);
+	if (ret)
+		return ret;
+
+	flash_node->duration_ms = state;
+	flash_node->duration = (u8)(SAFETY_TMR_TO_REG_VAL(flash_node->duration_ms) |
+					FLASH_LED_SAFETY_TMR_ENABLE);
+
+	return count;
+}
+
+/* sysfs show function for flash ires_ua */
+static ssize_t qpnp_flash_led_ires_ua_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	struct qpnp_flash_led *led;
+	struct flash_node_data *flash_node;
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+
+	flash_node = container_of(led_cdev, struct flash_node_data, cdev);
+	led = dev_get_drvdata(&flash_node->pdev->dev);
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n", flash_node->ires_ua);
+}
+
+/* sysfs store function for flash ires_ua */
+static ssize_t qpnp_flash_led_ires_ua_store(struct device *dev,
+			struct device_attribute *attr,
+			const char *buf, size_t count)
+{
+	struct qpnp_flash_led *led;
+	struct flash_node_data *flash_node;
+	struct led_classdev *led_cdev = dev_get_drvdata(dev);
+	ssize_t ret;
+	unsigned long state;
+
+	flash_node = container_of(led_cdev, struct flash_node_data, cdev);
+	led = dev_get_drvdata(&flash_node->pdev->dev);
+
+	ret = kstrtoul(buf, 10, &state);
+	if (ret)
+		return ret;
+
+	flash_node->default_ires_ua = flash_node->ires_ua = state;
+	flash_node->default_ires_idx = flash_node->ires_idx = FLASH_LED_IRES_BASE -
+			(flash_node->ires_ua - FLASH_LED_IRES_MIN_UA) / FLASH_LED_IRES_DIVISOR;
+
+	return count;
+}
+
 /* sysfs attributes exported by flash_led */
 static struct device_attribute qpnp_flash_led_attrs[] = {
 	__ATTR(max_current, 0664, qpnp_flash_led_max_current_show, NULL),
+	__ATTR(fault_status, S_IRUSR | S_IRGRP,
+				qpnp_flash_led_fault_status_show,
+				NULL),
+};
+
+static struct device_attribute qpnp_flash_fnode_attrs[] = {
+	__ATTR(strobe, (S_IRUGO | S_IWUSR | S_IWGRP),
+				NULL,
+				qpnp_flash_led_strobe_type_store),
+	__ATTR(duration, (S_IRUGO | S_IWUSR | S_IWGRP),
+				qpnp_flash_led_duration_show,
+				qpnp_flash_led_duration_store),
+	__ATTR(ires_ua, (S_IRUGO | S_IWUSR | S_IWGRP),
+				qpnp_flash_led_ires_ua_show,
+				qpnp_flash_led_ires_ua_store),
 };
 
 static int flash_led_psy_notifier_call(struct notifier_block *nb,
@@ -1513,22 +1577,6 @@ int qpnp_flash_led_unregister_irq_notifier(struct notifier_block *nb)
 	return atomic_notifier_chain_unregister(&irq_notifier_list, nb);
 }
 
-static inline u8 get_safety_timer_code(u32 duration_ms)
-{
-	if (!duration_ms)
-		return 0;
-
-	return (duration_ms / 10) - 1;
-}
-
-static inline u8 get_vph_droop_thresh_code(u32 val_mv)
-{
-	if (!val_mv)
-		return 0;
-
-	return (val_mv / 100) - 25;
-}
-
 static int qpnp_flash_led_parse_each_led_dt(struct qpnp_flash_led *led,
 			struct flash_node_data *fnode, struct device_node *node)
 {
@@ -1620,9 +1668,9 @@ static int qpnp_flash_led_parse_each_led_dt(struct qpnp_flash_led *led,
 	fnode->duration = FLASH_LED_SAFETY_TMR_DISABLED;
 	rc = of_property_read_u32(node, "qcom,duration-ms", &val);
 	if (!rc) {
-		fnode->duration = get_safety_timer_code(val);
-		if (fnode->duration)
-			fnode->duration |= FLASH_LED_SAFETY_TMR_ENABLE;
+		fnode->duration_ms = val;
+		fnode->duration = (u8)(SAFETY_TMR_TO_REG_VAL(val) |
+					FLASH_LED_SAFETY_TMR_ENABLE);
 	} else if (rc == -EINVAL) {
 		if (fnode->type == FLASH_LED_TYPE_FLASH) {
 			pr_err("Timer duration is required for flash LED\n");
@@ -1693,7 +1741,7 @@ static int qpnp_flash_led_parse_each_led_dt(struct qpnp_flash_led *led,
 						"qcom,hw-strobe-edge-trigger");
 		active_high = !of_property_read_bool(node,
 						"qcom,hw-strobe-active-low");
-		hw_strobe = 1;
+		hw_strobe = !of_property_read_bool(node, "somc,sw-strobe-init");
 	} else if (fnode->strobe_sel == LPG_STROBE) {
 		/* LPG strobe requires level trigger and active high */
 		edge_trigger = 0;
@@ -1783,8 +1831,6 @@ static int qpnp_flash_led_parse_and_register_switch(struct qpnp_flash_led *led,
 		pr_err("Unable to read led mask rc=%d\n", rc);
 		return rc;
 	}
-
-	snode->symmetry_en = of_property_read_bool(node, "qcom,symmetry-en");
 
 	if (snode->led_mask < 1 || snode->led_mask > 7) {
 		pr_err("Invalid value for led-mask\n");
@@ -2070,7 +2116,7 @@ static int qpnp_flash_led_parse_common_dt(struct qpnp_flash_led *led,
 	rc = of_property_read_u32(node, "qcom,vph-droop-threshold-mv", &val);
 	if (!rc) {
 		led->pdata->vph_droop_threshold =
-			get_vph_droop_thresh_code(val);
+			VPH_DROOP_THRESH_MV_TO_VAL(val);
 	} else if (rc != -EINVAL) {
 		pr_err("Unable to read VPH droop threshold, rc=%d\n", rc);
 		return rc;
@@ -2257,6 +2303,29 @@ static int qpnp_flash_led_parse_common_dt(struct qpnp_flash_led *led,
 	return 0;
 }
 
+static int qpnp_flash_led_init_strobe_settings(struct qpnp_flash_led *led)
+{
+	int rc = 0, i, addr_offset;
+
+	rc = qpnp_flash_led_masked_write(led,
+					FLASH_LED_REG_STROBE_CFG(led->base),
+					FLASH_LED_STROBE_MASK,
+					led->pdata->hw_strobe_option);
+	if (rc < 0)
+		return rc;
+
+	for (i = 0; i < led->num_fnodes; i++) {
+		addr_offset = led->fnode[i].id;
+		rc = qpnp_flash_led_masked_write(led,
+			FLASH_LED_REG_STROBE_CTRL(led->base + addr_offset),
+			FLASH_LED_STROBE_MASK, led->fnode[i].strobe_ctrl);
+		if (rc < 0)
+			return rc;
+	}
+
+	return rc;
+}
+
 static int qpnp_flash_led_probe(struct platform_device *pdev)
 {
 	struct qpnp_flash_led *led;
@@ -2426,6 +2495,23 @@ static int qpnp_flash_led_probe(struct platform_device *pdev)
 		goto unreg_notifier;
 	}
 
+	rc = qpnp_flash_led_init_strobe_settings(led);
+	if (rc < 0) {
+		pr_err("Failed to initialize flash strobe, rc=%d\n", rc);
+		goto unreg_notifier;
+	}
+
+	for (i = 0; i < led->num_fnodes; i++) {
+		for (j = 0; j < ARRAY_SIZE(qpnp_flash_fnode_attrs); j++) {
+			rc = sysfs_create_file(&led->fnode[i].cdev.dev->kobj,
+					&qpnp_flash_fnode_attrs[j].attr);
+			if (rc < 0) {
+				pr_err("sysfs creation failed, rc=%d\n", rc);
+				goto sysfs_fnode_fail;
+			}
+		}
+	}
+
 	for (i = 0; i < led->num_snodes; i++) {
 		for (j = 0; j < ARRAY_SIZE(qpnp_flash_led_attrs); j++) {
 			rc = sysfs_create_file(&led->snode[i].cdev.dev->kobj,
@@ -2443,6 +2529,16 @@ static int qpnp_flash_led_probe(struct platform_device *pdev)
 
 	return 0;
 
+sysfs_fnode_fail:
+	for (--j; j >= 0; j--)
+		sysfs_remove_file(&led->fnode[i].cdev.dev->kobj,
+				&qpnp_flash_fnode_attrs[j].attr);
+
+	for (--i; i >= 0; i--) {
+		for (j = 0; j < ARRAY_SIZE(qpnp_flash_fnode_attrs); j++)
+			sysfs_remove_file(&led->fnode[i].cdev.dev->kobj,
+					&qpnp_flash_fnode_attrs[j].attr);
+	}
 sysfs_fail:
 	for (--j; j >= 0; j--)
 		sysfs_remove_file(&led->snode[i].cdev.dev->kobj,
@@ -2487,6 +2583,13 @@ static int qpnp_flash_led_remove(struct platform_device *pdev)
 		led_classdev_unregister(&led->snode[--i].cdev);
 
 	i = led->num_fnodes;
+
+	for (i = 0; i < led->num_fnodes; i++) {
+		for (j = 0; j < ARRAY_SIZE(qpnp_flash_fnode_attrs); j++)
+			sysfs_remove_file(&led->fnode[i].cdev.dev->kobj,
+					&qpnp_flash_fnode_attrs[j].attr);
+	}
+
 	while (i > 0)
 		led_classdev_unregister(&led->fnode[--i].cdev);
 

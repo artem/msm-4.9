@@ -1,3 +1,8 @@
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 #ifndef _LINUX_SCHED_H
 #define _LINUX_SCHED_H
 
@@ -1768,7 +1773,6 @@ struct task_struct {
 	struct sched_entity se;
 	struct sched_rt_entity rt;
 	u64 last_sleep_ts;
-	u64 last_cpu_selected_ts;
 #ifdef CONFIG_SCHED_WALT
 	struct ravg ravg;
 	/*
@@ -1778,7 +1782,7 @@ struct task_struct {
 	u32 init_load_pct;
 	u64 last_wake_ts;
 	u64 last_switch_out_ts;
-	u64 last_enqueued_ts;
+	u64 last_cpu_selected_ts;
 	struct related_thread_group *grp;
 	struct list_head grp_list;
 	u64 cpu_cycles;
@@ -2566,6 +2570,8 @@ extern void thread_group_cputime_adjusted(struct task_struct *p, cputime_t *ut, 
 #define PF_KTHREAD	0x00200000	/* I am a kernel thread */
 #define PF_RANDOMIZE	0x00400000	/* randomize virtual address space */
 #define PF_SWAPWRITE	0x00800000	/* Allowed to write to swap */
+#define PF_MIGRATE_ED_TASK 0x01000000  /* early detection task migration */
+#define PF_MIGRATE_CUM_ADJ_TASK 0x02000000     /* cumulative task adjustment should be done */
 #define PF_NO_SETAFFINITY 0x04000000	/* Userland is not allowed to meddle with cpus_allowed */
 #define PF_MCE_EARLY    0x08000000      /* Early kill for mce process policy */
 #define PF_MUTEX_TESTER	0x20000000	/* Thread belongs to the rt mutex tester */

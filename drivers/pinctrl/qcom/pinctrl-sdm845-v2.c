@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -9,6 +9,11 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
+ */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
  */
 
 #include <linux/module.h>
@@ -1681,7 +1686,7 @@ static const struct msm_pingroup sdm845_groups[] = {
 	[153] = UFS_RESET(ufs_reset, 0x99f000),
 };
 
-static struct msm_dir_conn sdm845_dir_conn[] = {
+static const struct msm_dir_conn sdm845_dir_conn[] = {
 	{1, 510},
 	{3, 511},
 	{5, 512},
@@ -1689,7 +1694,7 @@ static struct msm_dir_conn sdm845_dir_conn[] = {
 	{11, 514},
 	{20, 515},
 	{22, 516},
-	{24, 517},
+	/* {24, 517}, */
 	{26, 518},
 	{30, 519},
 	{31, 632},
@@ -1739,6 +1744,7 @@ static struct msm_dir_conn sdm845_dir_conn[] = {
 	{101, 564},
 	{103, 565},
 	{104, 566},
+	{112, 568},
 	{115, 570},
 	{116, 571},
 	{117, 572},

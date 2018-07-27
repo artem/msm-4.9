@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -9,6 +9,11 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
+ */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
  */
 
 #ifndef __WALT_H
@@ -40,6 +45,7 @@ extern unsigned int max_possible_efficiency;
 extern unsigned int min_possible_efficiency;
 extern unsigned int max_possible_freq;
 extern unsigned int sched_major_task_runtime;
+extern unsigned int __read_mostly sched_init_task_load_windows;
 extern unsigned int __read_mostly sched_load_granule;
 
 extern struct mutex cluster_lock;
@@ -57,6 +63,7 @@ extern void update_task_ravg(struct task_struct *p, struct rq *rq, int event,
 						u64 wallclock, u64 irqtime);
 
 extern unsigned int nr_eligible_big_tasks(int cpu);
+extern u64 walt_get_prev_group_run_sum(struct rq *rq);
 
 static inline void
 inc_nr_big_task(struct walt_sched_stats *stats, struct task_struct *p)
@@ -150,6 +157,10 @@ extern void fixup_walt_sched_stats_common(struct rq *rq, struct task_struct *p,
 extern void inc_rq_walt_stats(struct rq *rq, struct task_struct *p);
 extern void dec_rq_walt_stats(struct rq *rq, struct task_struct *p);
 extern void fixup_busy_time(struct task_struct *p, int new_cpu);
+extern void walt_prepare_migrate(struct task_struct *p,
+					int src_cpu, int new_cpu, bool locked);
+extern void walt_finish_migrate(struct task_struct *p,
+					int src_cpu, int new_cpu, bool locked);
 extern void init_new_task_load(struct task_struct *p, bool idle_task);
 extern void mark_task_starting(struct task_struct *p);
 extern void set_window_start(struct rq *rq);
@@ -290,20 +301,9 @@ static inline int walt_start_cpu(int prev_cpu)
 	return sysctl_sched_is_big_little ? prev_cpu : min_power_cpu;
 }
 
-static inline void walt_update_last_enqueue(struct task_struct *p)
-{
-	p->last_enqueued_ts = ktime_get_ns();
-}
-extern void walt_rotate_work_init(void);
-extern void walt_rotation_checkpoint(int nr_big);
-extern unsigned int walt_rotation_enabled;
-
 #else /* CONFIG_SCHED_WALT */
 
 static inline void walt_sched_init(struct rq *rq) { }
-static inline void walt_rotate_work_init(void) { }
-static inline void walt_rotation_checkpoint(int nr_big) { }
-static inline void walt_update_last_enqueue(struct task_struct *p) { }
 
 static inline void update_task_ravg(struct task_struct *p, struct rq *rq,
 				int event, u64 wallclock, u64 irqtime) { }
@@ -313,6 +313,11 @@ static inline void walt_inc_cumulative_runnable_avg(struct rq *rq,
 }
 
 static inline unsigned int nr_eligible_big_tasks(int cpu)
+{
+	return 0;
+}
+
+static inline u64 walt_get_prev_group_run_sum(struct rq *rq)
 {
 	return 0;
 }
@@ -337,6 +342,10 @@ static inline void walt_dec_cumulative_runnable_avg(struct rq *rq,
 }
 
 static inline void fixup_busy_time(struct task_struct *p, int new_cpu) { }
+static inline void walt_prepare_migrate(struct task_struct *p,
+		int src_cpu, int new_cpu, bool locked) { }
+static inline void walt_finish_migrate(struct task_struct *p,
+		int src_cpu, int new_cpu, bool locked) { }
 static inline void init_new_task_load(struct task_struct *p, bool idle_task)
 {
 }

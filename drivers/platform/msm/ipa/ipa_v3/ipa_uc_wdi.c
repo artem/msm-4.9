@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -16,7 +16,6 @@
 #include "ipa_qmi_service.h"
 
 #define IPA_HOLB_TMR_DIS 0x0
-#define IPA_HOLB_TMR_EN 0x1
 
 #define IPA_HW_INTERFACE_WDI_VERSION 0x0001
 #define IPA_HW_WDI_RX_MBOX_START_INDEX 48
@@ -1210,6 +1209,8 @@ int ipa3_connect_wdi_pipe(struct ipa_wdi_in_params *in,
 		IPADBG("Skipping endpoint configuration.\n");
 	}
 
+	ipa3_enable_data_path(ipa_ep_idx);
+
 	out->clnt_hdl = ipa_ep_idx;
 
 	if (!ep->skip_ep_cfg && IPA_CLIENT_IS_PROD(in->sys.client))
@@ -1315,7 +1316,6 @@ int ipa3_enable_wdi_pipe(u32 clnt_hdl)
 	struct ipa3_ep_context *ep;
 	union IpaHwWdiCommonChCmdData_t enable;
 	struct ipa_ep_cfg_holb holb_cfg;
-	struct ipahal_reg_endp_init_rsrc_grp rsrc_grp;
 
 	if (clnt_hdl >= ipa3_ctx->ipa_num_pipes ||
 	    ipa3_ctx->ep[clnt_hdl].valid == 0) {
@@ -1347,20 +1347,6 @@ int ipa3_enable_wdi_pipe(u32 clnt_hdl)
 		result = -EFAULT;
 		goto uc_timeout;
 	}
-
-	/* Assign the resource group for pipe */
-	memset(&rsrc_grp, 0, sizeof(rsrc_grp));
-	rsrc_grp.rsrc_grp = ipa_get_ep_group(ep->client);
-	if (rsrc_grp.rsrc_grp == -1) {
-		IPAERR("invalid group for client %d\n", ep->client);
-		WARN_ON(1);
-		return -EFAULT;
-	}
-
-	IPADBG("Setting group %d for pipe %d\n",
-		rsrc_grp.rsrc_grp, clnt_hdl);
-	ipahal_write_reg_n_fields(IPA_ENDP_INIT_RSRC_GRP_n, clnt_hdl,
-		&rsrc_grp);
 
 	if (IPA_CLIENT_IS_CONS(ep->client)) {
 		memset(&holb_cfg, 0, sizeof(holb_cfg));
@@ -1535,24 +1521,6 @@ uc_timeout:
 	return result;
 }
 
-static void ipa3_cfg_holb_wdi_consumer(bool is_enable)
-{
-	u32 clnt_hdl;
-	struct ipa_ep_cfg_holb holb_cfg;
-
-	clnt_hdl = ipa3_get_ep_mapping(IPA_CLIENT_WLAN1_CONS);
-	if (clnt_hdl < ipa3_ctx->ipa_num_pipes &&
-		ipa3_ctx->ep[clnt_hdl].valid == 1) {
-		memset(&holb_cfg, 0, sizeof(holb_cfg));
-		if (is_enable)
-			holb_cfg.en = IPA_HOLB_TMR_EN;
-		else
-			holb_cfg.en = IPA_HOLB_TMR_DIS;
-		holb_cfg.tmr_val = 0;
-		ipa3_cfg_ep_holb(clnt_hdl, &holb_cfg);
-	}
-}
-
 /**
  * ipa3_suspend_wdi_pipe() - WDI client suspend
  * @clnt_hdl:	[in] opaque client handle assigned by IPA to client
@@ -1619,9 +1587,6 @@ int ipa3_suspend_wdi_pipe(u32 clnt_hdl)
 			}
 		}
 
-		/* Enabling HOLB on WDI consumer pipe */
-		ipa3_cfg_holb_wdi_consumer(true);
-
 		IPADBG("Post suspend event first for IPA Producer\n");
 		IPADBG("Client: %d clnt_hdl: %d\n", ep->client, clnt_hdl);
 		result = ipa3_uc_send_cmd(suspend.raw32b,
@@ -1631,12 +1596,8 @@ int ipa3_suspend_wdi_pipe(u32 clnt_hdl)
 
 		if (result) {
 			result = -EFAULT;
-			/* Disabling HOLB on WDI consumer pipe */
-			ipa3_cfg_holb_wdi_consumer(false);
 			goto uc_timeout;
 		}
-		/* Disabling HOLB on WDI consumer pipe */
-		ipa3_cfg_holb_wdi_consumer(false);
 	}
 
 	memset(&ep_cfg_ctrl, 0, sizeof(struct ipa_ep_cfg_ctrl));

@@ -1391,7 +1391,7 @@ static ssize_t ffs_epfile_read_iter(struct kiocb *kiocb, struct iov_iter *to)
 		*to = p->data;
 	}
 
-	ffs_log("exit");
+	ffs_log("enter");
 
 	return res;
 }
@@ -3611,8 +3611,6 @@ static int ffs_func_set_alt(struct usb_function *f,
 	if (ffs->func) {
 		ffs_func_eps_disable(ffs->func);
 		ffs->func = NULL;
-		/* matching put to allow LPM on disconnect */
-		usb_gadget_autopm_put_async(ffs->gadget);
 	}
 
 	if (ffs->state == FFS_DEACTIVATED) {
@@ -3645,9 +3643,13 @@ static int ffs_func_set_alt(struct usb_function *f,
 
 static void ffs_func_disable(struct usb_function *f)
 {
+	struct ffs_function *func = ffs_func_from_usb(f);
+	struct ffs_data *ffs = func->ffs;
+
 	ffs_log("enter");
 	ffs_func_set_alt(f, 0, (unsigned)-1);
-
+	/* matching put to allow LPM on disconnect */
+	usb_gadget_autopm_put_async(ffs->gadget);
 	ffs_log("exit");
 }
 
@@ -3891,19 +3893,18 @@ static struct ffs_inst_status *name_to_inst_status(
 			return inst_status;
 	}
 
-	if (!create_inst)
+	if (create_inst) {
+		inst_status = kzalloc(sizeof(struct ffs_inst_status),
+						GFP_KERNEL);
+		if (!inst_status)
+			return ERR_PTR(-ENOMEM);
+
+		mutex_init(&inst_status->ffs_lock);
+		snprintf(inst_status->inst_name, INST_NAME_SIZE, inst_name);
+		list_add_tail(&inst_status->list, &inst_list);
+		return inst_status;
+	} else
 		return ERR_PTR(-ENODEV);
-
-	inst_status = kzalloc(sizeof(struct ffs_inst_status),
-					GFP_KERNEL);
-	if (!inst_status)
-		return ERR_PTR(-ENOMEM);
-
-	mutex_init(&inst_status->ffs_lock);
-	snprintf(inst_status->inst_name, INST_NAME_SIZE, inst_name);
-	list_add_tail(&inst_status->list, &inst_list);
-
-	return inst_status;
 }
 
 static int ffs_inst_exist_check(const char *inst_name)

@@ -1,3 +1,8 @@
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #include <linux/sched.h>
 #include <linux/sched/sysctl.h>
@@ -697,6 +702,7 @@ struct rq {
 #endif
 	#define CPU_LOAD_IDX_MAX 5
 	unsigned long cpu_load[CPU_LOAD_IDX_MAX];
+	unsigned int nr_pinned_tasks;
 	unsigned int misfit_task;
 #ifdef CONFIG_NO_HZ_COMMON
 #ifdef CONFIG_SMP
@@ -810,8 +816,6 @@ struct rq {
 	u8 curr_table;
 	int prev_top;
 	int curr_top;
-	u64 last_cc_update;
-	u64 cycles;
 #endif
 
 #ifdef CONFIG_IRQ_TIME_ACCOUNTING
@@ -935,8 +939,8 @@ enum numa_faults_stats {
 };
 extern void sched_setnuma(struct task_struct *p, int node);
 extern int migrate_task_to(struct task_struct *p, int cpu);
+extern int migrate_swap(struct task_struct *, struct task_struct *);
 #endif /* CONFIG_NUMA_BALANCING */
-extern int migrate_swap(struct task_struct *cur, struct task_struct *p);
 
 #ifdef CONFIG_SMP
 
@@ -1860,7 +1864,7 @@ cpu_util_freq_walt(int cpu, struct sched_walt_cpu_load *walt_load)
 		walt_load->prev_window_util = util;
 		walt_load->nl = nl;
 		walt_load->pl = pl;
-		walt_load->ws = rq->load_reported_window;
+		walt_load->ws = rq->window_start;
 	}
 
 	return (util >= capacity) ? capacity : util;
@@ -2229,6 +2233,7 @@ enum rq_nohz_flag_bits {
 
 #define nohz_flags(cpu)	(&cpu_rq(cpu)->nohz_flags)
 
+DECLARE_PER_CPU(atomic_t, claim_wake_up_cpu);
 extern void nohz_balance_exit_idle(unsigned int cpu);
 #else
 static inline void nohz_balance_exit_idle(unsigned int cpu) { }
@@ -2308,8 +2313,7 @@ static inline void cpufreq_update_util(struct rq *rq, unsigned int flags)
 		(rq->load_reported_window == rq->window_start) &&
 		!(flags & exception_flags))
 		return;
-	if (!(flags & exception_flags))
-		rq->load_reported_window = rq->window_start;
+	rq->load_reported_window = rq->window_start;
 #endif
 
 	data = rcu_dereference_sched(*per_cpu_ptr(&cpufreq_update_util_data,
@@ -2384,6 +2388,7 @@ extern unsigned int max_load_scale_factor;
 extern unsigned int max_possible_capacity;
 extern unsigned int min_max_possible_capacity;
 extern unsigned int max_power_cost;
+extern unsigned int sched_init_task_load_windows;
 extern unsigned int up_down_migrate_scale_factor;
 extern unsigned int sysctl_sched_restrict_cluster_spill;
 extern unsigned int sched_pred_alert_load;

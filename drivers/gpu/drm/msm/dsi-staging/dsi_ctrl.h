@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -97,7 +97,8 @@ struct dsi_ctrl_power_info {
 /**
  * struct dsi_ctrl_clk_info - clock information for DSI controller
  * @core_clks:          Core clocks needed to access DSI controller registers.
- * @link_clks:          Link clocks required to transmit data over DSI link.
+ * @hs_link_clks:       Clocks required to transmit high speed data over DSI
+ * @lp_link_clks:       Clocks required to perform low power ops over DSI
  * @rcg_clks:           Root clock generation clocks generated in MMSS_CC. The
  *			output of the PLL is set as parent for these root
  *			clocks. These clocks are specific to controller
@@ -111,7 +112,8 @@ struct dsi_ctrl_power_info {
 struct dsi_ctrl_clk_info {
 	/* Clocks parsed from DT */
 	struct dsi_core_clk_info core_clks;
-	struct dsi_link_clk_info link_clks;
+	struct dsi_link_hs_clk_info hs_link_clks;
+	struct dsi_link_lp_clk_info lp_link_clks;
 	struct dsi_clk_link_set rcg_clks;
 
 	/* Clocks set by DSI Manager */
@@ -547,16 +549,6 @@ int dsi_ctrl_set_cmd_engine_state(struct dsi_ctrl *dsi_ctrl,
 				  enum dsi_engine_state state);
 
 /**
- * dsi_ctrl_validate_host_state() - validate DSI ctrl host state
- * @dsi_ctrl:            DSI Controller handle.
- *
- * Validate DSI cotroller host state
- *
- * Return: boolean indicating whether host is not initalized.
- */
-bool dsi_ctrl_validate_host_state(struct dsi_ctrl *dsi_ctrl);
-
-/**
  * dsi_ctrl_set_vid_engine_state() - set video engine state
  * @dsi_ctrl:            DSI Controller handle.
  * @state:               Engine state.
@@ -721,13 +713,6 @@ int dsi_message_validate_tx_mode(struct dsi_ctrl *dsi_ctrl, u32 cmd_len,
 void dsi_ctrl_isr_configure(struct dsi_ctrl *dsi_ctrl, bool enable);
 
 /**
- * dsi_ctrl_mask_error_status_interrupts() - API to mask dsi ctrl error status
- *                                           interrupts
- * @dsi_ctrl:              DSI controller handle.
- */
-void dsi_ctrl_mask_error_status_interrupts(struct dsi_ctrl *dsi_ctrl);
-
-/**
  * dsi_ctrl_irq_update() - Put a irq vote to process DSI error
  *				interrupts at any time.
  * @dsi_ctrl:              DSI controller handle.
@@ -740,12 +725,5 @@ void dsi_ctrl_irq_update(struct dsi_ctrl *dsi_ctrl, bool enable);
  */
 int dsi_ctrl_get_host_engine_init_state(struct dsi_ctrl *dsi_ctrl,
 		bool *state);
-
-/**
- * dsi_ctrl_wait_for_cmd_mode_mdp_idle() - Wait for command mode engine not to
- *				     be busy sending data from display engine.
- * @dsi_ctrl:                     DSI controller handle.
- */
-int dsi_ctrl_wait_for_cmd_mode_mdp_idle(struct dsi_ctrl *dsi_ctrl);
 
 #endif /* _DSI_CTRL_H_ */

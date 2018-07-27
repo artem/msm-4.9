@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2017 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #include <linux/module.h>
 #include <linux/types.h>
@@ -646,10 +651,6 @@ int cam_mem_mgr_map(struct cam_mem_mgr_map_cmd *cmd)
 			CAM_SMMU_REGION_IO);
 		if (rc)
 			goto map_fail;
-	} else {
-		rc = ion_handle_get_size(tbl.client, ion_hdl, &len);
-		if (rc)
-			return rc;
 	}
 
 	idx = cam_mem_get_slot();

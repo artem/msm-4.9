@@ -544,14 +544,11 @@ struct arm_smmu_domain {
 	struct list_head		unassign_list;
 	struct mutex			assign_lock;
 	struct list_head		secure_pool_list;
-	/* nonsecure pool protected by pgtbl_lock */
-	struct list_head		nonsecure_pool;
 	struct iommu_domain		domain;
 
 	bool				qsmmuv500_errata1_init;
 	bool				qsmmuv500_errata1_client;
 	bool				qsmmuv500_errata2_min_align;
-	bool				is_force_guard_page;
 };
 
 static DEFINE_SPINLOCK(arm_smmu_devices_lock);
@@ -1325,19 +1322,8 @@ static void *arm_smmu_alloc_pages_exact(void *cookie,
 	void *page;
 	struct arm_smmu_domain *smmu_domain = cookie;
 
-	if (!arm_smmu_is_master_side_secure(smmu_domain)) {
-		struct page *pg;
-		/* size is expected to be 4K with current configuration */
-		if (size == PAGE_SIZE) {
-			pg = list_first_entry_or_null(
-				&smmu_domain->nonsecure_pool, struct page, lru);
-			if (pg) {
-				list_del_init(&pg->lru);
-				return page_address(pg);
-			}
-		}
+	if (!arm_smmu_is_master_side_secure(smmu_domain))
 		return alloc_pages_exact(size, gfp_mask);
-	}
 
 	page = arm_smmu_secure_pool_remove(smmu_domain, size);
 	if (page)
@@ -2081,7 +2067,6 @@ static struct iommu_domain *arm_smmu_domain_alloc(unsigned type)
 	INIT_LIST_HEAD(&smmu_domain->unassign_list);
 	mutex_init(&smmu_domain->assign_lock);
 	INIT_LIST_HEAD(&smmu_domain->secure_pool_list);
-	INIT_LIST_HEAD(&smmu_domain->nonsecure_pool);
 	arm_smmu_domain_reinit(smmu_domain);
 
 	return &smmu_domain->domain;
@@ -2434,50 +2419,6 @@ static int arm_smmu_prepare_pgtable(void *addr, void *cookie)
 	return 0;
 }
 
-static void arm_smmu_prealloc_memory(struct arm_smmu_domain *smmu_domain,
-					struct scatterlist *sgl, int nents,
-					struct list_head *pool)
-{
-	u32 nr = 0;
-	int i;
-	size_t size = 0;
-	struct scatterlist *sg;
-	struct page *page;
-
-	if ((smmu_domain->attributes & (1 << DOMAIN_ATTR_ATOMIC)) ||
-			arm_smmu_has_secure_vmid(smmu_domain))
-		return;
-
-	for_each_sg(sgl, sg, nents, i)
-		size += sg->length;
-
-	/* number of 2nd level pagetable entries */
-	nr += round_up(size, SZ_1G) >> 30;
-	/* number of 3rd level pagetabel entries */
-	nr += round_up(size, SZ_2M) >> 21;
-
-	/* Retry later with atomic allocation on error */
-	for (i = 0; i < nr; i++) {
-		page = alloc_pages(GFP_KERNEL | __GFP_ZERO, 0);
-		if (!page)
-			break;
-		list_add(&page->lru, pool);
-	}
-}
-
-static void arm_smmu_release_prealloc_memory(
-		struct arm_smmu_domain *smmu_domain, struct list_head *list)
-{
-	struct page *page, *tmp;
-	u32 remaining = 0;
-
-	list_for_each_entry_safe(page, tmp, list, lru) {
-		list_del(&page->lru);
-		__free_pages(page, 0);
-		remaining++;
-	}
-}
-
 static int arm_smmu_attach_dev(struct iommu_domain *domain, struct device *dev)
 {
 	int ret;
@@ -2635,12 +2576,10 @@ static size_t arm_smmu_map_sg(struct iommu_domain *domain, unsigned long iova,
 	unsigned int idx_start, idx_end;
 	struct scatterlist *sg_start, *sg_end;
 	unsigned long __saved_iova_start;
-	LIST_HEAD(nonsecure_pool);
 
 	if (!ops)
 		return -ENODEV;
 
-	arm_smmu_prealloc_memory(smmu_domain, sg, nents, &nonsecure_pool);
 	arm_smmu_secure_domain_lock(smmu_domain);
 
 	__saved_iova_start = iova;
@@ -2659,10 +2598,8 @@ static size_t arm_smmu_map_sg(struct iommu_domain *domain, unsigned long iova,
 		}
 
 		spin_lock_irqsave(&smmu_domain->pgtbl_lock, flags);
-		list_splice_init(&nonsecure_pool, &smmu_domain->nonsecure_pool);
 		ret = ops->map_sg(ops, iova, sg_start, idx_end - idx_start,
 				  prot, &size);
-		list_splice_init(&smmu_domain->nonsecure_pool, &nonsecure_pool);
 		spin_unlock_irqrestore(&smmu_domain->pgtbl_lock, flags);
 		/* Returns 0 on error */
 		if (!ret) {
@@ -2683,7 +2620,6 @@ out:
 		iova = __saved_iova_start;
 	}
 	arm_smmu_secure_domain_unlock(smmu_domain);
-	arm_smmu_release_prealloc_memory(smmu_domain, &nonsecure_pool);
 	return iova - __saved_iova_start;
 }
 
@@ -3078,12 +3014,6 @@ static int arm_smmu_domain_get_attr(struct iommu_domain *domain,
 		*((int *)data) = smmu_domain->qsmmuv500_errata2_min_align;
 		ret = 0;
 		break;
-	case DOMAIN_ATTR_FORCE_IOVA_GUARD_PAGE:
-		*((int *)data) = !!(smmu_domain->attributes
-			& (1 << DOMAIN_ATTR_FORCE_IOVA_GUARD_PAGE));
-		ret = 0;
-		break;
-
 	default:
 		ret = -ENODEV;
 		break;
@@ -3286,28 +3216,6 @@ static int arm_smmu_domain_set_attr(struct iommu_domain *domain,
 				1 << DOMAIN_ATTR_CB_STALL_DISABLE;
 		ret = 0;
 		break;
-
-	case DOMAIN_ATTR_FORCE_IOVA_GUARD_PAGE: {
-		int force_iova_guard_page = *((int *)data);
-
-		if (smmu_domain->smmu != NULL) {
-			dev_err(smmu_domain->smmu->dev,
-			  "cannot change force guard page attribute while attached\n");
-			ret = -EBUSY;
-			break;
-		}
-
-		if (force_iova_guard_page)
-			smmu_domain->attributes |=
-				1 << DOMAIN_ATTR_FORCE_IOVA_GUARD_PAGE;
-		else
-			smmu_domain->attributes &=
-				~(1 << DOMAIN_ATTR_FORCE_IOVA_GUARD_PAGE);
-
-		ret = 0;
-		break;
-	}
-
 	default:
 		ret = -ENODEV;
 	}

@@ -10,6 +10,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2018 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #define pr_fmt(fmt)	"msm-dsi-phy:[%s] " fmt, __func__
 
@@ -901,6 +906,26 @@ int dsi_phy_disable(struct msm_dsi_phy *phy)
 	mutex_unlock(&phy->phy_lock);
 
 	return rc;
+}
+
+/**
+ * dsi_phy_set_clamp_state() - configure clamps for DSI lanes
+ * @phy:        DSI PHY handle.
+ * @enable:     boolean to specify clamp enable/disable.
+ *
+ * Return: error code.
+ */
+int dsi_phy_set_clamp_state(struct msm_dsi_phy *phy, bool enable)
+{
+	if (!phy)
+		return -EINVAL;
+
+	pr_debug("[%s] enable=%d\n", phy->name, enable);
+
+	if (phy->hw.ops.clamp_ctrl)
+		phy->hw.ops.clamp_ctrl(&phy->hw, enable);
+
+	return 0;
 }
 
 /**

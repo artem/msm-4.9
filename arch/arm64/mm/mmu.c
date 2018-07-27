@@ -16,6 +16,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2018 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #include <linux/cache.h>
 #include <linux/export.h>
@@ -823,10 +828,6 @@ int __init arch_ioremap_pmd_supported(void)
 
 int pud_set_huge(pud_t *pud, phys_addr_t phys, pgprot_t prot)
 {
-	/* ioremap_page_range doesn't honour BBM */
-	if (pud_present(READ_ONCE(*pud)))
-		return 0;
-
 	BUG_ON(phys & ~PUD_MASK);
 	set_pud(pud, __pud(phys | PUD_TYPE_SECT | pgprot_val(mk_sect_prot(prot))));
 	return 1;
@@ -834,10 +835,6 @@ int pud_set_huge(pud_t *pud, phys_addr_t phys, pgprot_t prot)
 
 int pmd_set_huge(pmd_t *pmd, phys_addr_t phys, pgprot_t prot)
 {
-	/* ioremap_page_range doesn't honour BBM */
-	if (pmd_present(READ_ONCE(*pmd)))
-		return 0;
-
 	BUG_ON(phys & ~PMD_MASK);
 	set_pmd(pmd, __pmd(phys | PMD_TYPE_SECT | pgprot_val(mk_sect_prot(prot))));
 	return 1;

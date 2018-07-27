@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1353,27 +1353,31 @@ static int _execute_reg_sequence(struct adreno_device *adreno_dev,
 
 	/* todo double check the reg writes */
 	while ((cur - opcode) < length) {
-		if (cur[0] == 1 && (length - (cur - opcode) >= 4)) {
-			/* Write a 32 bit value to a 64 bit reg */
+		switch (cur[0]) {
+		/* Write a 32 bit value to a 64 bit reg */
+		case 1:
 			reg = cur[2];
 			reg = (reg << 32) | cur[1];
 			kgsl_regwrite(KGSL_DEVICE(adreno_dev), reg, cur[3]);
 			cur += 4;
-		} else if (cur[0] == 2 && (length - (cur - opcode) >= 5)) {
-			/* Write a 64 bit value to a 64 bit reg */
+			break;
+		/* Write a 64 bit value to a 64 bit reg */
+		case 2:
 			reg = cur[2];
 			reg = (reg << 32) | cur[1];
 			val = cur[4];
 			val = (val << 32) | cur[3];
 			kgsl_regwrite(KGSL_DEVICE(adreno_dev), reg, val);
 			cur += 5;
-		} else if (cur[0] == 3 && (length - (cur - opcode) >= 2)) {
-			/* Delay for X usec */
+			break;
+		/* Delay for X usec */
+		case 3:
 			udelay(cur[1]);
 			cur += 2;
-		} else
+			break;
+		default:
 			return -EINVAL;
-	}
+	} }
 	return 0;
 }
 
@@ -2420,8 +2424,8 @@ static int a5xx_rb_start(struct adreno_device *adreno_dev,
 	adreno_writereg(adreno_dev, ADRENO_REG_CP_RB_CNTL,
 		A5XX_CP_RB_CNTL_DEFAULT);
 
-	adreno_writereg64(adreno_dev, ADRENO_REG_CP_RB_BASE,
-			ADRENO_REG_CP_RB_BASE_HI, rb->buffer_desc.gpuaddr);
+	adreno_writereg(adreno_dev, ADRENO_REG_CP_RB_BASE,
+			rb->buffer_desc.gpuaddr);
 
 	ret = a5xx_microcode_load(adreno_dev);
 	if (ret)

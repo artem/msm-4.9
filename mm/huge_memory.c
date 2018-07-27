@@ -4,6 +4,11 @@
  *  This work is licensed under the terms of the GNU GPL, version 2. See
  *  the COPYING file in the top-level directory.
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2015 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -745,20 +750,15 @@ int vmf_insert_pfn_pmd(struct vm_area_struct *vma, unsigned long addr,
 EXPORT_SYMBOL_GPL(vmf_insert_pfn_pmd);
 
 static void touch_pmd(struct vm_area_struct *vma, unsigned long addr,
-		pmd_t *pmd)
+		pmd_t *pmd, int flags)
 {
 	pmd_t _pmd;
 
-	/*
-	 * We should set the dirty bit only for FOLL_WRITE but for now
-	 * the dirty bit in the pmd is meaningless.  And if the dirty
-	 * bit will become meaningful and we'll only set it with
-	 * FOLL_WRITE, an atomic set_bit will be required on the pmd to
-	 * set the young bit, instead of the current set_pmd_at.
-	 */
-	_pmd = pmd_mkyoung(pmd_mkdirty(*pmd));
+	_pmd = pmd_mkyoung(*pmd);
+	if (flags & FOLL_WRITE)
+		_pmd = pmd_mkdirty(_pmd);
 	if (pmdp_set_access_flags(vma, addr & HPAGE_PMD_MASK,
-				pmd, _pmd,  1))
+				pmd, _pmd, flags & FOLL_WRITE))
 		update_mmu_cache_pmd(vma, addr, pmd);
 }
 
@@ -787,7 +787,7 @@ struct page *follow_devmap_pmd(struct vm_area_struct *vma, unsigned long addr,
 		return NULL;
 
 	if (flags & FOLL_TOUCH)
-		touch_pmd(vma, addr, pmd);
+		touch_pmd(vma, addr, pmd, flags);
 
 	/*
 	 * device mapped pages can only be returned if the
@@ -962,8 +962,8 @@ static int do_huge_pmd_wp_page_fallback(struct fault_env *fe, pmd_t orig_pmd,
 
 	for (i = 0; i < HPAGE_PMD_NR; i++, haddr += PAGE_SIZE) {
 		pte_t entry;
-		entry = mk_pte(pages[i], fe->vma_page_prot);
-		entry = maybe_mkwrite(pte_mkdirty(entry), fe->vma_flags);
+		entry = mk_pte(pages[i], vma->vm_page_prot);
+		entry = maybe_mkwrite(pte_mkdirty(entry), vma);
 		memcg = (void *)page_private(pages[i]);
 		set_page_private(pages[i], 0);
 		page_add_new_anon_rmap(pages[i], fe->vma, haddr, false);
@@ -1158,7 +1158,7 @@ struct page *follow_trans_huge_pmd(struct vm_area_struct *vma,
 	page = pmd_page(*pmd);
 	VM_BUG_ON_PAGE(!PageHead(page) && !is_zone_device_page(page), page);
 	if (flags & FOLL_TOUCH)
-		touch_pmd(vma, addr, pmd);
+		touch_pmd(vma, addr, pmd, flags);
 	if ((flags & FOLL_MLOCK) && (vma->vm_flags & VM_LOCKED)) {
 		/*
 		 * We don't mlock() pte-mapped THPs. This way we can avoid
@@ -1651,7 +1651,7 @@ static void __split_huge_pmd_locked(struct vm_area_struct *vma, pmd_t *pmd,
 				entry = pte_swp_mksoft_dirty(entry);
 		} else {
 			entry = mk_pte(page + i, READ_ONCE(vma->vm_page_prot));
-			entry = maybe_mkwrite(entry, vma->vm_flags);
+			entry = maybe_mkwrite(entry, vma);
 			if (!write)
 				entry = pte_wrprotect(entry);
 			if (!young)

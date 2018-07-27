@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2018 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #ifndef _CAM_VFE_HW_INTF_H_
 #define _CAM_VFE_HW_INTF_H_
@@ -49,9 +54,6 @@ enum cam_vfe_hw_irq_status {
 	CAM_VFE_IRQ_STATUS_COMP_OWRT            = -2,
 	CAM_VFE_IRQ_STATUS_ERR                  = -1,
 	CAM_VFE_IRQ_STATUS_SUCCESS              = 0,
-	CAM_VFE_IRQ_STATUS_OVERFLOW             = 1,
-	CAM_VFE_IRQ_STATUS_P2I_ERROR            = 2,
-	CAM_VFE_IRQ_STATUS_VIOLATION            = 3,
 	CAM_VFE_IRQ_STATUS_MAX,
 };
 

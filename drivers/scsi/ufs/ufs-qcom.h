@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
+ */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2016 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
  */
 
 #ifndef UFS_QCOM_H_
@@ -39,7 +44,12 @@
 #define FAST 2
 
 #define UFS_QCOM_LIMIT_NUM_LANES_RX	2
+#ifdef CONFIG_SCSI_UFS_RESTRICT_TX_LANES
+#define UFS_QCOM_LIMIT_NUM_LANES_TX	1
+#else
 #define UFS_QCOM_LIMIT_NUM_LANES_TX	2
+#endif
+
 #define UFS_QCOM_LIMIT_HSGEAR_RX	UFS_HS_G3
 #define UFS_QCOM_LIMIT_HSGEAR_TX	UFS_HS_G3
 #define UFS_QCOM_LIMIT_PWMGEAR_RX	UFS_PWM_G4

@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -8,6 +8,11 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
+ */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2018 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
  */
 
 #include <linux/slab.h>
@@ -273,7 +278,8 @@ static void cam_tasklet_flush(void  *tasklet_info)
 int cam_tasklet_start(void  *tasklet_info)
 {
 	struct cam_tasklet_info       *tasklet = tasklet_info;
-	int i = 0;
+	struct cam_tasklet_queue_cmd  *tasklet_cmd;
+	struct cam_tasklet_queue_cmd  *tasklet_cmd_temp;
 
 	if (atomic_read(&tasklet->tasklet_active)) {
 		CAM_ERR(CAM_ISP, "Tasklet already active. idx = %d",
@@ -282,11 +288,11 @@ int cam_tasklet_start(void  *tasklet_info)
 	}
 	atomic_set(&tasklet->tasklet_active, 1);
 
-	/* clean up the command queue first */
-	for (i = 0; i < CAM_TASKLETQ_SIZE; i++) {
-		list_del_init(&tasklet->cmd_queue[i].list);
-		list_add_tail(&tasklet->cmd_queue[i].list,
-			&tasklet->free_cmd_list);
+	/* flush the command queue first */
+	list_for_each_entry_safe(tasklet_cmd, tasklet_cmd_temp,
+		&tasklet->used_cmd_list, list) {
+		list_del_init(&tasklet_cmd->list);
+		list_add_tail(&tasklet_cmd->list, &tasklet->free_cmd_list);
 	}
 
 	tasklet_enable(&tasklet->tasklet);

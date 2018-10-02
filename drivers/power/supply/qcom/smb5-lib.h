@@ -82,7 +82,6 @@ enum print_reason {
 #define TYPEC_DEFAULT_CURRENT_UA	900000
 #define TYPEC_MEDIUM_CURRENT_UA		1500000
 #define TYPEC_HIGH_CURRENT_UA		3000000
-#define ADC_CHG_TERM_MASK	32767
 
 enum smb_mode {
 	PARALLEL_MASTER = 0,
@@ -187,12 +186,6 @@ enum float_options {
 	FLOAT_SDP		= 2,
 	DISABLE_CHARGING	= 3,
 	SUSPEND_INPUT		= 4,
-};
-
-enum chg_term_config_src {
-	ITERM_SRC_UNSPECIFIED,
-	ITERM_SRC_ADC,
-	ITERM_SRC_ANALOG
 };
 
 struct smb_irq_info {
@@ -302,7 +295,6 @@ struct smb_charger {
 	/* locks */
 	struct mutex		lock;
 	struct mutex		ps_change_lock;
-	struct mutex		vadc_lock;
 
 	/* power supplies */
 	struct power_supply		*batt_psy;
@@ -494,8 +486,6 @@ int smblib_get_prop_input_current_limited(struct smb_charger *chg,
 int smblib_get_prop_batt_voltage_now(struct smb_charger *chg,
 				union power_supply_propval *val);
 int smblib_get_prop_batt_current_now(struct smb_charger *chg,
-				union power_supply_propval *val);
-int smblib_get_prop_batt_iterm(struct smb_charger *chg,
 				union power_supply_propval *val);
 int smblib_get_prop_batt_temp(struct smb_charger *chg,
 				union power_supply_propval *val);

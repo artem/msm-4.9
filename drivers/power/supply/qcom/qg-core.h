@@ -54,7 +54,6 @@ struct qg_dt {
 	int			esr_qual_i_ua;
 	int			esr_qual_v_uv;
 	int			esr_disable_soc;
-	int			esr_min_ibat_ua;
 	bool			hold_soc_while_full;
 	bool			linearize_soc;
 	bool			cl_disable;

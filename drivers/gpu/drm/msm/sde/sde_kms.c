@@ -15,6 +15,11 @@
  * You should have received a copy of the GNU General Public License along with
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2018 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #define pr_fmt(fmt)	"[drm:%s:%d] " fmt, __func__, __LINE__
 
@@ -1685,16 +1690,6 @@ void sde_kms_timeline_status(struct drm_device *dev)
 
 	drm_for_each_crtc(crtc, dev)
 		sde_crtc_timeline_status(crtc);
-
-	if (mutex_is_locked(&dev->mode_config.mutex)) {
-		/*
-		 *Probably locked from last close dumping status anyway
-		 */
-		SDE_ERROR("dumping conn_timeline without mode_config lock\n");
-		drm_for_each_connector(conn, dev)
-			sde_conn_timeline_status(conn);
-		return;
-	}
 
 	mutex_lock(&dev->mode_config.mutex);
 	drm_for_each_connector(conn, dev)

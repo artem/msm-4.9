@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2018 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 
 #include <linux/module.h>
 #include <linux/firmware.h>
@@ -55,7 +60,6 @@ int32_t cam_ois_construct_default_power_setting(
 
 free_power_settings:
 	kfree(power_info->power_setting);
-	power_info->power_setting = NULL;
 	return rc;
 }
 
@@ -234,13 +238,17 @@ static int cam_ois_apply_settings(struct cam_ois_ctrl_t *o_ctrl,
 			size = i2c_list->i2c_settings.size;
 			for (i = 0; i < size; i++) {
 				rc = camera_io_dev_poll(
-				&(o_ctrl->io_master_info),
-				i2c_list->i2c_settings.reg_setting[i].reg_addr,
-				i2c_list->i2c_settings.reg_setting[i].reg_data,
-				i2c_list->i2c_settings.reg_setting[i].data_mask,
-				i2c_list->i2c_settings.addr_type,
-				i2c_list->i2c_settings.data_type,
-				i2c_list->i2c_settings.reg_setting[i].delay);
+					&(o_ctrl->io_master_info),
+					i2c_list->i2c_settings.
+						reg_setting[i].reg_addr,
+					i2c_list->i2c_settings.
+						reg_setting[i].reg_data,
+					i2c_list->i2c_settings.
+						reg_setting[i].data_mask,
+					i2c_list->i2c_settings.addr_type,
+					i2c_list->i2c_settings.data_type,
+					i2c_list->i2c_settings.
+						reg_setting[i].delay);
 				if (rc < 0) {
 					CAM_ERR(CAM_OIS,
 						"i2c poll apply setting Fail");
@@ -296,7 +304,6 @@ static int cam_ois_fw_download(struct cam_ois_ctrl_t *o_ctrl)
 	uint16_t                           total_bytes = 0;
 	uint8_t                           *ptr = NULL;
 	int32_t                            rc = 0, cnt;
-	uint32_t                           fw_size;
 	const struct firmware             *fw = NULL;
 	const char                        *fw_name_prog = NULL;
 	const char                        *fw_name_coeff = NULL;
@@ -304,7 +311,6 @@ static int cam_ois_fw_download(struct cam_ois_ctrl_t *o_ctrl)
 	char                               name_coeff[32] = {0};
 	struct device                     *dev = &(o_ctrl->pdev->dev);
 	struct cam_sensor_i2c_reg_setting  i2c_reg_setting;
-	struct page                       *page = NULL;
 
 	if (!o_ctrl) {
 		CAM_ERR(CAM_OIS, "Invalid Args");
@@ -330,19 +336,14 @@ static int cam_ois_fw_download(struct cam_ois_ctrl_t *o_ctrl)
 	i2c_reg_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
 	i2c_reg_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
 	i2c_reg_setting.size = total_bytes;
-	i2c_reg_setting.delay = 0;
-	fw_size = PAGE_ALIGN(sizeof(struct cam_sensor_i2c_reg_array) *
-		total_bytes) >> PAGE_SHIFT;
-	page = cma_alloc(dev_get_cma_area((o_ctrl->soc_info.dev)),
-		fw_size, 0);
-	if (!page) {
+	i2c_reg_setting.reg_setting = (struct cam_sensor_i2c_reg_array *)
+		kzalloc(sizeof(struct cam_sensor_i2c_reg_array) * total_bytes,
+		GFP_KERNEL);
+	if (!i2c_reg_setting.reg_setting) {
 		CAM_ERR(CAM_OIS, "Failed in allocating i2c_array");
 		release_firmware(fw);
 		return -ENOMEM;
 	}
-
-	i2c_reg_setting.reg_setting = (struct cam_sensor_i2c_reg_array *)(
-		page_address(page));
 
 	for (cnt = 0, ptr = (uint8_t *)fw->data; cnt < total_bytes;
 		cnt++, ptr++) {
@@ -359,10 +360,7 @@ static int cam_ois_fw_download(struct cam_ois_ctrl_t *o_ctrl)
 		CAM_ERR(CAM_OIS, "OIS FW download failed %d", rc);
 		goto release_firmware;
 	}
-	cma_release(dev_get_cma_area((o_ctrl->soc_info.dev)),
-		page, fw_size);
-	page = NULL;
-	fw_size = 0;
+	kfree(i2c_reg_setting.reg_setting);
 	release_firmware(fw);
 
 	rc = request_firmware(&fw, fw_name_coeff, dev);
@@ -375,19 +373,14 @@ static int cam_ois_fw_download(struct cam_ois_ctrl_t *o_ctrl)
 	i2c_reg_setting.addr_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
 	i2c_reg_setting.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
 	i2c_reg_setting.size = total_bytes;
-	i2c_reg_setting.delay = 0;
-	fw_size = PAGE_ALIGN(sizeof(struct cam_sensor_i2c_reg_array) *
-		total_bytes) >> PAGE_SHIFT;
-	page = cma_alloc(dev_get_cma_area((o_ctrl->soc_info.dev)),
-		fw_size, 0);
-	if (!page) {
+	i2c_reg_setting.reg_setting = (struct cam_sensor_i2c_reg_array *)
+		kzalloc(sizeof(struct cam_sensor_i2c_reg_array) * total_bytes,
+		GFP_KERNEL);
+	if (!i2c_reg_setting.reg_setting) {
 		CAM_ERR(CAM_OIS, "Failed in allocating i2c_array");
 		release_firmware(fw);
 		return -ENOMEM;
 	}
-
-	i2c_reg_setting.reg_setting = (struct cam_sensor_i2c_reg_array *)(
-		page_address(page));
 
 	for (cnt = 0, ptr = (uint8_t *)fw->data; cnt < total_bytes;
 		cnt++, ptr++) {
@@ -404,8 +397,7 @@ static int cam_ois_fw_download(struct cam_ois_ctrl_t *o_ctrl)
 		CAM_ERR(CAM_OIS, "OIS FW download failed %d", rc);
 
 release_firmware:
-	cma_release(dev_get_cma_area((o_ctrl->soc_info.dev)),
-		page, fw_size);
+	kfree(i2c_reg_setting.reg_setting);
 	release_firmware(fw);
 
 	return rc;
@@ -518,7 +510,6 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 				i2c_reg_settings->is_settings_valid = 1;
 				i2c_reg_settings->request_id = 0;
 				rc = cam_sensor_i2c_command_parser(
-					&o_ctrl->io_master_info,
 					i2c_reg_settings,
 					&cmd_desc[i], 1);
 				if (rc < 0) {
@@ -527,15 +518,14 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 					return rc;
 				}
 			} else if ((o_ctrl->is_ois_calib != 0) &&
-				(o_ctrl->i2c_calib_data.is_settings_valid ==
-				0)) {
+				(o_ctrl->i2c_calib_data.
+					is_settings_valid == 0)) {
 				CAM_DBG(CAM_OIS,
 					"Received calib settings");
 				i2c_reg_settings = &(o_ctrl->i2c_calib_data);
 				i2c_reg_settings->is_settings_valid = 1;
 				i2c_reg_settings->request_id = 0;
 				rc = cam_sensor_i2c_command_parser(
-					&o_ctrl->io_master_info,
 					i2c_reg_settings,
 					&cmd_desc[i], 1);
 				if (rc < 0) {
@@ -607,8 +597,7 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 		i2c_reg_settings = &(o_ctrl->i2c_mode_data);
 		i2c_reg_settings->is_settings_valid = 1;
 		i2c_reg_settings->request_id = 0;
-		rc = cam_sensor_i2c_command_parser(&o_ctrl->io_master_info,
-			i2c_reg_settings,
+		rc = cam_sensor_i2c_command_parser(i2c_reg_settings,
 			cmd_desc, 1);
 		if (rc < 0) {
 			CAM_ERR(CAM_OIS, "OIS pkt parsing failed: %d", rc);
@@ -637,11 +626,7 @@ pwr_dwn:
 
 void cam_ois_shutdown(struct cam_ois_ctrl_t *o_ctrl)
 {
-	int rc = 0;
-	struct cam_ois_soc_private  *soc_private =
-		(struct cam_ois_soc_private *)o_ctrl->soc_info.soc_private;
-	struct cam_sensor_power_ctrl_t *power_info =
-		&soc_private->power_info;
+	int rc;
 
 	if (o_ctrl->cam_ois_state == CAM_OIS_INIT)
 		return;
@@ -650,7 +635,6 @@ void cam_ois_shutdown(struct cam_ois_ctrl_t *o_ctrl)
 		rc = cam_ois_power_down(o_ctrl);
 		if (rc < 0)
 			CAM_ERR(CAM_OIS, "OIS Power down failed");
-		o_ctrl->cam_ois_state = CAM_OIS_ACQUIRE;
 	}
 
 	if (o_ctrl->cam_ois_state >= CAM_OIS_ACQUIRE) {
@@ -661,11 +645,6 @@ void cam_ois_shutdown(struct cam_ois_ctrl_t *o_ctrl)
 		o_ctrl->bridge_intf.link_hdl = -1;
 		o_ctrl->bridge_intf.session_hdl = -1;
 	}
-
-	kfree(power_info->power_setting);
-	kfree(power_info->power_down_setting);
-	power_info->power_setting = NULL;
-	power_info->power_down_setting = NULL;
 
 	o_ctrl->cam_ois_state = CAM_OIS_INIT;
 }
@@ -683,14 +662,8 @@ int cam_ois_driver_cmd(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 	struct cam_ois_query_cap_t     ois_cap = {0};
 	struct cam_control            *cmd = (struct cam_control *)arg;
 
-	if (!o_ctrl || !arg) {
-		CAM_ERR(CAM_OIS, "Invalid arguments");
-		return -EINVAL;
-	}
-
-	if (cmd->handle_type != CAM_HANDLE_USER_POINTER) {
-		CAM_ERR(CAM_OIS, "Invalid handle type: %d",
-			cmd->handle_type);
+	if (!o_ctrl) {
+		CAM_ERR(CAM_OIS, "e_ctrl is NULL");
 		return -EINVAL;
 	}
 

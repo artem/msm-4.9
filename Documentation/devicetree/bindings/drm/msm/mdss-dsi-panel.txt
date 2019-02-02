@@ -197,6 +197,15 @@ Optional properties:
 - qcom,mdss-dsi-te-using-wd:		Boolean entry enables the watchdog timer support to generate the vsync signal
 					for command mode panel. By default, panel TE will be used to generate the vsync.
 - qcom,mdss-dsi-te-using-te-pin:	Boolean to specify whether using hardware vsync.
+- qcom,mdss-dsi-qsync-min-refresh-rate: A u32 entry to specify minimum refresh rate supported by the panel to enable qsync feature.
+- qcom,mdss-dsi-qsync-on-commands:	String that specifies the commands to enable qsync feature.
+- qcom,mdss-dsi-qsync-on-commands-state: String that specifies the ctrl state for sending qsync on commands.
+					"dsi_lp_mode" = DSI low power mode (default)
+					"dsi_hs_mode" = DSI high speed mode
+- qcom,mdss-dsi-qsync-off-commands:	String that specifies the commands to disable qsync feature.
+- qcom,mdss-dsi-qsync-off-commands-state: String that specifies the ctrl state for sending qsync off commands.
+					"dsi_lp_mode" = DSI low power mode (default)
+					"dsi_hs_mode" = DSI high speed mode
 - qcom,mdss-dsi-te-pin-select:		Specifies TE operating mode.
 					0 = TE through embedded dcs command
 					1 = TE through TE gpio pin. (default)
@@ -519,6 +528,8 @@ Optional properties:
 					to identify the default topology for the
 					display. The first set is indexed by the
 					value 0.
+- qcom,mdss-dsi-dma-schedule-line:	An integer value indicates the line number after vertical active
+					region, at which command DMA needs to be triggered.
 
 Required properties for sub-nodes:	None
 Optional properties:
@@ -599,6 +610,7 @@ Example:
 		qcom,mdss-dsi-te-check-enable;
 		qcom,mdss-dsi-te-using-wd;
 		qcom,mdss-dsi-te-using-te-pin;
+		qcom,mdss-dsi-qsync-min-refresh-rate = <30>;
 		qcom,mdss-dsi-te-dcs-command = <1>;
 		qcom,mdss-dsi-wr-mem-continue = <0x3c>;
 		qcom,mdss-dsi-wr-mem-start = <0x2c>;
@@ -712,6 +724,10 @@ Example:
 					29 00 00 00 00 00 02 B0 04
 					29 00 00 00 00 00 02 F1 00];
 				qcom,mdss-dsi-timing-switch-command-state = "dsi_lp_mode";
+				qcom,mdss-dsi-qsync-on-commands = [15 01 00 00 00 00 02 51 00];
+				qcom,mdss-dsi-qsync-on-commands-state = "dsi_hs_mode";
+				qcom,mdss-dsi-qsync-off-commands = [15 01 00 00 00 00 02 51 00];
+				qcom,mdss-dsi-qsync-off-commands-state = "dsi_hs_mode";
 
 				qcom,mdss-dsc-slice-height = <16>;
 				qcom,mdss-dsc-slice-width = <360>;
@@ -771,5 +787,6 @@ Example:
 		qcom,display-topology = <1 1 1>,
 			                <2 2 1>;
 		qcom,default-topology-index = <0>;
+		qcom,mdss-dsi-dma-schedule-line = <5>;
 	};
 };

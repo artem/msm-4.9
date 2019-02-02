@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2018, Razer Inc. All rights reserved.
  * Copyright (c) 2015-2017, The Linux Foundation.All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -134,7 +135,7 @@ struct dsi_display_clk_info {
  * @display_lock:     Mutex for dsi_display interface.
  * @disp_te_gpio:     GPIO for panel TE interrupt.
  * @is_te_irq_enabled:bool to specify whether TE interrupt is enabled.
- * @esd_te_gate:      completion gate to signal TE interrupt.
+ * @te_compl:         completion gate to signal TE interrupt.
  * @ctrl_count:       Number of DSI interfaces required by panel.
  * @ctrl:             Controller information for DSI display.
  * @panel:            Handle to DSI panel.
@@ -180,7 +181,9 @@ struct dsi_display {
 	struct mutex display_lock;
 	int disp_te_gpio;
 	bool is_te_irq_enabled;
-	struct completion esd_te_gate;
+	struct completion te_compl;
+	int te_gpio_prev_val;
+	int te_gpio_trigger_val;
 
 	u32 ctrl_count;
 	struct dsi_display_ctrl ctrl[MAX_DSI_CTRLS_PER_DISPLAY];
@@ -199,6 +202,7 @@ struct dsi_display {
 	/* dynamic DSI clock info*/
 	u32  cached_clk_rate;
 	atomic_t clkrate_change_pending;
+	atomic_t vfp_update_pending;
 
 	struct dsi_display_clk_info clock_info;
 	struct dsi_host_config config;
@@ -463,12 +467,14 @@ int dsi_display_disable(struct dsi_display *display);
  * dsi_pre_clkoff_cb() - Callback before clock is turned off
  * @priv: private data pointer.
  * @clk_type: clock which is being turned on.
+ * @l_type: specifies if the clock is HS or LP type. Valid only for link clocks.
  * @new_state: next state for the clock.
  *
  * @return: error code.
  */
 int dsi_pre_clkoff_cb(void *priv, enum dsi_clk_type clk_type,
-	enum dsi_clk_state new_state);
+		enum dsi_lclk_type l_type,
+		enum dsi_clk_state new_state);
 
 /**
  * dsi_display_update_pps() - update PPS buffer.
@@ -485,35 +491,40 @@ int dsi_display_update_pps(char *pps_cmd, void *display);
  * dsi_post_clkoff_cb() - Callback after clock is turned off
  * @priv: private data pointer.
  * @clk_type: clock which is being turned on.
+ * @l_type: specifies if the clock is HS or LP type. Valid only for link clocks.
  * @curr_state: current state for the clock.
  *
  * @return: error code.
  */
 int dsi_post_clkoff_cb(void *priv, enum dsi_clk_type clk_type,
-	enum dsi_clk_state curr_state);
+		enum dsi_lclk_type l_type,
+		enum dsi_clk_state curr_state);
 
 /**
  * dsi_post_clkon_cb() - Callback after clock is turned on
  * @priv: private data pointer.
  * @clk_type: clock which is being turned on.
+ * @l_type: specifies if the clock is HS or LP type. Valid only for link clocks.
  * @curr_state: current state for the clock.
  *
  * @return: error code.
  */
 int dsi_post_clkon_cb(void *priv, enum dsi_clk_type clk_type,
-	enum dsi_clk_state curr_state);
-
+		enum dsi_lclk_type l_type,
+		enum dsi_clk_state curr_state);
 
 /**
  * dsi_pre_clkon_cb() - Callback before clock is turned on
  * @priv: private data pointer.
  * @clk_type: clock which is being turned on.
+ * @l_type: specifies if the clock is HS or LP type. Valid only for link clocks.
  * @new_state: next state for the clock.
  *
  * @return: error code.
  */
 int dsi_pre_clkon_cb(void *priv, enum dsi_clk_type clk_type,
-	enum dsi_clk_state new_state);
+		enum dsi_lclk_type l_type,
+		enum dsi_clk_state new_state);
 
 /**
  * dsi_display_unprepare() - power off display hardware.
@@ -598,6 +609,14 @@ int dsi_display_set_power(struct drm_connector *connector,
  */
 int dsi_display_pre_kickoff(struct dsi_display *display,
 		struct msm_display_kickoff_params *params);
+
+/*
+ * dsi_display_post_kickoff - program post kickoff-time features
+ * @display: Pointer to private display structure
+ * Returns: Zero on success
+ */
+int dsi_display_post_kickoff(struct dsi_display *display);
+
 /**
  * dsi_display_get_dst_format() - get dst_format from DSI display
  * @display:         Handle to display
@@ -605,5 +624,29 @@ int dsi_display_pre_kickoff(struct dsi_display *display,
  * Return: enum dsi_pixel_format type
  */
 enum dsi_pixel_format dsi_display_get_dst_format(void *display);
+
+/**
+ * dsi_display_cont_splash_config() - initialize splash resources
+ * @display:         Handle to display
+ *
+ * Return: Zero on Success
+ */
+int dsi_display_cont_splash_config(void *display);
+/*
+ * dsi_display_get_panel_vfp - get panel vsync
+ * @display: Pointer to private display structure
+ * @h_active: width
+ * @v_active: height
+ * Returns: v_front_porch on success error code on failure
+ */
+int dsi_display_get_panel_vfp(void *display,
+	int h_active, int v_active);
+
+/**
+ * dsi_display_set_input_boot() - sets the input boost for the panel
+ *
+ * Return: error code.
+ */
+int dsi_display_set_input_boost(void *display, bool enable_boost);
 
 #endif /* _DSI_DISPLAY_H_ */

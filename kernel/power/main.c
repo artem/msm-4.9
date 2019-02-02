@@ -3,6 +3,7 @@
  *
  * Copyright (c) 2003 Patrick Mochel
  * Copyright (c) 2003 Open Source Development Lab
+ * Copyright (C) 2018 Razer Inc.
  *
  * This file is released under the GPLv2
  *
@@ -17,6 +18,18 @@
 #include <linux/seq_file.h>
 
 #include "power.h"
+
+//{Add mechanism to prevent frequent wakeup and higher power consumption.
+/*
++ * suspend back-off default values
++ */
+#define SBO_SLEEP_MSEC 1100
+#define SBO_TIME 8
+#define SBO_CNT 10
+
+static int suspend_short_count = 0;
+static struct wakeup_source *ws;
+//}Add mechanism to prevent frequent wakeup and higher power consumption.
 
 DEFINE_MUTEX(pm_mutex);
 
@@ -352,10 +365,23 @@ static suspend_state_t decode_state(const char *buf, size_t n)
 	return PM_SUSPEND_ON;
 }
 
+//{Add mechanism to prevent frequent wakeup and higher power consumption.
+static inline void suspend_backoff(u32 duration)
+{
+	pr_info("[PM] suspend: Too many immediate wakeups, back off now!\n");
+	__pm_wakeup_event(ws, duration);
+}
+//}Add mechanism to prevent frequent wakeup and higher power consumption.
+
 static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 			   const char *buf, size_t n)
 {
 	suspend_state_t state;
+//{Add mechanism to prevent frequent wakeup and higher power consumption.
+	struct timespec ts_entry, ts_exit;
+	u64 elapsed_msecs64;
+	u32 elapsed_msecs32;
+//}Add mechanism to prevent frequent wakeup and higher power consumption.
 	int error;
 
 	error = pm_autosleep_lock();
@@ -368,9 +394,41 @@ static ssize_t state_store(struct kobject *kobj, struct kobj_attribute *attr,
 	}
 
 	state = decode_state(buf, n);
-	if (state < PM_SUSPEND_MAX)
+//{Add mechanism to prevent frequent wakeup and higher power consumption.
+	if (state < PM_SUSPEND_MAX) {
+		/*
+		 * Consider suspend time to detect the case where
+		 * we need SBO.
+		 */
+		getnstimeofday(&ts_entry);
 		error = pm_suspend(state);
-	else if (state == PM_SUSPEND_MAX)
+		getnstimeofday(&ts_exit);
+
+		/* Only needed for successful suspend */
+		if (!error) {
+			elapsed_msecs64 = timespec_to_ns(&ts_exit) -
+				timespec_to_ns(&ts_entry);
+			do_div(elapsed_msecs64, NSEC_PER_MSEC);
+			elapsed_msecs32 = elapsed_msecs64;
+		}
+
+		if (error || elapsed_msecs32 <= SBO_SLEEP_MSEC) {
+			if (suspend_short_count == SBO_CNT) {
+				suspend_backoff(SBO_TIME * MSEC_PER_SEC);
+				/* Allow two tries to leave SBO */
+				suspend_short_count--;
+			} else {
+				suspend_short_count++;
+			}
+		} else {
+			if (suspend_short_count > ((SBO_CNT/2) + 1)) {
+				suspend_short_count = SBO_CNT/2;
+			} else {
+				suspend_short_count = 0;
+			}
+		}
+	} else if (state == PM_SUSPEND_MAX)
+//}Add mechanism to prevent frequent wakeup and higher power consumption.
 		error = hibernate();
 	else
 		error = -EINVAL;
@@ -652,6 +710,7 @@ static int __init pm_init(void)
 	if (error)
 		return error;
 	pm_print_times_init();
+	ws = wakeup_source_register("suspend_backoff"); //Add mechanism to prevent frequent wakeup and higher power consumption.
 	return pm_autosleep_init();
 }
 

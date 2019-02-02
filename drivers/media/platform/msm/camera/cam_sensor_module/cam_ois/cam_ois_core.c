@@ -18,29 +18,39 @@
 #include "cam_sensor_util.h"
 #include "cam_debug_util.h"
 #include "cam_res_mgr_api.h"
-
+#include "PhoneDownload.h"
+#define LC898124
 int32_t cam_ois_construct_default_power_setting(
 	struct cam_sensor_power_ctrl_t *power_info)
 {
 	int rc = 0;
 
-	power_info->power_setting_size = 1;
+	power_info->power_setting_size = 3;
 	power_info->power_setting =
 		(struct cam_sensor_power_setting *)
-		kzalloc(sizeof(struct cam_sensor_power_setting),
+		kzalloc(sizeof(struct cam_sensor_power_setting) * power_info->power_setting_size,
 			GFP_KERNEL);
 	if (!power_info->power_setting)
 		return -ENOMEM;
 
+    //temp modify - it can't pass the power setting from user space
 	power_info->power_setting[0].seq_type = SENSOR_VAF;
 	power_info->power_setting[0].seq_val = CAM_VAF;
 	power_info->power_setting[0].config_val = 1;
 	power_info->power_setting[0].delay = 2;
+	power_info->power_setting[1].seq_type = SENSOR_VIO;
+	power_info->power_setting[1].seq_val = CAM_VIO;
+	power_info->power_setting[1].config_val = 1;
+	power_info->power_setting[1].delay = 2;
+	power_info->power_setting[2].seq_type = SENSOR_VANA;
+	power_info->power_setting[2].seq_val = CAM_VANA;
+	power_info->power_setting[2].config_val = 1;
+	power_info->power_setting[2].delay = 200;
 
-	power_info->power_down_setting_size = 1;
+	power_info->power_down_setting_size = 3;
 	power_info->power_down_setting =
 		(struct cam_sensor_power_setting *)
-		kzalloc(sizeof(struct cam_sensor_power_setting),
+		kzalloc(sizeof(struct cam_sensor_power_setting) * power_info->power_setting_size,
 			GFP_KERNEL);
 	if (!power_info->power_down_setting) {
 		rc = -ENOMEM;
@@ -50,11 +60,19 @@ int32_t cam_ois_construct_default_power_setting(
 	power_info->power_down_setting[0].seq_type = SENSOR_VAF;
 	power_info->power_down_setting[0].seq_val = CAM_VAF;
 	power_info->power_down_setting[0].config_val = 0;
+	power_info->power_down_setting[1].seq_type = SENSOR_VIO;
+	power_info->power_down_setting[1].seq_val = CAM_VIO;
+	power_info->power_down_setting[1].config_val = 0;
+	power_info->power_down_setting[2].seq_type = SENSOR_VANA;
+	power_info->power_down_setting[2].seq_val = CAM_VANA;
+	power_info->power_down_setting[2].config_val = 0;
 
 	return rc;
 
 free_power_settings:
 	kfree(power_info->power_setting);
+	power_info->power_setting = NULL;
+	power_info->power_setting_size = 0;
 	return rc;
 }
 
@@ -232,6 +250,7 @@ static int cam_ois_apply_settings(struct cam_ois_ctrl_t *o_ctrl,
 		} else if (i2c_list->op_code == CAM_SENSOR_I2C_POLL) {
 			size = i2c_list->i2c_settings.size;
 			for (i = 0; i < size; i++) {
+                //temp modify - it can't pass the power setting from user space
 				rc = camera_io_dev_poll(
 				&(o_ctrl->io_master_info),
 				i2c_list->i2c_settings.reg_setting[i].reg_addr,
@@ -239,7 +258,8 @@ static int cam_ois_apply_settings(struct cam_ois_ctrl_t *o_ctrl,
 				i2c_list->i2c_settings.reg_setting[i].data_mask,
 				i2c_list->i2c_settings.addr_type,
 				i2c_list->i2c_settings.data_type,
-				i2c_list->i2c_settings.reg_setting[i].delay);
+				10);
+//				i2c_list->i2c_settings.reg_setting[i].delay);
 				if (rc < 0) {
 					CAM_ERR(CAM_OIS,
 						"i2c poll apply setting Fail");
@@ -289,7 +309,7 @@ static int cam_ois_slaveInfo_pkt_parser(struct cam_ois_ctrl_t *o_ctrl,
 
 	return rc;
 }
-
+#ifndef LC898124
 static int cam_ois_fw_download(struct cam_ois_ctrl_t *o_ctrl)
 {
 	uint16_t                           total_bytes = 0;
@@ -409,7 +429,7 @@ release_firmware:
 
 	return rc;
 }
-
+#endif
 /**
  * cam_ois_pkt_parse - Parse csl packet
  * @o_ctrl:     ctrl structure
@@ -557,8 +577,24 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 		}
 
 		if (o_ctrl->ois_fw_flag) {
+#ifdef LC898124
+			uint32_t data = 0,i=0;
+			rc = SelectDownload(o_ctrl,1,1);
+			if( rc )
+				CAM_ERR(CAM_OIS, "[LC898124] OIS FW update fail rc: %d",rc);
+			RemapMain( o_ctrl );
+			for( i = 0 ; i < 10 ; i ++ )
+			{
+				rc = camera_io_dev_read(&(o_ctrl->io_master_info), 0xF100, &data, CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_DWORD);
+				CAM_ERR(CAM_OIS, "[LC898124] status = 0x%x", data);
+				if( data == 0 )
+					break;
+				usleep_range(10000, 10100);
+			}
+#else
 			rc = cam_ois_fw_download(o_ctrl);
-			if (rc) {
+#endif
+		if (rc) {
 				CAM_ERR(CAM_OIS, "Failed OIS FW Download");
 				goto pwr_dwn;
 			}
@@ -630,17 +666,16 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 	}
 	return rc;
 pwr_dwn:
-	cam_ois_power_down(o_ctrl);
+	cam_ois_shutdown(o_ctrl);
 	return rc;
 }
 
 void cam_ois_shutdown(struct cam_ois_ctrl_t *o_ctrl)
 {
 	int rc = 0;
-	struct cam_ois_soc_private  *soc_private =
+	struct cam_ois_soc_private *soc_private =
 		(struct cam_ois_soc_private *)o_ctrl->soc_info.soc_private;
-	struct cam_sensor_power_ctrl_t *power_info =
-		&soc_private->power_info;
+	struct cam_sensor_power_ctrl_t *power_info = &soc_private->power_info;
 
 	if (o_ctrl->cam_ois_state == CAM_OIS_INIT)
 		return;
@@ -665,6 +700,8 @@ void cam_ois_shutdown(struct cam_ois_ctrl_t *o_ctrl)
 	kfree(power_info->power_down_setting);
 	power_info->power_setting = NULL;
 	power_info->power_down_setting = NULL;
+	power_info->power_down_setting_size = 0;
+	power_info->power_setting_size = 0;
 
 	o_ctrl->cam_ois_state = CAM_OIS_INIT;
 }
@@ -678,11 +715,13 @@ void cam_ois_shutdown(struct cam_ois_ctrl_t *o_ctrl)
  */
 int cam_ois_driver_cmd(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 {
-	int                            rc = 0;
-	struct cam_ois_query_cap_t     ois_cap = {0};
-	struct cam_control            *cmd = (struct cam_control *)arg;
+	int                              rc = 0;
+	struct cam_ois_query_cap_t       ois_cap = {0};
+	struct cam_control              *cmd = (struct cam_control *)arg;
+	struct cam_ois_soc_private      *soc_private = NULL;
+	struct cam_sensor_power_ctrl_t  *power_info = NULL;
 
-	if (!o_ctrl || !arg) {
+	if (!o_ctrl || !cmd) {
 		CAM_ERR(CAM_OIS, "Invalid arguments");
 		return -EINVAL;
 	}
@@ -692,6 +731,10 @@ int cam_ois_driver_cmd(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 			cmd->handle_type);
 		return -EINVAL;
 	}
+
+	soc_private =
+		(struct cam_ois_soc_private *)o_ctrl->soc_info.soc_private;
+	power_info = &soc_private->power_info;
 
 	mutex_lock(&(o_ctrl->ois_mutex));
 	switch (cmd->op_code) {
@@ -763,6 +806,13 @@ int cam_ois_driver_cmd(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 		o_ctrl->bridge_intf.link_hdl = -1;
 		o_ctrl->bridge_intf.session_hdl = -1;
 		o_ctrl->cam_ois_state = CAM_OIS_INIT;
+
+		kfree(power_info->power_setting);
+		kfree(power_info->power_down_setting);
+		power_info->power_setting = NULL;
+		power_info->power_down_setting = NULL;
+		power_info->power_down_setting_size = 0;
+		power_info->power_setting_size = 0;
 		break;
 	case CAM_STOP_DEV:
 		if (o_ctrl->cam_ois_state != CAM_OIS_START) {

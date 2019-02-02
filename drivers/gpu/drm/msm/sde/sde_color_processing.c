@@ -1257,6 +1257,7 @@ void sde_cp_crtc_suspend(struct drm_crtc *crtc)
 {
 	struct sde_crtc *sde_crtc = NULL;
 	struct sde_cp_node *prop_node = NULL, *n = NULL;
+	bool ad_suspend = false;
 
 	if (!crtc) {
 		DRM_ERROR("crtc %pK\n", crtc);
@@ -1279,8 +1280,12 @@ void sde_cp_crtc_suspend(struct drm_crtc *crtc)
 				 active_list) {
 		sde_cp_update_list(prop_node, sde_crtc, true);
 		list_del_init(&prop_node->active_list);
+		ad_suspend = true;
 	}
 	mutex_unlock(&sde_crtc->crtc_cp_lock);
+
+	if (ad_suspend)
+		sde_cp_ad_set_prop(sde_crtc, AD_SUSPEND);
 }
 
 void sde_cp_crtc_resume(struct drm_crtc *crtc)
@@ -1705,7 +1710,8 @@ static void sde_cp_ad_interrupt_cb(void *arg, int irq_idx)
 {
 	struct sde_crtc *crtc = arg;
 
-	sde_crtc_event_queue(&crtc->base, sde_cp_notify_ad_event, NULL);
+	sde_crtc_event_queue(&crtc->base, sde_cp_notify_ad_event,
+							NULL, true);
 }
 
 static void sde_cp_notify_ad_event(struct drm_crtc *crtc_drm, void *arg)
@@ -1963,7 +1969,8 @@ static void sde_cp_hist_interrupt_cb(void *arg, int irq_idx)
 	}
 
 	/* notify histogram event */
-	sde_crtc_event_queue(crtc_drm, sde_cp_notify_hist_event, NULL);
+	sde_crtc_event_queue(crtc_drm, sde_cp_notify_hist_event,
+							NULL, true);
 }
 
 static void sde_cp_notify_hist_event(struct drm_crtc *crtc_drm, void *arg)

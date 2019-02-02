@@ -22,6 +22,9 @@
 #include <linux/qpnp/qpnp-revid.h>
 #include "fg-core.h"
 #include "fg-reg.h"
+#if defined(CONFIG_FIH_BATTERY)
+#include "fih-battery-bbs.h"
+#endif /* CONFIG_FIH_BATTERY */
 
 #define FG_GEN3_DEV_NAME	"qcom,fg-gen3"
 
@@ -160,6 +163,9 @@ static void fg_encode_current(struct fg_sram_param *sp,
 	enum fg_sram_param_id id, int val_ma, u8 *buf);
 static void fg_encode_default(struct fg_sram_param *sp,
 	enum fg_sram_param_id id, int val, u8 *buf);
+#if defined(CONFIG_FIH_BATTERY) && defined(BBS_LOG)
+static int fg_get_cycle_count(struct fg_chip *chip);
+#endif /* CONFIG_FIH_BATTERY */
 
 static struct fg_irq_info fg_irqs[FG_IRQ_MAX];
 
@@ -993,6 +999,10 @@ static int fg_get_batt_profile(struct fg_chip *chip)
 		return -ENXIO;
 	}
 
+#if defined(CONFIG_FIH_BATTERY) && defined(BBS_LOG)
+	BBS_BATTERY_ID(chip->batt_id_ohms);
+#endif /* CONFIG_FIH_BATTERY */
+
 	profile_node = of_batterydata_get_best_profile(batt_node,
 				chip->batt_id_ohms / 1000, NULL);
 	if (IS_ERR(profile_node))
@@ -1000,6 +1010,9 @@ static int fg_get_batt_profile(struct fg_chip *chip)
 
 	if (!profile_node) {
 		pr_err("couldn't find profile handle\n");
+#if defined(CONFIG_FIH_BATTERY) && defined(BBS_LOG)
+		BBS_BATTERY_ID_MISS();
+#endif /* CONFIG_FIH_BATTERY */
 		return -ENODATA;
 	}
 
@@ -1371,6 +1384,13 @@ static int fg_load_learned_cap_from_sram(struct fg_chip *chip)
 
 	fg_dbg(chip, FG_CAP_LEARN, "learned_cc_uah:%lld nom_cap_uah: %lld\n",
 		chip->cl.learned_cc_uah, chip->cl.nom_cap_uah);
+#if defined(CONFIG_FIH_BATTERY) && defined(BBS_LOG)
+	BBS_BATTERY_FCC_MAX(div64_s64(chip->cl.nom_cap_uah, 1000));
+	if (div64_s64(chip->cl.learned_cc_uah * 100, chip->cl.nom_cap_uah) < 70) {
+		BBS_BATTERY_AGING();
+		BBS_BATTERY_FCC(fg_get_cycle_count(chip), div64_s64(chip->cl.learned_cc_uah, 1000));
+	}
+#endif /* CONFIG_FIH_BATTERY */
 	return 0;
 }
 
@@ -1405,16 +1425,16 @@ static void fg_cap_learning_post_process(struct fg_chip *chip)
 			QNOVO_CL_SKEW_DECIPCT, chip->cl.final_cc_uah);
 		chip->cl.final_cc_uah = chip->cl.final_cc_uah *
 						(1000 + QNOVO_CL_SKEW_DECIPCT);
-		do_div(chip->cl.final_cc_uah, 1000);
+		chip->cl.final_cc_uah = div64_u64(chip->cl.final_cc_uah, 1000); //Qualcomm patch CR2235300, Fix incorrect calculations
 	}
 
 	max_inc_val = chip->cl.learned_cc_uah
 			* (1000 + chip->dt.cl_max_cap_inc);
-	do_div(max_inc_val, 1000);
+	max_inc_val = div64_u64(max_inc_val, 1000); //Qualcomm patch CR2235300, Fix incorrect calculations
 
 	min_dec_val = chip->cl.learned_cc_uah
 			* (1000 - chip->dt.cl_max_cap_dec);
-	do_div(min_dec_val, 1000);
+	min_dec_val = div64_u64(min_dec_val, 1000); //Qualcomm patch CR2235300, Fix incorrect calculations
 
 	old_cap = chip->cl.learned_cc_uah;
 	if (chip->cl.final_cc_uah > max_inc_val)
@@ -1428,7 +1448,7 @@ static void fg_cap_learning_post_process(struct fg_chip *chip)
 	if (chip->dt.cl_max_cap_limit) {
 		max_inc_val = (int64_t)chip->cl.nom_cap_uah * (1000 +
 				chip->dt.cl_max_cap_limit);
-		do_div(max_inc_val, 1000);
+		max_inc_val = div64_u64(max_inc_val, 1000); //Qualcomm patch CR2235300, Fix incorrect calculations
 		if (chip->cl.final_cc_uah > max_inc_val) {
 			fg_dbg(chip, FG_CAP_LEARN, "learning capacity %lld goes above max limit %lld\n",
 				chip->cl.final_cc_uah, max_inc_val);
@@ -1439,7 +1459,7 @@ static void fg_cap_learning_post_process(struct fg_chip *chip)
 	if (chip->dt.cl_min_cap_limit) {
 		min_dec_val = (int64_t)chip->cl.nom_cap_uah * (1000 -
 				chip->dt.cl_min_cap_limit);
-		do_div(min_dec_val, 1000);
+		min_dec_val = div64_u64(min_dec_val, 1000); //Qualcomm patch CR2235300, Fix incorrect calculations
 		if (chip->cl.final_cc_uah < min_dec_val) {
 			fg_dbg(chip, FG_CAP_LEARN, "learning capacity %lld goes below min limit %lld\n",
 				chip->cl.final_cc_uah, min_dec_val);
@@ -1943,7 +1963,7 @@ static int fg_rconn_config(struct fg_chip *chip)
 	}
 
 	val *= scaling_factor;
-	do_div(val, 1000);
+	val = div64_u64(val, 1000); //Qualcomm patch CR2235300, Fix incorrect calculations
 	rc = fg_sram_write(chip, ESR_RSLOW_CHG_WORD,
 			ESR_RSLOW_CHG_OFFSET, (u8 *)&val, 1, FG_IMA_DEFAULT);
 	if (rc < 0) {
@@ -1960,7 +1980,7 @@ static int fg_rconn_config(struct fg_chip *chip)
 	}
 
 	val *= scaling_factor;
-	do_div(val, 1000);
+	val = div64_u64(val, 1000); //Qualcomm patch CR2235300, Fix incorrect calculations
 	rc = fg_sram_write(chip, ESR_RSLOW_DISCHG_WORD,
 			ESR_RSLOW_DISCHG_OFFSET, (u8 *)&val, 1, FG_IMA_DEFAULT);
 	if (rc < 0) {
@@ -2845,6 +2865,9 @@ wait:
 			BATT_SOC_RESTART(chip), rc);
 		goto out;
 	}
+#if defined(CONFIG_FIH_BATTERY) && defined(BBS_LOG)
+	BBS_FG_RESET();
+#endif /* CONFIG_FIH_BATTERY */
 out:
 	chip->fg_restarting = false;
 	return rc;
@@ -2866,7 +2889,7 @@ static void profile_load_work(struct work_struct *work)
 				struct fg_chip,
 				profile_load_work.work);
 	u8 buf[2], val;
-	int rc;
+	int rc, msoc, volt_uv, batt_temp;
 
 	vote(chip->awake_votable, PROFILE_LOAD, true, 0);
 
@@ -2956,6 +2979,7 @@ done:
 	fg_notify_charger(chip);
 	chip->profile_loaded = true;
 	fg_dbg(chip, FG_STATUS, "profile loaded successfully");
+	pr_info("profile loaded successfully\n");
 out:
 	chip->soc_reporting_ready = true;
 	vote(chip->awake_votable, ESR_FCC_VOTER, true, 0);
@@ -2965,6 +2989,16 @@ out:
 		pm_stay_awake(chip->dev);
 		schedule_work(&chip->status_change_work);
 	}
+
+	rc = fg_get_battery_voltage(chip, &volt_uv);
+	if (!rc)
+		rc = fg_get_prop_capacity(chip, &msoc);
+
+	if (!rc)
+		rc = fg_get_battery_temp(chip, &batt_temp);
+	pr_info("Battery SOC:%d voltage: %duV temp: %d id: %dKOhms\n",
+				msoc, volt_uv, batt_temp, chip->batt_id_ohms / 1000);
+
 }
 
 static void sram_dump_work(struct work_struct *work)
@@ -4319,6 +4353,9 @@ static irqreturn_t fg_vbatt_low_irq_handler(int irq, void *data)
 	struct fg_chip *chip = data;
 
 	fg_dbg(chip, FG_IRQ, "irq %d triggered\n", irq);
+#if defined(CONFIG_FIH_BATTERY) && defined(BBS_LOG)
+	BBS_BATTERY_VOLTAGE_LOW();
+#endif /* CONFIG_FIH_BATTERY */
 	return IRQ_HANDLED;
 }
 
@@ -4403,6 +4440,10 @@ static irqreturn_t fg_delta_batt_temp_irq_handler(int irq, void *data)
 
 		chip->last_batt_temp = batt_temp;
 		power_supply_changed(chip->batt_psy);
+#if defined(CONFIG_FIH_BATTERY) && defined(BBS_LOG)
+		if (batt_temp >= 600)
+			BBS_BATTERY_REACH_SHUTDOWN_TEMPERATURE();
+#endif /* CONFIG_FIH_BATTERY */
 	}
 
 	if (abs(chip->last_batt_temp - batt_temp) > 30)
@@ -5333,8 +5374,6 @@ static int fg_gen3_probe(struct platform_device *pdev)
 		rc = fg_get_battery_temp(chip, &batt_temp);
 
 	if (!rc) {
-		pr_info("battery SOC:%d voltage: %duV temp: %d\n",
-				msoc, volt_uv, batt_temp);
 		rc = fg_esr_filter_config(chip, batt_temp);
 		if (rc < 0)
 			pr_err("Error in configuring ESR filter rc:%d\n", rc);

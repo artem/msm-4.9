@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -80,6 +80,7 @@ struct sde_encoder_phys;
  *			Note: This is called from IRQ handler context.
  * @handle_frame_done:	Notify virtual encoder that this phys encoder
  *			completes last request frame.
+ * @get_qsync_fps Returns the min fps for the qsync feature.
  */
 struct sde_encoder_virt_ops {
 	void (*handle_vblank_virt)(struct drm_encoder *,
@@ -88,6 +89,8 @@ struct sde_encoder_virt_ops {
 			struct sde_encoder_phys *phys);
 	void (*handle_frame_done)(struct drm_encoder *,
 			struct sde_encoder_phys *phys, u32 event);
+	void (*get_qsync_fps)(struct drm_encoder *,
+			u32 *qsync_fps);
 };
 
 /**
@@ -263,6 +266,9 @@ struct sde_encoder_irq {
  * @irq:			IRQ tracking structures
  * @cont_splash_single_flush	Variable to check if single flush is enabled.
  * @cont_splash_settings	Variable to store continuous splash settings.
+ * @in_clone_mode		Indicates if encoder is in clone mode ref@CWB
+ * @vfp_cached:			cached vertical front porch to be used for
+ *				programming ROT and MDP fetch start
  */
 struct sde_encoder_phys {
 	struct drm_encoder *parent;
@@ -282,6 +288,7 @@ struct sde_encoder_phys {
 	enum msm_display_compression_type comp_type;
 	spinlock_t *enc_spinlock;
 	enum sde_enc_enable_state enable_state;
+	struct mutex *vblank_ctl_lock;
 	atomic_t vblank_refcount;
 	atomic_t vsync_cnt;
 	atomic_t underrun_cnt;
@@ -292,6 +299,8 @@ struct sde_encoder_phys {
 	struct sde_encoder_irq irq[INTR_IDX_MAX];
 	u32 cont_splash_single_flush;
 	bool cont_splash_settings;
+	bool in_clone_mode;
+	int vfp_cached;
 };
 
 static inline int sde_encoder_phys_inc_pending(struct sde_encoder_phys *phys)
@@ -431,6 +440,7 @@ struct sde_enc_phys_init_params {
 	enum sde_wb wb_idx;
 	enum msm_display_compression_type comp_type;
 	spinlock_t *enc_spinlock;
+	struct mutex *vblank_ctl_lock;
 };
 
 /**

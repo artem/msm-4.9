@@ -18,6 +18,48 @@
 #include "cam_eeprom_soc.h"
 #include "cam_debug_util.h"
 
+//AF restore data - BU64753 NVL data
+unsigned int g_wide_af_nvl[60] = {0};
+
+int dump_arc_cal_data( uint8_t *memptr )
+{
+	int rc = 0;
+	struct file *filp;
+	struct inode *inode;
+	char filename[]="/data/misc/camera/arc_soft.bin";
+	mm_segment_t oldfs;
+
+	oldfs = get_fs();
+	set_fs(KERNEL_DS);
+
+	filp = filp_open(filename, O_RDWR | O_CREAT, 0777);
+
+	if (PTR_ERR(filp) == -EROFS || PTR_ERR(filp) == -EACCES)
+		CAM_ERR(CAM_EEPROM, "PTR fail");
+
+	if (IS_ERR(filp))
+		CAM_ERR(CAM_EEPROM, "%s open failure", filename);
+	else {
+		inode=filp->f_path.dentry->d_inode;
+//		CAM_ERR(CAM_EEPROM, "%s size=%d",filename, inode->i_size);
+		if(inode->i_size) //file not empty
+		{
+			CAM_ERR(CAM_EEPROM, "%s already dump, skip", filename);
+			filp_close(filp, NULL);
+		}
+		else // file is empty
+		{
+			rc = kernel_write(filp, &memptr[4956], sizeof(uint8_t)*2048, 0);
+			CAM_ERR(CAM_EEPROM, "%s dump done",filename);
+			filp_close(filp, NULL);
+		}
+	}
+
+	set_fs(oldfs);
+
+	return rc;
+}
+
 /**
  * cam_eeprom_read_memory() - read map data into buffer
  * @e_ctrl:     eeprom control struct
@@ -31,7 +73,7 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 {
 	int                                rc = 0;
 	int                                j;
-	struct cam_sensor_i2c_reg_setting  i2c_reg_settings;
+	struct cam_sensor_i2c_reg_setting  i2c_reg_settings={0};
 	struct cam_sensor_i2c_reg_array    i2c_reg_array;
 	struct cam_eeprom_memory_map_t    *emap = block->map;
 	struct cam_eeprom_soc_private     *eb_info;
@@ -106,6 +148,7 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 		}
 
 		if (emap[j].mem.valid_size) {
+			unsigned int i=0;
 			rc = camera_io_dev_read_seq(&e_ctrl->io_master_info,
 				emap[j].mem.addr, memptr,
 				emap[j].mem.addr_type,
@@ -115,6 +158,14 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 				CAM_ERR(CAM_EEPROM, "read failed rc %d",
 					rc);
 				return rc;
+			}
+			if( (e_ctrl->io_master_info.cci_client->sid == 0x51) )
+			{
+				dump_arc_cal_data(memptr);
+				for( i=0 ; i<60 ; i+=2)
+				{
+					g_wide_af_nvl[i/2] = (memptr[7005+i]<<8) | memptr[7006+i];
+				}
 			}
 			memptr += emap[j].mem.valid_size;
 		}
@@ -785,6 +836,8 @@ static int32_t cam_eeprom_pkt_parse(struct cam_eeprom_ctrl_t *e_ctrl, void *arg)
 		kfree(power_info->power_down_setting);
 		power_info->power_setting = NULL;
 		power_info->power_down_setting = NULL;
+		power_info->power_setting_size = 0;
+		power_info->power_down_setting_size = 0;
 		e_ctrl->cal_data.num_data = 0;
 		e_ctrl->cal_data.num_map = 0;
 		break;
@@ -838,6 +891,8 @@ void cam_eeprom_shutdown(struct cam_eeprom_ctrl_t *e_ctrl)
 		kfree(power_info->power_down_setting);
 		power_info->power_setting = NULL;
 		power_info->power_down_setting = NULL;
+		power_info->power_setting_size = 0;
+		power_info->power_down_setting_size = 0;
 	}
 
 	e_ctrl->cam_eeprom_state = CAM_EEPROM_INIT;

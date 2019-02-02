@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2007-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -644,7 +644,7 @@ static irqreturn_t adreno_irq_handler(struct kgsl_device *device)
 			if (fence_retries == FENCE_RETRY_MAX) {
 				KGSL_DRV_CRIT_RATELIMIT(device,
 						"AHB fence stuck in ISR\n");
-				return ret;
+				goto done;
 			}
 			fence_retries++;
 		} while (fence != 0);
@@ -714,6 +714,7 @@ static irqreturn_t adreno_irq_handler(struct kgsl_device *device)
 		adreno_writereg(adreno_dev, ADRENO_REG_RBBM_INT_CLEAR_CMD,
 				int_bit);
 
+done:
 	/* Turn off the KEEPALIVE vote from earlier unless hard fault set */
 	if (gpudev->gpu_keepalive) {
 		/* If hard fault, then let snapshot turn off the keepalive */
@@ -1814,11 +1815,6 @@ error_oob_clear:
 
 error_mmu_off:
 	kgsl_mmu_stop(&device->mmu);
-	if (gpudev->oob_clear &&
-			ADRENO_QUIRK(adreno_dev, ADRENO_QUIRK_HFI_USE_REG)) {
-		gpudev->oob_clear(adreno_dev,
-				OOB_BOOT_SLUMBER_CLEAR_MASK);
-	}
 
 error_pwr_off:
 	/* set the state back to original state */
@@ -3431,6 +3427,8 @@ static const struct kgsl_functable adreno_functable = {
 	.clk_set_options = adreno_clk_set_options,
 	.gpu_model = adreno_gpu_model,
 	.stop_fault_timer = adreno_dispatcher_stop_fault_timer,
+	.dispatcher_halt = adreno_dispatcher_halt,
+	.dispatcher_unhalt = adreno_dispatcher_unhalt,
 };
 
 static struct platform_driver adreno_platform_driver = {

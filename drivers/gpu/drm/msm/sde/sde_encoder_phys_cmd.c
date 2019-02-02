@@ -606,14 +606,17 @@ static int _sde_encoder_phys_cmd_wait_for_idle(
 		SDE_ERROR("invalid encoder\n");
 		return -EINVAL;
 	}
+	SDE_ATRACE_BEGIN("cmd_wait_for_idle");
 
 	wait_info.wq = &phys_enc->pending_kickoff_wq;
 	wait_info.atomic_cnt = &phys_enc->pending_kickoff_cnt;
 	wait_info.timeout_ms = KICKOFF_TIMEOUT_MS;
 
 	/* slave encoder doesn't enable for ppsplit */
-	if (_sde_encoder_phys_is_ppsplit_slave(phys_enc))
+	if (_sde_encoder_phys_is_ppsplit_slave(phys_enc)) {
+		SDE_ATRACE_END("cmd_wait_for_idle");
 		return 0;
+	}
 
 	ret = sde_encoder_helper_wait_for_irq(phys_enc, INTR_IDX_PINGPONG,
 			&wait_info);
@@ -622,6 +625,7 @@ static int _sde_encoder_phys_cmd_wait_for_idle(
 	else if (!ret)
 		cmd_enc->pp_timeout_report_cnt = 0;
 
+	SDE_ATRACE_END("cmd_wait_for_idle");
 	return ret;
 }
 
@@ -675,6 +679,7 @@ static int sde_encoder_phys_cmd_control_vblank_irq(
 		return -EINVAL;
 	}
 
+	mutex_lock(phys_enc->vblank_ctl_lock);
 	refcount = atomic_read(&phys_enc->vblank_refcount);
 
 	/* Slave encoders don't report vblank */
@@ -708,6 +713,7 @@ end:
 				enable, refcount, SDE_EVTLOG_ERROR);
 	}
 
+	mutex_unlock(phys_enc->vblank_ctl_lock);
 	return ret;
 }
 
@@ -756,6 +762,73 @@ void sde_encoder_phys_cmd_irq_control(struct sde_encoder_phys *phys_enc,
 		sde_encoder_phys_cmd_control_vblank_irq(phys_enc, false);
 		sde_encoder_helper_unregister_irq(phys_enc, INTR_IDX_PINGPONG);
 	}
+}
+
+static int _get_tearcheck_threshold(struct sde_encoder_phys *phys_enc)
+{
+	struct drm_connector *conn = phys_enc->connector;
+	u32 qsync_mode;
+	struct drm_display_mode *mode;
+	u32 threshold_lines = 0;
+	struct sde_encoder_phys_cmd *cmd_enc =
+			to_sde_encoder_phys_cmd(phys_enc);
+
+	if (!conn || !conn->state)
+		return 0;
+
+	mode = &phys_enc->cached_mode;
+	qsync_mode = sde_connector_get_property(
+			conn->state, CONNECTOR_PROP_QSYNC_MODE);
+
+	if (mode && (qsync_mode == SDE_RM_QSYNC_CONTINUOUS_MODE)) {
+		u32 qsync_min_fps = 0;
+		u32 default_fps = mode->vrefresh;
+		u32 yres = mode->vdisplay;
+		u32 slow_time_ns;
+		u32 default_time_ns;
+		u32 extra_time_ns;
+		u32 total_extra_lines;
+		u32 default_line_time_ns;
+
+		if (phys_enc->parent_ops.get_qsync_fps)
+			phys_enc->parent_ops.get_qsync_fps(
+				phys_enc->parent, &qsync_min_fps);
+
+		if (!qsync_min_fps || !default_fps || !yres) {
+			pr_err("wrong qsync params %d %d %d\n",
+				qsync_min_fps, default_fps, yres);
+			goto exit;
+		}
+
+		if (qsync_min_fps > default_fps) {
+			pr_err("wrong qsync fps, should be less than default\n");
+			goto exit;
+		}
+
+		/* Calculate the number of extra lines*/
+		slow_time_ns = (1 * 1000000000) / qsync_min_fps;
+		default_time_ns = (1 * 1000000000) / default_fps;
+		extra_time_ns = slow_time_ns - default_time_ns;
+		default_line_time_ns = (1 * 1000000000) / (default_fps * yres);
+
+		total_extra_lines = extra_time_ns / default_line_time_ns;
+		threshold_lines += total_extra_lines;
+
+		SDE_DEBUG_CMDENC(cmd_enc, "slow:%d default:%d extra:%d(ns)\n",
+			slow_time_ns, default_time_ns, extra_time_ns);
+		SDE_DEBUG_CMDENC(cmd_enc, "extra_lines:%d threshold:%d\n",
+			total_extra_lines, threshold_lines);
+		SDE_DEBUG_CMDENC(cmd_enc, "min_fps:%d fps:%d yres:%d\n",
+			qsync_min_fps, default_fps, yres);
+
+		SDE_EVT32(qsync_mode, qsync_min_fps, extra_time_ns, default_fps,
+			yres, threshold_lines);
+	}
+
+exit:
+	threshold_lines += DEFAULT_TEARCHECK_SYNC_THRESH_START;
+
+	return threshold_lines;
 }
 
 static void sde_encoder_phys_cmd_tearcheck_config(
@@ -820,7 +893,7 @@ static void sde_encoder_phys_cmd_tearcheck_config(
 	 */
 	tc_cfg.sync_cfg_height = 0xFFF0;
 	tc_cfg.vsync_init_val = mode->vdisplay;
-	tc_cfg.sync_threshold_start = DEFAULT_TEARCHECK_SYNC_THRESH_START;
+	tc_cfg.sync_threshold_start = _get_tearcheck_threshold(phys_enc);
 	tc_cfg.sync_threshold_continue = DEFAULT_TEARCHECK_SYNC_THRESH_CONTINUE;
 	tc_cfg.start_pos = mode->vdisplay;
 	tc_cfg.rd_ptr_irq = mode->vdisplay + 1;
@@ -1069,10 +1142,23 @@ static void sde_encoder_phys_cmd_get_hw_resources(
 	hw_res->intfs[phys_enc->intf_idx - INTF_0] = INTF_MODE_CMD;
 }
 
+static void sde_encoder_phys_cmd_handle_post_kickoff(
+		struct sde_encoder_phys *phys_enc)
+{
+	if (!phys_enc || !phys_enc->hw_pp) {
+		SDE_ERROR("invalid encoder\n");
+		return;
+	}
+
+	phys_enc->cached_mode.private_flags &=
+		~(MSM_MODE_FLAG_SEAMLESS_PANEL_DMS | MSM_MODE_FLAG_SEAMLESS_DMS);
+}
+
 static int sde_encoder_phys_cmd_prepare_for_kickoff(
 		struct sde_encoder_phys *phys_enc,
 		struct sde_encoder_kickoff_params *params)
 {
+	struct sde_hw_tear_check tc_cfg = {0};
 	struct sde_encoder_phys_cmd *cmd_enc =
 			to_sde_encoder_phys_cmd(phys_enc);
 	int ret;
@@ -1081,6 +1167,7 @@ static int sde_encoder_phys_cmd_prepare_for_kickoff(
 		SDE_ERROR("invalid encoder\n");
 		return -EINVAL;
 	}
+	SDE_ATRACE_BEGIN("cmd_prepare_for_kickoff");
 	SDE_DEBUG_CMDENC(cmd_enc, "pp %d\n", phys_enc->hw_pp->idx - PINGPONG_0);
 
 	SDE_EVT32(DRMID(phys_enc->parent), phys_enc->hw_pp->idx - PINGPONG_0,
@@ -1100,9 +1187,19 @@ static int sde_encoder_phys_cmd_prepare_for_kickoff(
 		SDE_ERROR("failed wait_for_idle: %d\n", ret);
 	}
 
+	if (sde_connector_qsync_updated(phys_enc->connector)) {
+
+		tc_cfg.sync_threshold_start =
+			_get_tearcheck_threshold(phys_enc);
+		if (phys_enc->hw_pp->ops.update_tearcheck)
+			phys_enc->hw_pp->ops.update_tearcheck(phys_enc->hw_pp,
+					&tc_cfg);
+	}
+
 	SDE_DEBUG_CMDENC(cmd_enc, "pp:%d pending_cnt %d\n",
 			phys_enc->hw_pp->idx - PINGPONG_0,
 			atomic_read(&phys_enc->pending_kickoff_cnt));
+	SDE_ATRACE_END("cmd_prepare_for_kickoff");
 	return ret;
 }
 
@@ -1120,13 +1217,15 @@ static int _sde_encoder_phys_cmd_wait_for_ctl_start(
 		return -EINVAL;
 	}
 
-	wait_info.wq = &phys_enc->pending_kickoff_wq;
-	wait_info.atomic_cnt = &phys_enc->pending_ctlstart_cnt;
-	wait_info.timeout_ms = KICKOFF_TIMEOUT_MS;
-
 	/* slave encoder doesn't enable for ppsplit */
 	if (_sde_encoder_phys_is_ppsplit_slave(phys_enc))
 		return 0;
+
+	SDE_ATRACE_BEGIN("cmd_wait_for_ctl_start");
+
+	wait_info.wq = &phys_enc->pending_kickoff_wq;
+	wait_info.atomic_cnt = &phys_enc->pending_ctlstart_cnt;
+	wait_info.timeout_ms = KICKOFF_TIMEOUT_MS;
 
 	ret = sde_encoder_helper_wait_for_irq(phys_enc, INTR_IDX_CTL_START,
 			&wait_info);
@@ -1143,6 +1242,7 @@ static int _sde_encoder_phys_cmd_wait_for_ctl_start(
 			ret = 0;
 	}
 
+	SDE_ATRACE_END("cmd_wait_for_ctl_start");
 	return ret;
 }
 
@@ -1176,6 +1276,8 @@ static int sde_encoder_phys_cmd_wait_for_commit_done(
 	if (!phys_enc)
 		return -EINVAL;
 
+	SDE_ATRACE_BEGIN("cmd_wait_for_commit_done");
+
 	cmd_enc = to_sde_encoder_phys_cmd(phys_enc);
 
 	/* only required for master controller */
@@ -1190,6 +1292,7 @@ static int sde_encoder_phys_cmd_wait_for_commit_done(
 	if (!rc && cmd_enc->serialize_wait4pp)
 		sde_encoder_phys_cmd_prepare_for_kickoff(phys_enc, NULL);
 
+	SDE_ATRACE_END("cmd_wait_for_commit_done");
 	return rc;
 }
 
@@ -1341,6 +1444,7 @@ static void sde_encoder_phys_cmd_init_ops(
 	ops->control_vblank_irq = sde_encoder_phys_cmd_control_vblank_irq;
 	ops->wait_for_commit_done = sde_encoder_phys_cmd_wait_for_commit_done;
 	ops->prepare_for_kickoff = sde_encoder_phys_cmd_prepare_for_kickoff;
+	ops->handle_post_kickoff = sde_encoder_phys_cmd_handle_post_kickoff;
 	ops->wait_for_tx_complete = sde_encoder_phys_cmd_wait_for_tx_complete;
 	ops->wait_for_vblank = sde_encoder_phys_cmd_wait_for_vblank;
 	ops->trigger_flush = sde_encoder_helper_trigger_flush;
@@ -1393,6 +1497,7 @@ struct sde_encoder_phys *sde_encoder_phys_cmd_init(
 	phys_enc->split_role = p->split_role;
 	phys_enc->intf_mode = INTF_MODE_CMD;
 	phys_enc->enc_spinlock = p->enc_spinlock;
+	phys_enc->vblank_ctl_lock = p->vblank_ctl_lock;
 	cmd_enc->stream_sel = 0;
 	phys_enc->enable_state = SDE_ENC_DISABLED;
 	phys_enc->comp_type = p->comp_type;

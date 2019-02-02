@@ -747,7 +747,7 @@ DECLARE_EVENT_CLASS(sched_task_util,
 		__entry->ediff			= ediff;
 		__entry->need_idle		= need_idle;
 		__entry->latency		= p->ravg.mark_start ?
-						  ktime_get_ns() -
+						  sched_ktime_clock() -
 						  p->ravg.mark_start : 0;
 	),
 

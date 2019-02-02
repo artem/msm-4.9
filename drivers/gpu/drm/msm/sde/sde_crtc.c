@@ -1330,15 +1330,6 @@ static int _sde_crtc_check_rois(struct drm_crtc *crtc,
 		return -E2BIG;
 	}
 
-	/**
-	 * TODO: Need to check against ROI alignment restrictions if partial
-	 * update support is added for destination scalar configurations
-	 */
-	if (sde_crtc_state->num_ds_enabled) {
-		SDE_ERROR("DS and PU concurrency is not supported\n");
-		return -EINVAL;
-	}
-
 	rc = _sde_crtc_set_crtc_roi(crtc, state);
 	if (rc)
 		return rc;
@@ -2024,6 +2015,93 @@ void sde_crtc_timeline_status(struct drm_crtc *crtc)
 	sde_fence_timeline_status(&sde_crtc->output_fence, &crtc->base);
 }
 
+static int _sde_crtc_detach_all_cb(struct sde_kms *sde_kms)
+{
+	u32 ret = 0;
+
+	if (atomic_inc_return(&sde_kms->detach_all_cb) > 1)
+		goto end;
+
+	/* detach_all_contexts */
+	ret = sde_kms_mmu_detach(sde_kms, false);
+	if (ret) {
+		SDE_ERROR("failed to detach all cb ret:%d\n", ret);
+		goto end;
+	}
+
+	ret = _sde_crtc_scm_call(VMID_CP_SEC_DISPLAY);
+	if (ret)
+		goto end;
+
+end:
+	return ret;
+}
+
+static int _sde_crtc_attach_all_cb(struct sde_kms *sde_kms)
+{
+	u32 ret = 0;
+
+	if (atomic_dec_return(&sde_kms->detach_all_cb) != 0)
+		goto end;
+
+	ret = _sde_crtc_scm_call(VMID_CP_PIXEL);
+	if (ret)
+		goto end;
+
+	/* attach_all_contexts */
+	ret = sde_kms_mmu_attach(sde_kms, false);
+	if (ret) {
+		SDE_ERROR("failed to attach all cb ret:%d\n", ret);
+		goto end;
+	}
+
+end:
+	return ret;
+}
+
+static int _sde_crtc_detach_sec_cb(struct sde_kms *sde_kms)
+{
+	u32 ret = 0;
+
+	if (atomic_inc_return(&sde_kms->detach_sec_cb) > 1)
+		goto end;
+
+	/* detach secure_context */
+	ret = sde_kms_mmu_detach(sde_kms, true);
+	if (ret) {
+		SDE_ERROR("failed to detach sec cb ret:%d\n", ret);
+		goto end;
+	}
+
+	ret = _sde_crtc_scm_call(VMID_CP_CAMERA_PREVIEW);
+	if (ret)
+		goto end;
+
+end:
+	return ret;
+}
+
+static int _sde_crtc_attach_sec_cb(struct sde_kms *sde_kms)
+{
+	u32 ret = 0;
+
+	if (atomic_dec_return(&sde_kms->detach_sec_cb) != 0)
+		goto end;
+
+	ret = _sde_crtc_scm_call(VMID_CP_PIXEL);
+	if (ret)
+		goto end;
+
+	ret = sde_kms_mmu_attach(sde_kms, true);
+	if (ret) {
+		SDE_ERROR("failed to attach sec cb ret:%d\n", ret);
+		goto end;
+	}
+
+end:
+	return ret;
+}
+
 /**
  * sde_crtc_secure_ctrl - Initiates the operations to swtich  between secure
  *                       and non-secure mode
@@ -2063,85 +2141,47 @@ int sde_crtc_secure_ctrl(struct drm_crtc *crtc, bool post_commit)
 		/* Bail out */
 		return 0;
 
+	mutex_lock(&sde_kms->secure_transition_lock);
 	/* Secure UI use case enable */
 	switch (smmu_state->state) {
 	case DETACH_ALL_REQ:
-		/* detach_all_contexts */
-		ret = sde_kms_mmu_detach(sde_kms, false);
-		if (ret) {
-			SDE_ERROR("crtc: %d, failed to detach %d\n",
-					crtc->base.id, ret);
-			goto error;
-		}
-
-		ret = _sde_crtc_scm_call(VMID_CP_SEC_DISPLAY);
-		if (ret)
-			goto error;
-
-		smmu_state->state = DETACHED;
+		ret = _sde_crtc_detach_all_cb(sde_kms);
+		if (!ret)
+			smmu_state->state = DETACHED;
 		break;
 	/* Secure UI use case disable */
 	case ATTACH_ALL_REQ:
-		ret = _sde_crtc_scm_call(VMID_CP_PIXEL);
-		if (ret)
-			goto error;
-
-		/* attach_all_contexts */
-		ret = sde_kms_mmu_attach(sde_kms, false);
-		if (ret) {
-			SDE_ERROR("crtc: %d, failed to attach %d\n",
-					crtc->base.id,
-					ret);
-			goto error;
-		}
-
-		smmu_state->state = ATTACHED;
-
+		ret = _sde_crtc_attach_all_cb(sde_kms);
+		if (!ret)
+			smmu_state->state = ATTACHED;
 		break;
 	/* Secure preview enable */
 	case DETACH_SEC_REQ:
-		/* detach secure_context */
-		ret = sde_kms_mmu_detach(sde_kms, true);
-		if (ret) {
-			SDE_ERROR("crtc: %d, failed to detach %d\n",
-					crtc->base.id,
-					ret);
-			goto error;
-		}
-
-		smmu_state->state = DETACHED_SEC;
-		ret = _sde_crtc_scm_call(VMID_CP_CAMERA_PREVIEW);
-		if (ret)
-			goto error;
-
+		ret = _sde_crtc_detach_sec_cb(sde_kms);
+		if (!ret)
+			smmu_state->state = DETACHED_SEC;
 		break;
-
 	/* Secure preview disable */
 	case ATTACH_SEC_REQ:
-		ret = _sde_crtc_scm_call(VMID_CP_PIXEL);
-		if (ret)
-			goto error;
-
-		ret = sde_kms_mmu_attach(sde_kms, true);
-		if (ret) {
-			SDE_ERROR("crtc: %d, failed to attach %d\n",
-					crtc->base.id,
-					ret);
-			goto error;
-		}
-		smmu_state->state = ATTACHED;
+		ret = _sde_crtc_attach_sec_cb(sde_kms);
+		if (!ret)
+			smmu_state->state = ATTACHED;
 		break;
 	default:
+		SDE_ERROR("crtc:%d invalid smmu state:%d transition type:%d\n",
+			crtc->base.id, smmu_state->state,
+			smmu_state->transition_type);
 		break;
 	}
+	mutex_unlock(&sde_kms->secure_transition_lock);
 
 	SDE_DEBUG("crtc: %d, old_state %d new_state %d\n", crtc->base.id,
 			old_smmu_state,
 			smmu_state->state);
-	smmu_state->transition_type = NONE;
 
-error:
+	smmu_state->transition_type = NONE;
 	smmu_state->transition_error = ret ? true : false;
+
 	SDE_EVT32(DRMID(crtc), smmu_state->state, smmu_state->transition_type,
 			smmu_state->transition_error, ret,
 			SDE_EVTLOG_FUNC_EXIT);
@@ -2287,15 +2327,62 @@ static void _sde_crtc_dest_scaler_setup(struct drm_crtc *crtc)
 	}
 }
 
+static void sde_crtc_frame_event_cb(void *data, u32 event)
+{
+	struct drm_crtc *crtc = (struct drm_crtc *)data;
+	struct sde_crtc *sde_crtc;
+	struct msm_drm_private *priv;
+	struct sde_crtc_frame_event *fevent;
+	struct sde_crtc_frame_event_cb_data *cb_data;
+	unsigned long flags;
+	u32 crtc_id;
+
+	cb_data = (struct sde_crtc_frame_event_cb_data *)data;
+	if (!data) {
+		SDE_ERROR("invalid parameters\n");
+		return;
+	}
+
+	crtc = cb_data->crtc;
+	if (!crtc || !crtc->dev || !crtc->dev->dev_private) {
+		SDE_ERROR("invalid parameters\n");
+		return;
+	}
+	sde_crtc = to_sde_crtc(crtc);
+	priv = crtc->dev->dev_private;
+	crtc_id = drm_crtc_index(crtc);
+
+	SDE_DEBUG("crtc%d\n", crtc->base.id);
+	SDE_EVT32_VERBOSE(DRMID(crtc), event);
+
+	spin_lock_irqsave(&sde_crtc->spin_lock, flags);
+	fevent = list_first_entry_or_null(&sde_crtc->frame_event_list,
+			struct sde_crtc_frame_event, list);
+	if (fevent)
+		list_del_init(&fevent->list);
+	spin_unlock_irqrestore(&sde_crtc->spin_lock, flags);
+
+	if (!fevent) {
+		SDE_ERROR("crtc%d event %d overflow\n",
+				crtc->base.id, event);
+		SDE_EVT32(DRMID(crtc), event);
+		return;
+	}
+
+	fevent->event = event;
+	fevent->crtc = crtc;
+	fevent->connector = cb_data->connector;
+	fevent->ts = ktime_get();
+	kthread_queue_work(&priv->event_thread[crtc_id].worker, &fevent->work);
+}
+
 void sde_crtc_prepare_commit(struct drm_crtc *crtc,
 		struct drm_crtc_state *old_state)
 {
 	struct sde_crtc *sde_crtc;
 	struct sde_crtc_state *cstate;
 	struct drm_connector *conn;
-	struct sde_crtc_retire_event *retire_event = NULL;
-	unsigned long flags;
-	int i;
+	struct drm_encoder *encoder;
 
 	if (!crtc || !crtc->state) {
 		SDE_ERROR("invalid crtc\n");
@@ -2312,30 +2399,16 @@ void sde_crtc_prepare_commit(struct drm_crtc *crtc,
 	drm_for_each_connector(conn, crtc->dev)
 		if (conn->state && conn->state->crtc == crtc &&
 				cstate->num_connectors < MAX_CONNECTORS) {
+			encoder = conn->state->best_encoder;
+			if (encoder)
+				sde_encoder_register_frame_event_callback(
+						encoder,
+						sde_crtc_frame_event_cb,
+						crtc);
+
 			cstate->connectors[cstate->num_connectors++] = conn;
 			sde_connector_prepare_fence(conn);
 		}
-
-	for (i = 0; i < SDE_CRTC_FRAME_EVENT_SIZE; i++) {
-		retire_event = &sde_crtc->retire_events[i];
-		if (list_empty(&retire_event->list))
-			break;
-		retire_event = NULL;
-	}
-
-	if (retire_event) {
-		retire_event->num_connectors = cstate->num_connectors;
-		for (i = 0; i < cstate->num_connectors; i++)
-			retire_event->connectors[i] = cstate->connectors[i];
-
-		spin_lock_irqsave(&sde_crtc->spin_lock, flags);
-		list_add_tail(&retire_event->list,
-						&sde_crtc->retire_event_list);
-		spin_unlock_irqrestore(&sde_crtc->spin_lock, flags);
-	} else {
-		SDE_ERROR("crtc%d retire event overflow\n", crtc->base.id);
-		SDE_EVT32(DRMID(crtc), SDE_EVTLOG_ERROR);
-	}
 
 	/* prepare main output fence */
 	sde_fence_prepare(&sde_crtc->output_fence);
@@ -2414,38 +2487,16 @@ static void sde_crtc_vblank_cb(void *data)
 	SDE_EVT32_VERBOSE(DRMID(crtc));
 }
 
-static void _sde_crtc_retire_event(struct drm_crtc *crtc, ktime_t ts)
+static void _sde_crtc_retire_event(struct drm_connector *connector,
+		ktime_t ts, bool is_error)
 {
-	struct sde_crtc_retire_event *retire_event;
-	struct sde_crtc *sde_crtc;
-	unsigned long flags;
-	int i;
-
-	if (!crtc) {
+	if (!connector) {
 		SDE_ERROR("invalid param\n");
 		return;
 	}
 
-	sde_crtc = to_sde_crtc(crtc);
-	spin_lock_irqsave(&sde_crtc->spin_lock, flags);
-	retire_event = list_first_entry_or_null(&sde_crtc->retire_event_list,
-				struct sde_crtc_retire_event, list);
-	if (retire_event)
-		list_del_init(&retire_event->list);
-	spin_unlock_irqrestore(&sde_crtc->spin_lock, flags);
-
-	if (!retire_event) {
-		SDE_ERROR("crtc%d retire event without kickoff\n",
-								crtc->base.id);
-		SDE_EVT32(DRMID(crtc), SDE_EVTLOG_ERROR);
-		return;
-	}
-
 	SDE_ATRACE_BEGIN("signal_retire_fence");
-	for (i = 0; (i < retire_event->num_connectors) &&
-					retire_event->connectors[i]; ++i)
-		sde_connector_complete_commit(
-					retire_event->connectors[i], ts);
+	sde_connector_complete_commit(connector, ts, is_error);
 	SDE_ATRACE_END("signal_retire_fence");
 }
 
@@ -2457,7 +2508,7 @@ static void sde_crtc_frame_event_work(struct kthread_work *work)
 	struct sde_crtc *sde_crtc;
 	struct sde_kms *sde_kms;
 	unsigned long flags;
-	bool frame_done = false;
+	bool in_clone_mode = false;
 
 	if (!work) {
 		SDE_ERROR("invalid work handle\n");
@@ -2486,10 +2537,11 @@ static void sde_crtc_frame_event_work(struct kthread_work *work)
 
 	SDE_EVT32_VERBOSE(DRMID(crtc), fevent->event, SDE_EVTLOG_FUNC_ENTRY);
 
-	if (fevent->event & (SDE_ENCODER_FRAME_EVENT_DONE
-				| SDE_ENCODER_FRAME_EVENT_ERROR
-				| SDE_ENCODER_FRAME_EVENT_PANEL_DEAD)) {
+	in_clone_mode = sde_encoder_in_clone_mode(fevent->connector->encoder);
 
+	if (!in_clone_mode && (fevent->event & (SDE_ENCODER_FRAME_EVENT_ERROR
+					| SDE_ENCODER_FRAME_EVENT_PANEL_DEAD
+					| SDE_ENCODER_FRAME_EVENT_DONE))) {
 		if (atomic_read(&sde_crtc->frame_pending) < 1) {
 			/* this should not happen */
 			SDE_ERROR("crtc%d ts:%lld invalid frame_pending:%d\n",
@@ -2510,73 +2562,30 @@ static void sde_crtc_frame_event_work(struct kthread_work *work)
 			SDE_EVT32_VERBOSE(DRMID(crtc), fevent->event,
 							SDE_EVTLOG_FUNC_CASE3);
 		}
-
-		if (fevent->event & (SDE_ENCODER_FRAME_EVENT_DONE
-					| SDE_ENCODER_FRAME_EVENT_ERROR))
-			frame_done = true;
 	}
 
 	if (fevent->event & SDE_ENCODER_FRAME_EVENT_SIGNAL_RELEASE_FENCE) {
 		SDE_ATRACE_BEGIN("signal_release_fence");
-		sde_fence_signal(&sde_crtc->output_fence, fevent->ts, false);
+		sde_fence_signal(&sde_crtc->output_fence, fevent->ts,
+				(fevent->event & SDE_ENCODER_FRAME_EVENT_ERROR)
+				? SDE_FENCE_SIGNAL_ERROR : SDE_FENCE_SIGNAL);
 		SDE_ATRACE_END("signal_release_fence");
 	}
 
 	if (fevent->event & SDE_ENCODER_FRAME_EVENT_SIGNAL_RETIRE_FENCE)
 		/* this api should be called without spin_lock */
-		_sde_crtc_retire_event(crtc, fevent->ts);
+		_sde_crtc_retire_event(fevent->connector, fevent->ts,
+				(fevent->event & SDE_ENCODER_FRAME_EVENT_ERROR)
+				? SDE_FENCE_SIGNAL_ERROR : SDE_FENCE_SIGNAL);
 
 	if (fevent->event & SDE_ENCODER_FRAME_EVENT_PANEL_DEAD)
 		SDE_ERROR("crtc%d ts:%lld received panel dead event\n",
 				crtc->base.id, ktime_to_ns(fevent->ts));
 
-	if (frame_done)
-		complete_all(&sde_crtc->frame_done_comp);
-
 	spin_lock_irqsave(&sde_crtc->spin_lock, flags);
 	list_add_tail(&fevent->list, &sde_crtc->frame_event_list);
 	spin_unlock_irqrestore(&sde_crtc->spin_lock, flags);
 	SDE_ATRACE_END("crtc_frame_event");
-}
-
-static void sde_crtc_frame_event_cb(void *data, u32 event)
-{
-	struct drm_crtc *crtc = (struct drm_crtc *)data;
-	struct sde_crtc *sde_crtc;
-	struct msm_drm_private *priv;
-	struct sde_crtc_frame_event *fevent;
-	unsigned long flags;
-	u32 crtc_id;
-
-	if (!crtc || !crtc->dev || !crtc->dev->dev_private) {
-		SDE_ERROR("invalid parameters\n");
-		return;
-	}
-	sde_crtc = to_sde_crtc(crtc);
-	priv = crtc->dev->dev_private;
-	crtc_id = drm_crtc_index(crtc);
-
-	SDE_DEBUG("crtc%d\n", crtc->base.id);
-	SDE_EVT32_VERBOSE(DRMID(crtc), event);
-
-	spin_lock_irqsave(&sde_crtc->spin_lock, flags);
-	fevent = list_first_entry_or_null(&sde_crtc->frame_event_list,
-			struct sde_crtc_frame_event, list);
-	if (fevent)
-		list_del_init(&fevent->list);
-	spin_unlock_irqrestore(&sde_crtc->spin_lock, flags);
-
-	if (!fevent) {
-		SDE_ERROR("crtc%d event %d overflow\n",
-				crtc->base.id, event);
-		SDE_EVT32(DRMID(crtc), event);
-		return;
-	}
-
-	fevent->event = event;
-	fevent->crtc = crtc;
-	fevent->ts = ktime_get();
-	kthread_queue_work(&priv->event_thread[crtc_id].worker, &fevent->work);
 }
 
 void sde_crtc_complete_commit(struct drm_crtc *crtc,
@@ -3428,10 +3437,10 @@ static void sde_crtc_destroy_state(struct drm_crtc *crtc,
 			&cstate->property_state);
 }
 
-static int _sde_crtc_wait_for_frame_done(struct drm_crtc *crtc)
+static int _sde_crtc_flush_event_thread(struct drm_crtc *crtc)
 {
 	struct sde_crtc *sde_crtc;
-	int ret, rc = 0, i;
+	int i;
 
 	if (!crtc) {
 		SDE_ERROR("invalid argument\n");
@@ -3443,6 +3452,7 @@ static int _sde_crtc_wait_for_frame_done(struct drm_crtc *crtc)
 		SDE_DEBUG("no frames pending\n");
 		return 0;
 	}
+	SDE_ATRACE_BEGIN("crtc_wait_for_frame_done");
 
 	SDE_EVT32(DRMID(crtc), SDE_EVTLOG_FUNC_ENTRY);
 
@@ -3455,17 +3465,10 @@ static int _sde_crtc_wait_for_frame_done(struct drm_crtc *crtc)
 			kthread_flush_work(&sde_crtc->frame_events[i].work);
 	}
 
-	ret = wait_for_completion_timeout(&sde_crtc->frame_done_comp,
-			msecs_to_jiffies(SDE_FRAME_DONE_TIMEOUT));
-	if (!ret) {
-		SDE_ERROR("frame done completion wait timed out, ret:%d\n",
-				ret);
-		SDE_EVT32(DRMID(crtc), SDE_EVTLOG_FATAL);
-		rc = -ETIMEDOUT;
-	}
 	SDE_EVT32_VERBOSE(DRMID(crtc), SDE_EVTLOG_FUNC_EXIT);
 
-	return rc;
+	SDE_ATRACE_END("crtc_wait_for_frame_done");
+	return 0;
 }
 
 static int _sde_crtc_commit_kickoff_rot(struct drm_crtc *crtc,
@@ -3792,7 +3795,6 @@ void sde_crtc_commit_kickoff(struct drm_crtc *crtc,
 	struct sde_kms *sde_kms;
 	struct sde_crtc_state *cstate;
 	bool is_error, reset_req;
-	int ret;
 
 	if (!crtc) {
 		SDE_ERROR("invalid argument\n");
@@ -3851,20 +3853,9 @@ void sde_crtc_commit_kickoff(struct drm_crtc *crtc,
 	}
 	sde_crtc->reset_request = reset_req;
 
-	/* wait for frame_event_done completion */
-	SDE_ATRACE_BEGIN("wait_for_frame_done_event");
-	ret = _sde_crtc_wait_for_frame_done(crtc);
-	SDE_ATRACE_END("wait_for_frame_done_event");
-	if (ret) {
-		SDE_ERROR("crtc%d wait for frame done failed;frame_pending%d\n",
-				crtc->base.id,
-				atomic_read(&sde_crtc->frame_pending));
-
-		is_error = true;
-
-		/* force offline rotation mode since the commit has no pipes */
-		cstate->sbuf_cfg.rot_op_mode = SDE_CTL_ROT_OP_MODE_OFFLINE;
-	}
+	SDE_ATRACE_BEGIN("flush_event_thread");
+	_sde_crtc_flush_event_thread(crtc);
+	SDE_ATRACE_END("flush_event_thread");
 
 	if (atomic_inc_return(&sde_crtc->frame_pending) == 1) {
 		/* acquire bandwidth and other resources */
@@ -3903,7 +3894,6 @@ void sde_crtc_commit_kickoff(struct drm_crtc *crtc,
 		sde_encoder_kickoff(encoder, false);
 	}
 
-	reinit_completion(&sde_crtc->frame_done_comp);
 	SDE_ATRACE_END("crtc_commit");
 	return;
 }
@@ -4304,11 +4294,7 @@ static void sde_crtc_disable(struct drm_crtc *crtc)
 	if (cstate->num_ds_enabled)
 		sde_crtc->ds_reconfig = true;
 
-	/* wait for frame_event_done completion */
-	if (_sde_crtc_wait_for_frame_done(crtc))
-		SDE_ERROR("crtc%d wait for frame done failed;frame_pending%d\n",
-				crtc->base.id,
-				atomic_read(&sde_crtc->frame_pending));
+	_sde_crtc_flush_event_thread(crtc);
 
 	SDE_EVT32(DRMID(crtc), sde_crtc->enabled, sde_crtc->suspend,
 			sde_crtc->vblank_requested,
@@ -4323,6 +4309,8 @@ static void sde_crtc_disable(struct drm_crtc *crtc)
 	sde_crtc->enabled = false;
 
 	if (atomic_read(&sde_crtc->frame_pending)) {
+		SDE_ERROR("crtc%d frame_pending%d\n", crtc->base.id,
+				atomic_read(&sde_crtc->frame_pending));
 		SDE_EVT32(DRMID(crtc), atomic_read(&sde_crtc->frame_pending),
 							SDE_EVTLOG_FUNC_CASE2);
 		sde_core_perf_crtc_release_bw(crtc);
@@ -4362,7 +4350,8 @@ static void sde_crtc_disable(struct drm_crtc *crtc)
 	 * reset the fence timeline if crtc will not be enabled for this commit
 	 */
 	if (!crtc->state->active || !crtc->state->enable) {
-		sde_fence_signal(&sde_crtc->output_fence, ktime_get(), true);
+		sde_fence_signal(&sde_crtc->output_fence,
+				ktime_get(), SDE_FENCE_RESET_TIMELINE);
 		for (i = 0; i < cstate->num_connectors; ++i)
 			sde_connector_commit_reset(cstate->connectors[i],
 					ktime_get());
@@ -4427,7 +4416,7 @@ static void sde_crtc_enable(struct drm_crtc *crtc)
 		if (encoder->crtc != crtc)
 			continue;
 		sde_encoder_register_frame_event_callback(encoder,
-				sde_crtc_frame_event_cb, (void *)crtc);
+				sde_crtc_frame_event_cb, crtc);
 	}
 
 	if (!sde_crtc->enabled && !sde_crtc->suspend &&
@@ -4983,7 +4972,7 @@ void sde_crtc_cancel_pending_flip(struct drm_crtc *crtc, struct drm_file *file)
 {
 	struct sde_crtc *sde_crtc = to_sde_crtc(crtc);
 
-	SDE_DEBUG("%s: cancel: %p\n", sde_crtc->name, file);
+	SDE_DEBUG("%s: cancel: %pK\n", sde_crtc->name, file);
 	_sde_crtc_complete_flip(crtc, file);
 }
 
@@ -5890,7 +5879,8 @@ static void _sde_crtc_event_cb(struct kthread_work *work)
 }
 
 int sde_crtc_event_queue(struct drm_crtc *crtc,
-		void (*func)(struct drm_crtc *crtc, void *usr), void *usr)
+		void (*func)(struct drm_crtc *crtc, void *usr),
+		void *usr, bool color_processing_event)
 {
 	unsigned long irq_flags;
 	struct sde_crtc *sde_crtc;
@@ -5929,7 +5919,11 @@ int sde_crtc_event_queue(struct drm_crtc *crtc,
 
 	/* queue new event request */
 	kthread_init_work(&event->kt_work, _sde_crtc_event_cb);
-	kthread_queue_work(&priv->event_thread[crtc_id].worker,
+	if (color_processing_event)
+		kthread_queue_work(&priv->pp_event_worker,
+			&event->kt_work);
+	else
+		kthread_queue_work(&priv->event_thread[crtc_id].worker,
 			&event->kt_work);
 
 	return 0;
@@ -5950,10 +5944,6 @@ static int _sde_crtc_init_events(struct sde_crtc *sde_crtc)
 	for (i = 0; i < SDE_CRTC_MAX_EVENT_COUNT; ++i)
 		list_add_tail(&sde_crtc->event_cache[i].list,
 				&sde_crtc->event_free_list);
-
-	INIT_LIST_HEAD(&sde_crtc->retire_event_list);
-	for (i = 0; i < ARRAY_SIZE(sde_crtc->retire_events); i++)
-		INIT_LIST_HEAD(&sde_crtc->retire_events[i].list);
 
 	return rc;
 }
@@ -6008,7 +5998,6 @@ struct drm_crtc *sde_crtc_init(struct drm_device *dev, struct drm_plane *plane)
 	mutex_init(&sde_crtc->rp_lock);
 	INIT_LIST_HEAD(&sde_crtc->rp_head);
 
-	init_completion(&sde_crtc->frame_done_comp);
 	sde_crtc->enabled = false;
 
 	INIT_LIST_HEAD(&sde_crtc->frame_event_list);
@@ -6184,6 +6173,7 @@ static int _sde_crtc_event_disable(struct sde_kms *kms,
 	spin_lock_irqsave(&crtc->spin_lock, flags);
 	list_for_each_entry(node, &crtc->user_event_list, list) {
 		if (node->event == event) {
+			list_del(&node->list);
 			found = true;
 			break;
 		}
@@ -6199,7 +6189,6 @@ static int _sde_crtc_event_disable(struct sde_kms *kms,
 	 * no need to disable/de-register.
 	 */
 	if (!crtc_drm->enabled) {
-		list_del(&node->list);
 		kfree(node);
 		return 0;
 	}
@@ -6208,13 +6197,11 @@ static int _sde_crtc_event_disable(struct sde_kms *kms,
 	if (ret) {
 		SDE_ERROR("failed to enable power resource %d\n", ret);
 		SDE_EVT32(ret, SDE_EVTLOG_ERROR);
-		list_del(&node->list);
 		kfree(node);
 		return ret;
 	}
 
 	ret = node->func(crtc_drm, false, &node->irq);
-	list_del(&node->list);
 	kfree(node);
 	sde_power_resource_enable(&priv->phandle, kms->core_client, false);
 	return ret;

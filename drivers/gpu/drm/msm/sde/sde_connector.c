@@ -60,6 +60,10 @@ static const struct drm_prop_enum_list e_power_mode[] = {
 	{SDE_MODE_DPMS_LP2,	"LP2"},
 	{SDE_MODE_DPMS_OFF,	"OFF"},
 };
+static const struct drm_prop_enum_list e_qsync_mode[] = {
+	{SDE_RM_QSYNC_DISABLED,	"none"},
+	{SDE_RM_QSYNC_CONTINUOUS_MODE,	"continuous"},
+};
 
 static int sde_backlight_device_update_status(struct backlight_device *bd)
 {
@@ -541,6 +545,7 @@ static int _sde_connector_update_dirty_properties(
 
 	c_conn = to_sde_connector(connector);
 	c_state = to_sde_connector_state(connector->state);
+	c_conn->qsync_updated = false;
 
 	while ((idx = msm_property_pop_dirty(&c_conn->property_info,
 					&c_state->property_state)) >= 0) {
@@ -556,6 +561,15 @@ static int _sde_connector_update_dirty_properties(
 		case CONNECTOR_PROP_AD_BL_SCALE:
 			_sde_connector_update_bl_scale(c_conn);
 			break;
+		case CONNECTOR_PROP_QSYNC_MODE: {
+			uint32_t new_mode = sde_connector_get_property(
+				connector->state, CONNECTOR_PROP_QSYNC_MODE);
+			if (new_mode != c_conn->qsync_mode) {
+				c_conn->qsync_updated = true;
+				c_conn->qsync_mode = new_mode;
+			}
+			break;
+		}
 		default:
 			/* nothing to do for most properties */
 			break;
@@ -601,6 +615,13 @@ int sde_connector_pre_kickoff(struct drm_connector *connector)
 
 	params.rois = &c_state->rois;
 	params.hdr_meta = &c_state->hdr_meta;
+	params.qsync_update = false;
+
+	if (c_conn->qsync_updated) {
+		params.qsync_mode = c_conn->qsync_mode;
+		params.qsync_update = true;
+		SDE_EVT32(connector->base.id, params.qsync_mode);
+	}
 
 	SDE_EVT32_VERBOSE(connector->base.id);
 
@@ -1197,7 +1218,7 @@ void sde_connector_prepare_fence(struct drm_connector *connector)
 }
 
 void sde_connector_complete_commit(struct drm_connector *connector,
-		ktime_t ts)
+		ktime_t ts, enum sde_fence_event fence_event)
 {
 	if (!connector) {
 		SDE_ERROR("invalid connector\n");
@@ -1205,7 +1226,8 @@ void sde_connector_complete_commit(struct drm_connector *connector,
 	}
 
 	/* signal connector's retire fence */
-	sde_fence_signal(&to_sde_connector(connector)->retire_fence, ts, false);
+	sde_fence_signal(&to_sde_connector(connector)->retire_fence,
+			ts, fence_event);
 }
 
 void sde_connector_commit_reset(struct drm_connector *connector, ktime_t ts)
@@ -1216,7 +1238,8 @@ void sde_connector_commit_reset(struct drm_connector *connector, ktime_t ts)
 	}
 
 	/* signal connector's retire fence */
-	sde_fence_signal(&to_sde_connector(connector)->retire_fence, ts, true);
+	sde_fence_signal(&to_sde_connector(connector)->retire_fence,
+			ts, SDE_FENCE_RESET_TIMELINE);
 }
 
 static void sde_connector_update_hdr_props(struct drm_connector *connector)
@@ -1399,6 +1422,28 @@ int sde_connector_helper_reset_custom_properties(
 	}
 
 	return 0;
+}
+
+int sde_connector_get_panel_vfp(struct drm_connector *connector,
+	struct drm_display_mode *mode)
+{
+	struct sde_connector *c_conn;
+	int vfp = -EINVAL;
+
+	if (!connector || !mode) {
+		SDE_ERROR("invalid connector\n");
+		return vfp;
+	}
+	c_conn = to_sde_connector(connector);
+	if (!c_conn->ops.get_panel_vfp)
+		return vfp;
+
+	vfp = c_conn->ops.get_panel_vfp(c_conn->display,
+		mode->hdisplay, mode->vdisplay);
+	if (vfp <= 0)
+		SDE_ERROR("Failed get_panel_vfp %d\n", vfp);
+
+	return vfp;
 }
 
 static int _sde_debugfs_conn_cmd_tx_open(struct inode *inode, struct file *file)
@@ -2097,6 +2142,16 @@ struct drm_connector *sde_connector_init(struct drm_device *dev,
 	msm_property_install_range(&c_conn->property_info, "autorefresh",
 			0x0, 0, AUTOREFRESH_MAX_FRAME_CNT, 0,
 			CONNECTOR_PROP_AUTOREFRESH);
+
+	if (connector_type == DRM_MODE_CONNECTOR_DSI) {
+		if (sde_kms->catalog->has_qsync && display_info.qsync_min_fps) {
+
+			msm_property_install_enum(&c_conn->property_info,
+					"qsync_mode", 0, 0, e_qsync_mode,
+					ARRAY_SIZE(e_qsync_mode),
+					CONNECTOR_PROP_QSYNC_MODE);
+		}
+	}
 
 	msm_property_install_range(&c_conn->property_info, "bl_scale",
 		0x0, 0, MAX_BL_SCALE_LEVEL, MAX_BL_SCALE_LEVEL,

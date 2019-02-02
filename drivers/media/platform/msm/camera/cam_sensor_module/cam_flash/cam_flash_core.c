@@ -28,8 +28,13 @@ int cam_flash_prepare(struct cam_flash_ctrl *flash_ctrl,
 
 	if (regulator_enable &&
 		(flash_ctrl->is_regulator_enabled == false)) {
+#ifdef FIH_I2C_LED
+		rc = lm3644_flash_led_prepare(flash_ctrl->switch_trigger,
+			LM3644_ENABLE_REGULATOR, NULL);
+#else
 		rc = qpnp_flash_led_prepare(flash_ctrl->switch_trigger,
 			ENABLE_REGULATOR, NULL);
+#endif
 		if (rc) {
 			CAM_ERR(CAM_FLASH, "regulator enable failed rc = %d",
 				rc);
@@ -38,8 +43,13 @@ int cam_flash_prepare(struct cam_flash_ctrl *flash_ctrl,
 		flash_ctrl->is_regulator_enabled = true;
 	} else if ((!regulator_enable) &&
 		(flash_ctrl->is_regulator_enabled == true)) {
+#ifdef FIH_I2C_LED
+		rc = lm3644_flash_led_prepare(flash_ctrl->switch_trigger,
+			LM3644_DISABLE_REGULATOR, NULL);
+#else
 		rc = qpnp_flash_led_prepare(flash_ctrl->switch_trigger,
 			DISABLE_REGULATOR, NULL);
+#endif
 		if (rc) {
 			CAM_ERR(CAM_FLASH, "regulator disable failed rc = %d",
 				rc);
@@ -191,24 +201,10 @@ static int cam_flash_ops(struct cam_flash_ctrl *flash_ctrl,
 
 int cam_flash_off(struct cam_flash_ctrl *flash_ctrl)
 {
-	int i = 0;
-
 	if (!flash_ctrl) {
 		CAM_ERR(CAM_FLASH, "Flash control Null");
 		return -EINVAL;
 	}
-
-	for (i = 0; i < flash_ctrl->flash_num_sources; i++)
-		if (flash_ctrl->flash_trigger[i])
-			cam_res_mgr_led_trigger_event(
-				flash_ctrl->flash_trigger[i],
-				LED_OFF);
-
-	for (i = 0; i < flash_ctrl->torch_num_sources; i++)
-		if (flash_ctrl->torch_trigger[i])
-			cam_res_mgr_led_trigger_event(
-				flash_ctrl->torch_trigger[i],
-				LED_OFF);
 
 	if (flash_ctrl->switch_trigger)
 		cam_res_mgr_led_trigger_event(flash_ctrl->switch_trigger,
@@ -719,8 +715,13 @@ int cam_flash_parser(struct cam_flash_ctrl *fctrl, void *arg)
 			flash_query_info =
 				(struct cam_flash_query_curr *)cmd_buf;
 
+#ifdef FIH_I2C_LED
+			rc = lm3644_flash_led_prepare(fctrl->switch_trigger,
+				LM3644_QUERY_MAX_CURRENT, &query_curr_ma);
+#else
 			rc = qpnp_flash_led_prepare(fctrl->switch_trigger,
 				QUERY_MAX_CURRENT, &query_curr_ma);
+#endif
 			CAM_DBG(CAM_FLASH, "query_curr_ma = %d",
 				query_curr_ma);
 			if (rc) {

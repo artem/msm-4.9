@@ -1,4 +1,6 @@
-/* Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
+/*
+ * Copyright (c) 2018, Razer Inc. All rights reserved.
+ * Copyright (c) 2016-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -251,6 +253,26 @@ struct sde_connector_ops {
 	int (*config_hdr)(void *display,
 		struct sde_connector_state *c_state);
 
+	/**
+	 * cont_splash_config - initialize splash resources
+	 * @display: Pointer to private display handle
+	 * Returns: zero for success, negetive for failure
+	 */
+	int (*cont_splash_config)(void *display);
+
+	/**
+	 * get_panel_vfp - returns original panel vfp
+	 * @display: Pointer to private display handle
+	 * @h_active: width
+	 * @v_active: height
+	 * Returns: v_front_porch on success error-code on failure
+	 */
+	int (*get_panel_vfp)(void *display, int h_active, int v_active);
+
+	/**
+	 * display_input_boost
+	 */
+	int (*display_input_boost)(void *display, bool enable_boost);
 };
 
 /**
@@ -310,6 +332,7 @@ struct sde_connector_evt {
  * @bl_scale_dirty: Flag to indicate PP BL scale value(s) is changed
  * @bl_scale: BL scale value for ABA feature
  * @bl_scale_ad: BL scale value for AD feature
+ * @qsync_supported: Connector supports qsync feature
  * last_cmd_tx_sts: status of the last command transfer
  */
 struct sde_connector {
@@ -354,6 +377,9 @@ struct sde_connector {
 	u32 bl_scale;
 	u32 bl_scale_ad;
 
+	u32 qsync_mode;
+	bool qsync_updated;
+
 	bool last_cmd_tx_sts;
 };
 
@@ -387,6 +413,14 @@ struct sde_connector {
  */
 #define sde_connector_get_encoder(C) \
 	((C) ? to_sde_connector((C))->encoder : NULL)
+
+/**
+ * sde_connector_qsync_updated - indicates if connector updated qsync
+ * @C: Pointer to drm connector structure
+ * Returns: True if qsync is updated; false otherwise
+ */
+#define sde_connector_qsync_updated(C) \
+	((C) ? to_sde_connector((C))->qsync_updated : 0)
 
 /**
  * sde_connector_get_propinfo - get sde connector's property info pointer
@@ -565,8 +599,10 @@ void sde_connector_prepare_fence(struct drm_connector *connector);
  * sde_connector_complete_commit - signal completion of current commit
  * @connector: Pointer to drm connector object
  * @ts: timestamp to be updated in the fence signalling
+ * @fence_event: enum value to indicate nature of fence event
  */
-void sde_connector_complete_commit(struct drm_connector *connector, ktime_t ts);
+void sde_connector_complete_commit(struct drm_connector *connector,
+		ktime_t ts, enum sde_fence_event fence_event);
 
 /**
  * sde_connector_commit_reset - reset the completion signal
@@ -744,4 +780,13 @@ void sde_conn_timeline_status(struct drm_connector *conn);
  */
 void sde_connector_helper_bridge_disable(struct drm_connector *connector);
 
+/**
+ * sde_connector_get_panel_vfp - helper to get panel vfp
+ * @connector: pointer to drm connector
+ * @h_active: panel width
+ * @v_active: panel heigth
+ * Returns: v_front_porch on success error-code on failure
+ */
+int sde_connector_get_panel_vfp(struct drm_connector *connector,
+	struct drm_display_mode *mode);
 #endif /* _SDE_CONNECTOR_H_ */

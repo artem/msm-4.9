@@ -1,0 +1,284 @@
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/*****************************************/
+/*  Add SHARP include                    */
+/*****************************************/
+#include "pmic/sharp-pm8998.dtsi"
+#include "pmic/sharp-pmi8998.dtsi"
+#include "pmic/sharp-pm8005.dtsi"
+#include "sharp_pinctrl/sharp-pinctrl-sdm845.dtsi"
+#include "storage/sharp-common-sdm845-sdcc.dtsi"
+#include "usb/sharp-common-sdm845-usb-overlay.dtsi"
+
+/*----------------------------------------*/
+/* Qualcomm settings.                     */
+/*----------------------------------------*/
+/ {
+	fragment@00000000 {
+
+		target-path = "/reserved-memory";
+
+		__overlay__ {
+			#address-cells = <2>;
+			#size-cells = <2>;
+			ranges;
+
+			/*----------------------------------------------*/
+			/* shrlog                                       */
+			/*----------------------------------------------*/
+
+			shrlog_region: shrlog_region@a0000000 {
+				compatible = "removed-dma-pool";
+				no-map;
+				reg = <0x0 0xa0000000 0x0 0x100000>;
+				label = "shrlog_region";
+			};
+
+			ramoops_region: ramoops@a0100000 {
+				compatible = "ramoops";
+				reg = <0x0 0xa0100000 0x0 0x040000>;
+				console-size = <0x10000>;
+				record-size = <0x10000>;
+				pmsg-size = <0x20000>;
+				ftrace-size = <0x0>;
+				ecc-size = <0x0>;
+			};
+		};
+	};
+};
+
+&firmware {
+    android {
+        fstab {
+            odm {
+                compatible = "android,odm";
+                dev = "/dev/block/platform/soc/1d84000.ufshc/by-name/odm";
+                type = "ext4";
+                mnt_flags = "ro,barrier=1,discard";
+                fsmgr_flags = "wait,slotselect";
+                status = "ok";
+            };
+            product {
+                compatible = "android,product";
+                dev = "/dev/block/platform/soc/1d84000.ufshc/by-name/product";
+                type = "ext4";
+                mnt_flags = "ro,barrier=1,discard";
+                fsmgr_flags = "wait,slotselect";
+                status = "ok";
+            };
+
+        };
+    };
+};
+
+/*------------------------------*/
+/*  QUP0                        */
+/*------------------------------*/
+&qupv3_se0_spi {
+	spi-max-frequency = <48000000>;		/* 48MHz */
+	pinctrl-0 = <&qupv3_se0_spi_miso_active &qupv3_se0_spi_mosi_active>;
+	pinctrl-1 = <&qupv3_se0_spi_miso_sleep  &qupv3_se0_spi_mosi_sleep>;
+	status = "disabled";
+};
+
+
+/*------------------------------*/
+/*  QUP1                        */
+/*------------------------------*/
+/* NOT USE */
+
+
+/*------------------------------*/
+/*  QUP2                        */
+/*------------------------------*/
+/* NOT USE */
+
+
+/*------------------------------*/
+/*  QUP3                        */
+/*------------------------------*/
+&qupv3_se3_i2c {
+	qcom,clk-freq-out = <400000>;		/* 400KHz */
+	pinctrl-0 = <&qupv3_se3_i2c_sda_active>;
+	pinctrl-1 = <&qupv3_se3_i2c_sda_sleep>;
+	status = "disabled";
+};
+
+
+/*------------------------------*/
+/*  QUP4                        */
+/*------------------------------*/
+/* NOT USE */
+
+
+/*------------------------------*/
+/*  QUP5                        */
+/*------------------------------*/
+&qupv3_se5_spi {
+	spi-max-frequency = <48000000>;		/* 48MHz */
+	pinctrl-0 = <&qupv3_se5_miso_spi_active &qupv3_se5_mosi_spi_active>;
+	pinctrl-1 = <&qupv3_se5_miso_spi_sleep  &qupv3_se5_mosi_spi_sleep>;
+	qcom,not-use-pinctrl;
+	status = "disabled";
+};
+
+&qupv3_se5_i2c {
+	qcom,clk-freq-out = <400000>;		/* 400KHz */
+	pinctrl-0 = <&qupv3_se5_i2c_sda_active>;
+	pinctrl-1 = <&qupv3_se5_i2c_sda_sleep>;
+	status = "disabled";
+};
+
+
+
+/*------------------------------*/
+/*  QUP6                        */
+/*------------------------------*/
+/* use qcom settings (except GPIO 46) */
+&qupv3_se6_4uart {
+	pinctrl-names = "default", "sleep", "active";
+	pinctrl-0 = <&qupv3_se6_ctsrx &qupv3_se6_rts_sleep &qupv3_se6_tx>;
+	pinctrl-1 = <&qupv3_se6_ctsrx &qupv3_se6_rts_sleep &qupv3_se6_tx>;
+	pinctrl-2 = <&qupv3_se6_ctsrx &qupv3_se6_rts_active &qupv3_se6_tx>;
+};
+
+
+/*------------------------------*/
+/*  QUP7                        */
+/*------------------------------*/
+&qupv3_se7_i2c {
+	qcom,clk-freq-out = <400000>;		/* 400KHz */
+	pinctrl-0 = <&qupv3_se7_i2c_sda_active>;
+	pinctrl-1 = <&qupv3_se7_i2c_sda_sleep>;
+	status = "disabled";
+};
+
+
+/*------------------------------*/
+/*  QUP8                        */
+/*------------------------------*/
+/* use qcom settings */
+
+
+/*------------------------------*/
+/*  QUP9                        */
+/*------------------------------*/
+&qupv3_se9_2uart {
+	pinctrl-0 = <&qupv3_se9_2uart_sda_tx_active &qupv3_se9_2uart_sda_rx_active>;
+	pinctrl-1 = <&qupv3_se9_2uart_sda_tx_sleep &qupv3_se9_2uart_sda_rx_sleep>;
+	status = "disabled";
+};
+
+
+/*------------------------------*/
+/*  QUP10                       */
+/*------------------------------*/
+/* disable qualcomm setting */
+&qupv3_se10_i2c {
+	status = "disabled";
+};
+
+
+/*------------------------------*/
+/*  QUP11                       */
+/*------------------------------*/
+&qupv3_se11_i2c {
+	qcom,clk-freq-out = <400000>;		/* 400KHz */
+	pinctrl-0 = <&qupv3_se11_i2c_sda_active>;
+	pinctrl-1 = <&qupv3_se11_i2c_sda_sleep>;
+	status = "disabled";
+};
+
+
+/*------------------------------*/
+/*  QUP12                       */
+/*------------------------------*/
+/* NOT USE */
+
+
+/*------------------------------*/
+/*  QUP13                       */
+/*------------------------------*/
+/* NOT USE */
+
+
+/*------------------------------*/
+/*  QUP14                       */
+/*------------------------------*/
+/* QUP11 I2C */
+
+
+/*------------------------------*/
+/*  QUP15                       */
+/*------------------------------*/
+/* can be accessed from TZ */
+
+&soc {
+	/*----------------------------------------------*/
+	/* shrlog                                       */
+	/*----------------------------------------------*/
+	sharp,shrlog {
+		compatible = "sharp,shrlog";
+		memory-region = <&shrlog_region>;
+		sharp,shrlog-offset = <0x0>;
+		sharp,shrlog-linux-offset = <0x0>;
+		sharp,aboot-log-region = <&shrlog_region>;
+		sharp,shrlog-abootlog-offset = <0x80000>;
+		sharp,disable-sdi-on-boot;
+	};
+
+	sharp,sh_smd_read{
+		status = "ok";
+		compatible = "sharp,sh_smd_read";
+	};
+	
+	/*------------------------------*/
+	/*  pcie1                       */
+	/*------------------------------*/
+	/* disable qualcomm setting */
+	pcie1: qcom,pcie@0x1c08000 {
+		status = "disabled";
+	};
+};
+
+
+/*----------------------------------------*/
+/* Add SHARP settings.                    */
+/*----------------------------------------*/
+&gpio_keys {
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
+
+	/delete-node/ vol_up;
+	/delete-node/ cam_snapshot;
+	/delete-node/ cam_focus;
+
+	vol_down {
+		label = "volume_down";
+		gpios = <&pm8998_gpios 6 GPIO_ACTIVE_LOW>;
+		linux,input-type = <1>;
+		linux,code = <114>;
+		gpio-key,wakeup;
+		debounce-interval = <15>;
+		linux,can-disable;
+	};
+};
+
+/*----------------------------------------*/
+/* Wi-Fi Driver (disable WiGig)           */
+/*----------------------------------------*/
+&wil6210 {
+	status = "disabled";
+};
+
+

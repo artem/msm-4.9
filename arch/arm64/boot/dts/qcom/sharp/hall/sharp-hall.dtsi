@@ -1,0 +1,28 @@
+/*
+ * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&soc {
+	sharp,flip {
+		status = "ok";
+		compatible = "sharp,flip";
+		qcom,shflip-det-gpio = <&tlmm 124 0>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <124 0>;
+		interrupt-names = "shhall_det";
+		pinctrl-names = "shhall_det_active",
+				"shhall_det_suspend";
+		pinctrl-0 = <&shhall_det_active>;
+		pinctrl-1 = <&shhall_det_suspend>;
+	};
+};
+

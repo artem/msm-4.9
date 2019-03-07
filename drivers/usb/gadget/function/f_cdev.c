@@ -53,10 +53,10 @@
 #define MAX_CDEV_INST_NAME	15
 #define MAX_CDEV_FUNC_NAME	5
 
-#define BRIDGE_RX_QUEUE_SIZE	8
-#define BRIDGE_RX_BUF_SIZE	2048
-#define BRIDGE_TX_QUEUE_SIZE	8
-#define BRIDGE_TX_BUF_SIZE	2048
+#define BRIDGE_RX_QUEUE_SIZE	32
+#define BRIDGE_RX_BUF_SIZE	5120
+#define BRIDGE_TX_QUEUE_SIZE	32
+#define BRIDGE_TX_BUF_SIZE	5120
 
 #define GS_LOG2_NOTIFY_INTERVAL		5  /* 1 << 5 == 32 msec */
 #define GS_NOTIFY_MAXPACKET		10 /* notification + 2 bytes */
@@ -652,6 +652,16 @@ unsigned int dun_cser_get_rts(struct cserial *cser)
 		return 0;
 }
 
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+bool dun_cser_dtr_rts(struct cserial *cser)
+{
+	if (cser != NULL){
+		return dun_cser_get_dtr(cser) & dun_cser_get_rts(cser);
+	}
+	return 0;
+}
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
+
 unsigned int dun_cser_send_carrier_detect(struct cserial *cser,
 				unsigned int yes)
 {
@@ -861,6 +871,9 @@ static void usb_cser_unbind(struct usb_configuration *c, struct usb_function *f)
 
 	usb_free_all_descriptors(f);
 	usb_cser_free_req(port->port_usb.notify, port->port_usb.notify_req);
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+	port->port_usb.port_handshake_bits = 0;
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 }
 
 static int usb_cser_alloc_requests(struct usb_ep *ep, struct list_head *head,
@@ -914,7 +927,11 @@ static void usb_cser_start_rx(struct f_cdev *port)
 
 		req = list_entry(pool->next, struct usb_request, list);
 		list_del_init(&req->list);
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+		req->length = min((u16)ep->maxpacket, (u16)BRIDGE_RX_BUF_SIZE);
+#else /* CONFIG_USB_ANDROID_SHARP_CUST */
 		req->length = BRIDGE_RX_BUF_SIZE;
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 		req->complete = usb_cser_read_complete;
 		spin_unlock_irqrestore(&port->port_lock, flags);
 		ret = usb_ep_queue(ep, req, GFP_KERNEL);
@@ -1272,9 +1289,11 @@ ssize_t f_cdev_write(struct file *file,
 		pr_err("copy_from_user failed: err %d\n", ret);
 		ret = -EFAULT;
 	} else {
+		int prev = req->zero;
 		req->length = xfer_size;
 		req->zero = 1;
 		ret = usb_ep_queue(in, req, GFP_KERNEL);
+		req->zero = prev;
 		if (ret) {
 			pr_err("EP QUEUE failed:%d\n", ret);
 			ret = -EIO;
@@ -1781,9 +1800,26 @@ static ssize_t usb_cser_status_store(struct config_item *item,
 	return len;
 }
 
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+static ssize_t usb_cser_dtr_rts_show(struct config_item *item, char *page)
+{
+	struct f_cdev *port = to_f_cdev_opts(item)->port;
+	struct cserial *cser = &port->port_usb;
+	unsigned int dtr_rts = dun_cser_dtr_rts(cser);
+
+	return snprintf(page, PAGE_SIZE, "%u\n", dtr_rts);
+}
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
+
 CONFIGFS_ATTR(usb_cser_, status);
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+CONFIGFS_ATTR_RO(usb_cser_, dtr_rts);
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 static struct configfs_attribute *cserial_attrs[] = {
 	&usb_cser_attr_status,
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+	&usb_cser_attr_dtr_rts,
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 	NULL,
 };
 

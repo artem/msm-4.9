@@ -928,6 +928,14 @@ int cam_get_dt_power_setting_data(struct device_node *of_node,
 			ps[i].seq_type = SENSOR_VANA;
 		} else if (!strcmp(seq_name, "cam_clk")) {
 			ps[i].seq_type = SENSOR_MCLK;
+/* SHLOCAL_CAMERA_DRIVERS-> */
+		} else if (!strcmp(seq_name, "cam_reset")) {
+			ps[i].seq_type = SENSOR_RESET;
+		} else if (!strcmp(seq_name, "cam_vdig")) {
+			ps[i].seq_type = SENSOR_VDIG;
+		} else if (!strcmp(seq_name, "cam_vaf")) {
+			ps[i].seq_type = SENSOR_VAF;
+/* SHLOCAL_CAMERA_DRIVERS<- */
 		} else {
 			CAM_ERR(CAM_SENSOR, "unrecognized seq-type %s",
 				seq_name);
@@ -1036,7 +1044,13 @@ int cam_sensor_util_init_gpio_pin_tbl(
 	gpio_num_info = *pgpio_num_info;
 
 	rc = of_property_read_u32(of_node, "gpio-vana", &val);
+/* SHLOCAL_CAMERA_DRIVERS-> */
+#if 0
 	if (rc != -EINVAL) {
+#else
+	if ((rc != -EINVAL) && (val < gpio_array_size)) {
+#endif
+/* SHLOCAL_CAMERA_DRIVERS-> */
 		if (rc < 0) {
 			CAM_ERR(CAM_SENSOR, "read gpio-vana failed rc %d", rc);
 			goto free_gpio_info;

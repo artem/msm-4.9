@@ -35,6 +35,27 @@ config SPI_DEBUG
 	  Say "yes" to enable debug messaging (like dev_dbg and pr_debug),
 	  sysfs, and debugfs support in SPI controller and protocol drivers.
 
+config SHARP_SPI_EXPAND_DEBUG_FUNCTION
+	bool "SPI customize expand debug function"
+	default y
+
+config SHARP_SPI_DEASSERT_WAIT
+	bool "SPI customize deassert wait"
+	default y
+
+config SHARP_SPI_REMEDY_FOR_RESET
+	bool "SPI customize remedy for reset when clock setting failed"
+	default y
+
+config SHARP_SPI_REG_DUMP
+	bool "SPI customize dumping register" 
+	default y
+
+config SHARP_SPI_AUTO_SUSPEND
+	int "SPI customize autosuspend_delay time"
+	default 50
+
+
 #
 # MASTER side ... talking to discrete SPI slave chips including microcontrollers
 #

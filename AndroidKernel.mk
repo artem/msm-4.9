@@ -124,6 +124,51 @@ $(KERNEL_USR): $(KERNEL_HEADERS_INSTALL)
 $(TARGET_PREBUILT_INT_KERNEL): $(KERNEL_USR)
 endif
 
+ifeq ($(TARGET_BUILD_VARIANT),user)
+define format_kernel_config_engineering
+endef
+else
+define CONFIGY
+"CONFIG_DEVMEM CONFIG_DEVKMEM CONFIG_ANDROID_ENGINEERING CONFIG_SECURITY_MIYABI_ENGINEERING_BUILD CONFIG_MSM_DLOAD_MODE"
+endef
+define CONFIGN
+""
+endef
+#define CONFIGYOP
+#"CONFIG_SLUB_DEBUG CONFIG_SLUB_DEBUG_ON CONFIG_SLUB_STATS CONFIG_DEBUG_LIST CONFIG_DEBUG_STACK_USAGE CONFIG_DEBUG_ATOMIC_SLEEP CONFIG_DEBUG_PAGEALLOC"
+#endef
+define CONFIGYOP
+""
+endef
+ifeq (,$(filter-out F%, $(SH_BUILD_ID)))
+define format_kernel_config_engineering
+	perl -le '@noappear = split(/ /, $(CONFIGY)); @config_y = @noappear;\
+	@config_n = split(/ /, $(CONFIGN));\
+	while (<>) {chomp($$_); $$line = $$_ ; s/^# // ; s/[ =].+$$// ; if (/^CONFIG/) { $$config = $$_ ; \
+	if (grep {$$_ eq $$config} @config_y) { $$line = $$_ . "=y" ; @noappear = grep(!/^$$config$$/, @noappear); } \
+	elsif (grep {$$_ eq $$config} @config_n) {$$line = "# " . $$_ . " is not set" ; } } \
+	print $$line }\
+	foreach (@noappear) { print $$_ . "=y"}' $(1) > $(KERNEL_OUT)/tmp
+	rm $(1)
+	cp $(KERNEL_OUT)/tmp $(1)
+	$(MAKE) -C $(TARGET_KERNEL_SOURCE) O=$(BUILD_ROOT_LOC)$(KERNEL_OUT) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(KERNEL_CROSS_COMPILE) oldnoconfig
+endef
+else
+define format_kernel_config_engineering
+	perl -le 'if ($$ENV{'SH_BUILD_DEBUG'} eq "y") {@noappear = split(/ /, ($(CONFIGY) . " " . $(CONFIGYOP))); } else {@noappear = split(/ /, $(CONFIGY));} @config_y = @noappear;\
+	@config_n = split(/ /, $(CONFIGN));\
+	while (<>) {chomp($$_); $$line = $$_ ; s/^# // ; s/[ =].+$$// ; if (/^CONFIG/) { $$config = $$_ ; \
+	if (grep {$$_ eq $$config} @config_y) { $$line = $$_ . "=y" ; @noappear = grep(!/^$$config$$/, @noappear); } \
+	elsif (grep {$$_ eq $$config} @config_n) {$$line = "# " . $$_ . " is not set" ; } } \
+	print $$line }\
+	foreach (@noappear) { print $$_ . "=y"}' $(1) > $(KERNEL_OUT)/tmp
+	rm $(1)
+	cp $(KERNEL_OUT)/tmp $(1)
+	$(MAKE) -C $(TARGET_KERNEL_SOURCE) O=$(BUILD_ROOT_LOC)$(KERNEL_OUT) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(KERNEL_CROSS_COMPILE) oldnoconfig
+endef
+endif
+endif
+
 $(KERNEL_OUT):
 	mkdir -p $(KERNEL_OUT)
 
@@ -133,6 +178,7 @@ $(KERNEL_CONFIG): $(KERNEL_OUT)
 			echo "Overriding kernel config with '$(KERNEL_CONFIG_OVERRIDE)'"; \
 			echo $(KERNEL_CONFIG_OVERRIDE) >> $(KERNEL_OUT)/.config; \
 			$(MAKE) -C $(TARGET_KERNEL_SOURCE) O=$(BUILD_ROOT_LOC)$(KERNEL_OUT) $(KERNEL_MAKE_ENV) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(KERNEL_CROSS_COMPILE) oldconfig; fi
+	$(call format_kernel_config_engineering, $(KERNEL_CONFIG))
 
 $(TARGET_PREBUILT_INT_KERNEL): $(KERNEL_OUT) $(KERNEL_HEADERS_INSTALL)
 	$(hide) echo "Building kernel..."
@@ -160,6 +206,7 @@ $(KERNEL_HEADERS_INSTALL): $(KERNEL_OUT)
 			echo "Overriding kernel config with '$(KERNEL_CONFIG_OVERRIDE)'"; \
 			echo $(KERNEL_CONFIG_OVERRIDE) >> $(KERNEL_OUT)/.config; \
 			$(MAKE) -C $(TARGET_KERNEL_SOURCE) O=$(BUILD_ROOT_LOC)$(KERNEL_OUT) $(KERNEL_MAKE_ENV) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(KERNEL_CROSS_COMPILE) oldconfig; fi
+	$(call format_kernel_config_engineering, $(KERNEL_CONFIG))
 
 kerneltags: $(KERNEL_OUT) $(KERNEL_CONFIG)
 	$(MAKE) -C $(TARGET_KERNEL_SOURCE) O=$(BUILD_ROOT_LOC)$(KERNEL_OUT) $(KERNEL_MAKE_ENV) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(KERNEL_CROSS_COMPILE) tags

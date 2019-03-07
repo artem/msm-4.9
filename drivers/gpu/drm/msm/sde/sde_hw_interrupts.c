@@ -17,6 +17,9 @@
 #include "sde_hw_interrupts.h"
 #include "sde_hw_util.h"
 #include "sde_hw_mdss.h"
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+#include "../sharp/drm_mfr.h"
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 /**
  * Register offsets in MDSS register file for the interrupt registers
@@ -805,6 +808,9 @@ static void sde_hw_intr_dispatch_irq(struct sde_hw_intr *intr,
 	int end_idx;
 	u32 irq_status;
 	unsigned long irq_flags;
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	const struct drm_mfr_callbacks *mfr_cb;
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 	if (!intr)
 		return;
@@ -814,6 +820,10 @@ static void sde_hw_intr_dispatch_irq(struct sde_hw_intr *intr,
 	 * Now need to go through each IRQ status and find matching
 	 * irq lookup index.
 	 */
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	mfr_cb = drm_mfr_get_mfr_callbacks();
+	mfr_cb->pre_hw_vsync(mfr_cb->ctx);
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 	spin_lock_irqsave(&intr->irq_lock, irq_flags);
 	for (reg_idx = 0; reg_idx < ARRAY_SIZE(sde_intr_set); reg_idx++) {
 		irq_status = intr->save_irq_status[reg_idx];
@@ -861,6 +871,9 @@ static void sde_hw_intr_dispatch_irq(struct sde_hw_intr *intr,
 			}
 	}
 	spin_unlock_irqrestore(&intr->irq_lock, irq_flags);
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	mfr_cb->post_hw_vsync(mfr_cb->ctx);
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 }
 
 static int sde_hw_intr_enable_irq(struct sde_hw_intr *intr, int irq_idx)

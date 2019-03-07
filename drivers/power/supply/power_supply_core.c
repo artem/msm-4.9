@@ -586,6 +586,29 @@ static struct thermal_zone_device_ops psy_tzd_ops = {
 	.get_temp = power_supply_read_temp,
 };
 
+#ifdef CONFIG_BATTERY_SHARP
+static int power_supply_read_skin_temp(struct thermal_zone_device *tzd,
+		int *temp)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int ret;
+
+	WARN_ON(tzd == NULL);
+	psy = tzd->devdata;
+	ret = psy->desc->get_property(psy, POWER_SUPPLY_PROP_SKIN_TEMP, &val);
+
+	if (!ret)
+		*temp = val.intval;
+
+	return ret;
+}
+
+static struct thermal_zone_device_ops psy_tzd_bms_ops = {
+	.get_temp = power_supply_read_skin_temp,
+};
+#endif /* CONFIG_BATTERY_SHARP */
+
 static int psy_register_thermal(struct power_supply *psy)
 {
 	int i;
@@ -595,11 +618,29 @@ static int psy_register_thermal(struct power_supply *psy)
 
 	/* Register battery zone device psy reports temperature */
 	for (i = 0; i < psy->desc->num_properties; i++) {
+#ifdef CONFIG_BATTERY_SHARP
+		if(psy->desc->type == POWER_SUPPLY_TYPE_BATTERY) {
+			if (psy->desc->properties[i] == POWER_SUPPLY_PROP_TEMP) {
+				psy->tzd = thermal_zone_device_register(psy->desc->name,
+						0, 0, psy, &psy_tzd_ops, NULL, 0, 0);
+				return PTR_ERR_OR_ZERO(psy->tzd);
+			}
+		}
+		if(psy->desc->type == POWER_SUPPLY_TYPE_BMS)
+		{
+			if (psy->desc->properties[i] == POWER_SUPPLY_PROP_SKIN_TEMP) {
+				psy->tzd = thermal_zone_device_register(psy->desc->name,
+						0, 0, psy, &psy_tzd_bms_ops, NULL, 0, 0);
+				return PTR_ERR_OR_ZERO(psy->tzd);
+			}
+		}
+#else
 		if (psy->desc->properties[i] == POWER_SUPPLY_PROP_TEMP) {
 			psy->tzd = thermal_zone_device_register(psy->desc->name,
 					0, 0, psy, &psy_tzd_ops, NULL, 0, 0);
 			return PTR_ERR_OR_ZERO(psy->tzd);
 		}
+#endif /* CONFIG_BATTERY_SHARP */
 	}
 	return 0;
 }

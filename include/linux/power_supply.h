@@ -1,9 +1,9 @@
 /*
  *  Universal power supply monitor class
  *
- *  Copyright © 2007  Anton Vorontsov <cbou@mail.ru>
- *  Copyright © 2004  Szabolcs Gyurko
- *  Copyright © 2003  Ian Molton <spyro@f2s.com>
+ *  Copyright 息 2007  Anton Vorontsov <cbou@mail.ru>
+ *  Copyright 息 2004  Szabolcs Gyurko
+ *  Copyright 息 2003  Ian Molton <spyro@f2s.com>
  *
  *  Modified: 2004, Oct     Szabolcs Gyurko
  *
@@ -22,7 +22,7 @@
 
 /*
  * All voltages, currents, charges, energies, time and temperatures in uV,
- * µA, µAh, µWh, seconds and tenths of degree Celsius unless otherwise
+ * 袖A, 袖Ah, 袖Wh, seconds and tenths of degree Celsius unless otherwise
  * stated. It's driver's job to convert its raw values to units in which
  * this class operates.
  */
@@ -303,6 +303,14 @@ enum power_supply_property {
 	POWER_SUPPLY_PROP_SOH,
 	POWER_SUPPLY_PROP_QC_OPTI_DISABLE,
 	POWER_SUPPLY_PROP_FCC_STEPPER_ENABLE,
+#ifdef CONFIG_BATTERY_SHARP
+	POWER_SUPPLY_PROP_SKIN_TEMP,
+	POWER_SUPPLY_PROP_CC_SAFETY_LEVEL,
+	POWER_SUPPLY_PROP_STORMING_STATUS,
+	POWER_SUPPLY_PROP_TYPEC_OVERHEAT_STATUS,
+	POWER_SUPPLY_PROP_CHARGER_ERROR_STATUS,
+	POWER_SUPPLY_PROP_BATTERY_FULL_DESIGN,
+#endif /* CONFIG_BATTERY_SHARP */
 	/* Local extensions of type int64_t */
 	POWER_SUPPLY_PROP_CHARGE_COUNTER_EXT,
 	/* Properties of type `const char *' */
@@ -364,6 +372,15 @@ enum power_supply_typec_power_role {
 enum power_supply_notifier_events {
 	PSY_EVENT_PROP_CHANGED,
 };
+
+#ifdef CONFIG_BATTERY_SHARP
+enum power_supply_cc_safety_level {
+	POWER_SUPPLY_CC_SAFETY_LEVEL0,	/* No problem */
+	POWER_SUPPLY_CC_SAFETY_LEVEL1,	/* Short detected */
+	POWER_SUPPLY_CC_SAFETY_LEVEL2,	/* Charger connected after short detected */
+	POWER_SUPPLY_CC_SAFETY_LEVEL3,	/* USB therm overheat */
+};
+#endif /* CONFIG_BATTERY_SHARP */
 
 union power_supply_propval {
 	int intval;

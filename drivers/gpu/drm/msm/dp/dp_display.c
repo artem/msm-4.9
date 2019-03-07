@@ -518,6 +518,14 @@ static int dp_display_process_hpd_high(struct dp_display_private *dp)
 			goto notify;
 	}
 
+	dp->link->process_request(dp->link);
+
+	if (dp_display_is_sink_count_zero(dp)) {
+		pr_debug("no downstream devices connected\n");
+		rc = -EINVAL;
+		goto end;
+	}
+
 	edid = dp->panel->edid_ctrl->edid;
 
 	dp->audio_supported = drm_detect_monitor_audio(edid);
@@ -1462,10 +1470,14 @@ int dp_display_get_displays(void **displays, int count)
 
 int dp_display_get_num_of_displays(void)
 {
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00043 */
+	return 0;
+#else /* CONFIG_SHARP_DISPLAY */
 	if (!g_dp_display)
 		return 0;
 
 	return 1;
+#endif /* CONFIG_SHARP_DISPLAY */
 }
 
 static int dp_display_remove(struct platform_device *pdev)

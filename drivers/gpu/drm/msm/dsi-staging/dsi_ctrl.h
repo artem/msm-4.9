@@ -478,7 +478,11 @@ int dsi_ctrl_set_ulps(struct dsi_ctrl *dsi_ctrl, bool enable);
  *
  * Return: error code.
  */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+int dsi_ctrl_setup(struct dsi_ctrl *dsi_ctrl, bool mipiclkchg_progress);
+#else
 int dsi_ctrl_setup(struct dsi_ctrl *dsi_ctrl);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 /**
  * dsi_ctrl_set_roi() - Set DSI controller's region of interest
@@ -783,4 +787,10 @@ int dsi_ctrl_wait_for_cmd_mode_mdp_idle(struct dsi_ctrl *dsi_ctrl);
  * @enable:			   variable to control continuous clock.
  */
 void dsi_ctrl_set_continuous_clk(struct dsi_ctrl *dsi_ctrl, bool enable);
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+int dsi_ctrl_check_vid_engine_state(struct dsi_ctrl *dsi_ctrl, u32 op_state);
+void dsi_ctrl_update_vid_engine_state(struct dsi_ctrl *dsi_ctrl, u32 op_state);
+#endif /* CONFIG_SHARP_DISPLAY */
+
 #endif /* _DSI_CTRL_H_ */

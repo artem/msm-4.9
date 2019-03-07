@@ -976,6 +976,46 @@ int usb_remove_device(struct usb_device *udev)
 	return 0;
 }
 
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+enum {
+	D_HUB_PORT_STAT_NOCONNECT = 0,
+	D_HUB_PORT_STAT_ENUM_ERR,
+	D_HUB_PORT_STAT_ENUM_DONE
+};
+
+static void hub_port_status_notify(struct usb_hub *hub, int port1, int err)
+{
+	char buf[10];
+	char *uevent_envp[3];
+
+	if (!hub || !(hub->hdev))
+		return;
+
+	memset(buf, 0x00, sizeof(buf));
+	snprintf(buf, sizeof(buf)-1, "PORT=%d", port1);
+	uevent_envp[0] = buf;
+
+	switch (err) {
+	case D_HUB_PORT_STAT_NOCONNECT:
+		uevent_envp[1] = "STAT=NOCONNECT";
+		break;
+	case D_HUB_PORT_STAT_ENUM_ERR:
+		uevent_envp[1] = "STAT=ENUM_ERR";
+		break;
+	case D_HUB_PORT_STAT_ENUM_DONE:
+		uevent_envp[1] = "STAT=ENUM_DONE";
+		break;
+	default:
+		uevent_envp[1] = "STAT=OTHER_ERR";
+		break;
+	}
+	uevent_envp[2] = NULL;
+
+	dev_info(hub->intfdev, "sent hub status %s %s\n",uevent_envp[0], uevent_envp[1]);
+	kobject_uevent_env(&hub->hdev->dev. kobj, KOBJ_CHANGE, uevent_envp);
+}
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
+
 enum hub_activation_type {
 	HUB_INIT, HUB_INIT2, HUB_INIT3,		/* INITs must come first */
 	HUB_POST_RESET, HUB_RESUME, HUB_RESET_RESUME,
@@ -1096,6 +1136,13 @@ static void hub_activate(struct usb_hub *hub, enum hub_activation_type type)
 			dev_dbg(&port_dev->dev, "status %04x change %04x\n",
 					portstatus, portchange);
 
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+		if (!(portstatus & USB_PORT_STAT_CONNECTION)) {
+			dev_dbg(hub->intfdev,"%s: not connect status %04x change %04x\n",
+					__func__, portstatus, portchange);
+			hub_port_status_notify(hub,port1,D_HUB_PORT_STAT_NOCONNECT);
+		}
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
 		/*
 		 * After anything other than HUB_RESUME (i.e., initialization
 		 * or any sort of reset), every port should be disabled.
@@ -1367,8 +1414,10 @@ static int hub_configure(struct usb_hub *hub,
 	}
 
 	maxchild = hub->descriptor->bNbrPorts;
+#ifdef CONFIG_USB_DEBUG_SHARP_LOG
 	dev_info(hub_dev, "%d port%s detected\n", maxchild,
 			(maxchild == 1) ? "" : "s");
+#endif /* CONFIG_USB_DEBUG_SHARP_LOG */
 
 	hub->ports = kzalloc(maxchild * sizeof(struct usb_port *), GFP_KERNEL);
 	if (!hub->ports) {
@@ -1772,8 +1821,10 @@ descriptor_error:
 	if (!usb_endpoint_is_int_in(endpoint))
 		goto descriptor_error;
 
+#ifdef CONFIG_USB_DEBUG_SHARP_LOG
 	/* We found a hub */
 	dev_info(&intf->dev, "USB hub found\n");
+#endif /* CONFIG_USB_DEBUG_SHARP_LOG */
 
 	hub = kzalloc(sizeof(*hub), GFP_KERNEL);
 	if (!hub)
@@ -2113,8 +2164,10 @@ void usb_disconnect(struct usb_device **pdev)
 	 * this quiesces everything except pending urbs.
 	 */
 	usb_set_device_state(udev, USB_STATE_NOTATTACHED);
+#ifdef CONFIG_USB_DEBUG_SHARP_LOG
 	dev_info(&udev->dev, "USB disconnect, device number %d\n",
 			udev->devnum);
+#endif /* CONFIG_USB_DEBUG_SHARP_LOG */
 
 	/*
 	 * Ensure that the pm runtime code knows that the USB device
@@ -2178,18 +2231,21 @@ void usb_disconnect(struct usb_device **pdev)
 }
 
 #ifdef CONFIG_USB_ANNOUNCE_NEW_DEVICES
+#ifdef CONFIG_USB_DEBUG_SHARP_LOG
 static void show_string(struct usb_device *udev, char *id, char *string)
 {
 	if (!string)
 		return;
 	dev_info(&udev->dev, "%s: %s\n", id, string);
 }
+#endif /* CONFIG_USB_DEBUG_SHARP_LOG */
 
 static void announce_device(struct usb_device *udev)
 {
 	dev_info(&udev->dev, "New USB device found, idVendor=%04x, idProduct=%04x\n",
 		le16_to_cpu(udev->descriptor.idVendor),
 		le16_to_cpu(udev->descriptor.idProduct));
+#ifdef CONFIG_USB_DEBUG_SHARP_LOG
 	dev_info(&udev->dev,
 		"New USB device strings: Mfr=%d, Product=%d, SerialNumber=%d\n",
 		udev->descriptor.iManufacturer,
@@ -2198,6 +2254,7 @@ static void announce_device(struct usb_device *udev)
 	show_string(udev, "Product", udev->product);
 	show_string(udev, "Manufacturer", udev->manufacturer);
 	show_string(udev, "SerialNumber", udev->serial);
+#endif /* CONFIG_USB_DEBUG_SHARP_LOG */
 }
 #else
 static inline void announce_device(struct usb_device *udev) { }
@@ -4436,11 +4493,13 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 	else
 		speed = usb_speed_string(udev->speed);
 
+#ifdef CONFIG_USB_DEBUG_SHARP_LOG
 	if (udev->speed < USB_SPEED_SUPER)
 		dev_info(&udev->dev,
 				"%s %s USB device number %d using %s\n",
 				(udev->config) ? "reset" : "new", speed,
 				devnum, udev->bus->controller->driver->name);
+#endif /* CONFIG_USB_DEBUG_SHARP_LOG */
 
 	/* Set up TT records, if needed  */
 	if (hdev->tt) {
@@ -4778,6 +4837,13 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 			(portchange & USB_PORT_STAT_C_CONNECTION))
 		clear_bit(port1, hub->removed_bits);
 
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+	if (!(portstatus & USB_PORT_STAT_CONNECTION) ||
+			(portchange & USB_PORT_STAT_C_CONNECTION)) {
+		/* notify disconnect */
+		hub_port_status_notify(hub,port1,D_HUB_PORT_STAT_NOCONNECT);
+	}
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
 	if (portchange & (USB_PORT_STAT_C_CONNECTION |
 				USB_PORT_STAT_C_ENABLE)) {
 		status = hub_port_debounce_be_stable(hub, port1);
@@ -4946,6 +5012,9 @@ retry_enum:
 		if (status)
 			dev_dbg(hub->intfdev, "%dmA power budget left\n", status);
 
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+		hub_port_status_notify(hub, port1,D_HUB_PORT_STAT_ENUM_DONE);
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
 		return;
 
 loop_disable:
@@ -4988,6 +5057,10 @@ loop:
 		}
 	}
 
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+	/* notify unable to enumerate */
+	hub_port_status_notify(hub, port1,D_HUB_PORT_STAT_ENUM_ERR);
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
 done:
 	hub_port_disable(hub, port1, 1);
 	if (hcd->driver->relinquish_port && !hub->hdev->parent) {

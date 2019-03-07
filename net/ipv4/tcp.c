@@ -269,6 +269,9 @@
 #include <linux/err.h>
 #include <linux/time.h>
 #include <linux/slab.h>
+#ifdef CONFIG_SHARP_PNP_SLEEP_SLEEPLOG
+#include <linux/uid_stat.h>
+#endif /* CONFIG_SHARP_PNP_SLEEP_SLEEPLOG */
 
 #include <net/icmp.h>
 #include <net/inet_common.h>
@@ -1355,6 +1358,11 @@ out:
 	}
 out_nopush:
 	release_sock(sk);
+#ifdef CONFIG_SHARP_PNP_SLEEP_SLEEPLOG
+	if (copied + copied_syn)
+		uid_stat_tcp_snd(from_kuid(&init_user_ns, current_uid()),
+				 copied + copied_syn);
+#endif /* CONFIG_SHARP_PNP_SLEEP_SLEEPLOG */
 	return copied + copied_syn;
 
 do_fault:
@@ -1630,6 +1638,10 @@ int tcp_read_sock(struct sock *sk, read_descriptor_t *desc,
 	if (copied > 0) {
 		tcp_recv_skb(sk, seq, &offset);
 		tcp_cleanup_rbuf(sk, copied);
+#ifdef CONFIG_SHARP_PNP_SLEEP_SLEEPLOG
+		uid_stat_tcp_rcv(from_kuid(&init_user_ns, current_uid()),
+				 copied);
+#endif /* CONFIG_SHARP_PNP_SLEEP_SLEEPLOG */
 	}
 	return copied;
 }
@@ -1971,6 +1983,11 @@ skip_copy:
 	tcp_cleanup_rbuf(sk, copied);
 
 	release_sock(sk);
+#ifdef CONFIG_SHARP_PNP_SLEEP_SLEEPLOG
+	if (copied > 0)
+		uid_stat_tcp_rcv(from_kuid(&init_user_ns, current_uid()),
+				 copied);
+#endif /* CONFIG_SHARP_PNP_SLEEP_SLEEPLOG */
 	return copied;
 
 out:
@@ -1979,6 +1996,11 @@ out:
 
 recv_urg:
 	err = tcp_recv_urg(sk, msg, len, flags);
+#ifdef CONFIG_SHARP_PNP_SLEEP_SLEEPLOG
+	if (err > 0)
+		uid_stat_tcp_rcv(from_kuid(&init_user_ns, current_uid()),
+				 err);
+#endif /* CONFIG_SHARP_PNP_SLEEP_SLEEPLOG */
 	goto out;
 
 recv_sndq:

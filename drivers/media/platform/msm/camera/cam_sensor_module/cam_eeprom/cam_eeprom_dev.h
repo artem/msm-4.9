@@ -35,7 +35,13 @@
 
 #define MSM_EEPROM_MEMORY_MAP_MAX_SIZE         80
 #define MSM_EEPROM_MAX_MEM_MAP_CNT             8
+/* SHLOCAL_CAMERA_DRIVERS-> */
+#if 0
 #define MSM_EEPROM_MEM_MAP_PROPERTIES_CNT      8
+#else
+#define MSM_EEPROM_MEM_MAP_PROPERTIES_CNT      6
+#endif
+/* SHLOCAL_CAMERA_DRIVERS<- */
 
 enum cam_eeprom_state {
 	CAM_EEPROM_INIT,

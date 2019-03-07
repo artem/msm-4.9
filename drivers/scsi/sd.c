@@ -70,6 +70,10 @@
 #include "scsi_priv.h"
 #include "scsi_logging.h"
 
+#ifdef CONFIG_SHARP_SCSI_UFS_WP
+#include "soc/qcom/sh_smem.h"
+#endif /* CONFIG_SHARP_SCSI_UFS_WP */
+
 MODULE_AUTHOR("Eric Youngdale");
 MODULE_DESCRIPTION("SCSI disk (sd) driver");
 MODULE_LICENSE("GPL");
@@ -1316,6 +1320,47 @@ static int sd_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 	return 0;
 }
 
+#ifdef CONFIG_SHARP_SCSI_UFS_WP
+static void
+sd_read_write_protect_flag(struct scsi_disk *sdkp, unsigned char *buffer);
+
+static int sd_update_wp(struct scsi_disk *sdkp)
+{
+	unsigned char *buffer;
+
+	if (sdkp->write_prot != 0) {
+		buffer = kmalloc(SD_BUF_SIZE, GFP_KERNEL);
+		if (!buffer) {
+			sd_printk(KERN_WARNING, sdkp, "sd_update_wp: Memory "
+				  "allocation failure.\n");
+			goto out;
+		}
+		sd_read_write_protect_flag(sdkp, buffer);
+		if (sdkp->write_prot != 0) {
+			sd_printk(KERN_INFO, sdkp, "write_prot = %u\n",sdkp->write_prot);
+		}
+		kfree(buffer);
+	}
+
+ out:
+	return 0;
+}
+
+static int sd_chk_wpflg(struct scsi_disk *sdkp)
+{
+	sharp_smem_common_type *sh_smem = NULL;
+	
+	sh_smem = sh_smem_get_common_address();
+	if (sh_smem == NULL) {
+		sd_printk(KERN_ERR, sdkp, "%s: sh_smem_get_common_address is failed\n",
+			__func__);
+		return -1;
+	}
+
+	return (int)sh_smem->sh_memory_wpflg;
+}
+#endif /* CONFIG_SHARP_SCSI_UFS_WP */
+
 /**
  *	sd_ioctl - process an ioctl
  *	@inode: only i_rdev/i_bdev members may be used
@@ -1367,6 +1412,14 @@ static int sd_ioctl(struct block_device *bdev, fmode_t mode,
 		case SCSI_IOCTL_GET_BUS_NUMBER:
 			error = scsi_ioctl(sdp, cmd, p);
 			break;
+#ifdef CONFIG_SHARP_SCSI_UFS_WP
+		case SCSI_IOCTL_UPDATE_WP:
+			error = sd_update_wp(sdkp);
+			break;
+		case SCSI_IOCTL_WPFLG:
+			error = sd_chk_wpflg(sdkp);
+			break;
+#endif /* CONFIG_SHARP_SCSI_UFS_WP */
 		default:
 			error = scsi_cmd_blk_ioctl(bdev, mode, cmd, p);
 			if (error != -ENOTTY)
@@ -1433,7 +1486,12 @@ static int sd_sync_cache(struct scsi_disk *sdkp)
 		if (res == 0)
 			break;
 	}
-
+#ifdef CONFIG_SHARP_SCSI_UFS_WP
+	if ((driver_byte(res) & DRIVER_SENSE) && sshdr.sense_key == DATA_PROTECT) {
+		res = 0;
+		sd_print_result(sdkp, "Synchronize Cache(10)", res);
+	}
+#endif /* CONFIG_SHARP_SCSI_UFS_WP */
 	if (res) {
 		sd_print_result(sdkp, "Synchronize Cache(10) failed", res);
 

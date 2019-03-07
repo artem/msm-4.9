@@ -50,6 +50,9 @@
 
 #include "queue.h"
 #include "block.h"
+#if defined(CONFIG_SHARP_MMC_SD_BATTLOG) && defined(CONFIG_SHARP_SHTERM)
+#include "mmc_sd_battlog.h"
+#endif /* CONFIG_SHARP_MMC_SD_BATTLOG && CONFIG_SHARP_SHTERM */
 
 MODULE_ALIAS("mmc:block");
 #ifdef MODULE_PARAM_PREFIX
@@ -161,11 +164,220 @@ enum {
 module_param(perdev_minors, int, 0444);
 MODULE_PARM_DESC(perdev_minors, "Minors numbers to allocate per device");
 
+#ifdef CONFIG_SHARP_MMC_SD_ECO_MODE
+#define SET_ECO_MODE_RETRY_MAX 10
+int sh_mmc_sd_eco_mode = 0;
+int sh_mmc_sd_eco_mode_current = 0;
+module_param_named(sh_sd_eco_mode,  sh_mmc_sd_eco_mode,  int, S_IRUGO | S_IWUSR | S_IWGRP);
+
+int sh_mmc_sd_set_eco_mode(struct mmc_host *host)
+{
+	int ret = 0;
+	int hw_reset_err;
+	int hw_reset_err_retry;
+
+	if (sh_mmc_sd_eco_mode_current != sh_mmc_sd_eco_mode) {
+		if (strncmp(mmc_hostname(host), HOST_MMC_SD, sizeof(HOST_MMC_SD)) == 0) {
+
+			sh_mmc_sd_eco_mode_current = sh_mmc_sd_eco_mode;
+			ret = 1;
+
+			/* reset, re-init and change the mode. */
+			hw_reset_err_retry = 0;
+			do {
+				msleep(10);
+				hw_reset_err = mmc_hw_reset(host);
+				if (hw_reset_err) {
+					hw_reset_err_retry++;
+					pr_warn("%s: mmc_hw_reset for eco mode %d error!!\n",
+						mmc_hostname(host), hw_reset_err);
+				} else {
+					break;
+				}
+			} while(hw_reset_err_retry<=SET_ECO_MODE_RETRY_MAX);
+		}
+	}
+	return ret;
+}
+#endif /* CONFIG_SHARP_MMC_SD_ECO_MODE */
+
 static inline int mmc_blk_part_switch(struct mmc_card *card,
 				      struct mmc_blk_data *md);
 static int get_card_status(struct mmc_card *card, u32 *status, int retries);
 static int mmc_blk_cmdq_switch(struct mmc_card *card,
 			       struct mmc_blk_data *md, bool enable);
+
+#if defined(CONFIG_SHARP_MMC_SD_BATTLOG) && defined(CONFIG_SHARP_SHTERM)
+static mmc_sd_batlog_err_cmd  mmc_sd_battlog_err_cmd;
+static mmc_sd_batlog_err_type mmc_sd_battlog_err_type;
+static int mmc_sd_battlog_err_ignore;
+
+int mmc_sd_detection_status_check(struct mmc_host *host)
+{
+	int status;
+
+	if (!host) {
+		pr_info("%s: host is NULL\n",  __func__);
+		return 0;
+	}
+
+	if (host->card && !mmc_card_sd(host->card))
+		return 0;
+
+	if (host->card)
+		status = 1;
+	else
+		status = 0;
+
+	return status;
+}
+
+void mmc_sd_post_detection(struct mmc_host *host, mmc_sd_batlog_detect detect)
+{
+	shbattlog_info_t info = {0};
+
+	if (!host) {
+		pr_info("%s: host is NULL\n",  __func__);
+		return;
+	}
+
+	if (host->card && !mmc_card_sd(host->card))
+		return;
+
+	if ((detect < 0)  || (SD_DETECT_MAX <= detect)) {
+		pr_err("%s: detect = %d out of range.\n", __func__, detect);
+		return;
+	}
+
+	info.event_num = BATTLOG_EVENT_SD_DETECT_BASE + detect;
+#ifdef CONFIG_SHARP_SHTERM
+	shterm_k_set_event(&info);
+#endif /* CONFIG_SHARP_SHTERM */
+}
+
+void mmc_sd_set_err_cmd_type(struct mmc_host *host,
+						u32 cmd, mmc_sd_batlog_err_type type)
+{
+	mmc_sd_batlog_err_cmd err_cmd = 0;
+	int ignore = 0;
+
+	if (!host) {
+		pr_info("%s: host is NULL\n",  __func__);
+		return;
+	}
+
+	if (host->card && !mmc_card_sd(host->card))
+		return;
+
+	switch (cmd) {
+		/* Caution: don't know whether this cmd means CMD or ACMD. */
+		/* ACMD18,25,26,38,43-49,52-54 are for security features. */
+		/* mmc_sd_battlog_err_cmd = MMC_ERROR_SECURE; */
+
+		/* CMD52, 5 is for SDIO, so ignore them. */
+	case 52:
+	case 5:
+		err_cmd = MMC_ERROR_SDIO;
+		ignore = 1;
+		break;
+
+	case MMC_READ_SINGLE_BLOCK: /* 17 */
+	case MMC_READ_MULTIPLE_BLOCK: /* 18 */
+		err_cmd = MMC_ERROR_READ;
+		break;
+
+	case MMC_WRITE_BLOCK: /* 24 */
+	case MMC_WRITE_MULTIPLE_BLOCK: /* 25 */
+		err_cmd = MMC_ERROR_WRITE;
+		break;
+
+	default:
+		err_cmd = MMC_ERROR_MISC;
+		break;
+	}
+
+	if ((type < 0) || (_MMC_ERR_TYPE_MAX <= type)) {
+		pr_err("%s: type = %d is out of range.(0, 1 -%d)\n", __func__, type,
+			_MMC_ERR_TYPE_MAX);
+		type = 0; /* _UNKNOWN */
+	}
+
+	if ((mmc_sd_battlog_err_cmd != 0) ||
+		(mmc_sd_battlog_err_type != 0)) {
+		return;
+	}
+
+	if (!mmc_sd_detection_status_check(host)) {
+		ignore = 1;
+	}
+
+	if (ignore == 0) {
+		mmc_sd_battlog_err_cmd = err_cmd;
+		mmc_sd_battlog_err_type = type;
+	}
+	mmc_sd_battlog_err_ignore = ignore;
+}
+
+void mmc_sd_post_err_result(struct mmc_card *card)
+{
+	shbattlog_info_t info = {0};
+
+	static struct timespec last_post_time;
+	struct timespec now, elapsed;
+	unsigned long elapsed_s = 0;
+	static bool first_time_post = false;
+	int post = 0;
+
+	if (!mmc_card_sd(card))
+		return;
+
+	getnstimeofday(&now);
+
+	if (!first_time_post) {
+		post = 1;
+	} else {
+		elapsed = timespec_sub(now, last_post_time);
+		elapsed_s = (unsigned long)elapsed.tv_sec;
+
+		if ((3 * 60) < elapsed_s)
+			post = 1;
+	}
+
+	if (!mmc_sd_battlog_err_ignore) {
+		if (post) {
+			info.event_num = BATTLOG_EVENT_SD_ERROR_BASE
+				+ (mmc_sd_battlog_err_cmd * _MMC_ERR_TYPE_MAX)
+				+ mmc_sd_battlog_err_type;
+#ifdef CONFIG_SHARP_SHTERM
+			shterm_k_set_event(&info);
+#endif /* CONFIG_SHARP_SHTERM */
+			getnstimeofday(&last_post_time);
+			first_time_post = true;
+		}
+	}
+
+	mmc_sd_battlog_err_ignore = 0;
+	mmc_sd_battlog_err_cmd = 0;
+	mmc_sd_battlog_err_type = 0;
+}
+
+void mmc_sd_post_dev_info(struct mmc_host *host)
+{
+
+	if (!host) {
+		pr_info("%s: host is NULL\n",  __func__);
+		return;
+	}
+
+	if (host->card && !mmc_card_sd(host->card))
+		return;
+
+#ifdef CONFIG_SHARP_SHTERM
+	shterm_k_set_info(SHTERM_INFO_SD, 1);
+	shterm_k_set_info(SHTERM_INFO_SD, 0);
+#endif /* CONFIG_SHARP_SHTERM */
+}
+#endif /* CONFIG_SHARP_MMC_SD_BATTLOG && CONFIG_SHARP_SHTERM */
 
 static inline void mmc_blk_clear_packed(struct mmc_queue_req *mqrq)
 {
@@ -921,6 +1133,12 @@ static int __mmc_blk_ioctl_cmd(struct mmc_card *card, struct mmc_blk_data *md,
 			return err;
 		}
 	}
+
+#ifdef CONFIG_SHARP_MMC_SD_ECO_MODE
+	if (sh_mmc_sd_set_eco_mode(card->host))
+		pr_info("%s: %s switch eco / normal mode.\n",
+				mmc_hostname(card->host), __func__);
+#endif /* CONFIG_SHARP_MMC_SD_ECO_MODE */
 
 	err = mmc_blk_part_switch(card, md);
 	if (err)
@@ -1808,6 +2026,11 @@ static int mmc_blk_reset(struct mmc_blk_data *md, struct mmc_host *host,
 			 int type)
 {
 	int err;
+
+#if defined(CONFIG_SHARP_MMC_SD_BATTLOG) && defined(CONFIG_SHARP_SHTERM)
+	if (md->reset_done & type)
+		mmc_sd_post_err_result(host->card);
+#endif /* CONFIG_SHARP_MMC_SD_BATTLOG && CONFIG_SHARP_SHTERM */
 
 	if (md->reset_done & type)
 		return -EEXIST;
@@ -3708,6 +3931,10 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *rqc)
 	unsigned long waitfor = jiffies;
 #endif
 
+#if defined(CONFIG_SHARP_MMC_SD_BATTLOG) && defined(CONFIG_SHARP_SHTERM)
+	mmc_sd_post_dev_info(card->host);
+#endif /* CONFIG_SHARP_MMC_SD_BATTLOG && CONFIG_SHARP_SHTERM */
+
 	if (!rqc && !mq->mqrq_prev->req)
 		return 0;
 
@@ -3911,6 +4138,9 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *rqc)
 	}
 
  start_new_req:
+#if defined(CONFIG_SHARP_MMC_SD_BATTLOG) && defined(CONFIG_SHARP_SHTERM)
+	mmc_sd_post_err_result(card);
+#endif /* CONFIG_SHARP_MMC_SD_BATTLOG && CONFIG_SHARP_SHTERM */
 	if (rqc) {
 		if (mmc_card_removed(card)) {
 			rqc->cmd_flags |= REQ_QUIET;

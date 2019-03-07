@@ -113,6 +113,10 @@
 /* ESD status check interval in miliseconds */
 #define STATUS_CHECK_INTERVAL_MS 5000
 
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+#define DRM_C2_X_OFFSET	180
+#endif /* CONFIG_SHARP_DISPLAY */
+
 /**
  * enum sde_kms_smmu_state:	smmu state
  * @ATTACHED:	 all the context banks are attached.

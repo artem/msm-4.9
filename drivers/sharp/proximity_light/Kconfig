@@ -1,0 +1,13 @@
+#
+# SHPsals device configuration
+#
+# drivers/sharp/proximity_light/Kconfig
+
+menu "SHARP Psals Configuration"
+
+config SHARP_PSALS_SMEM_READ
+	tristate "SHARP Psals drivers (smem read)"
+	default n
+
+endmenu
+

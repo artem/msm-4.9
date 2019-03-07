@@ -31,6 +31,16 @@ static const char *const backlight_types[] = {
 	[BACKLIGHT_FIRMWARE] = "firmware",
 };
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00064 */
+static unsigned int cancel_delay_ms = 10 * 1000;
+module_param(cancel_delay_ms, uint, 0660);
+
+static void bkl_curr_boost_work(struct work_struct *work);
+static int bkl_set_max(struct backlight_device *bd);
+static int bkl_restore_current_no_sync(struct backlight_device *bd,
+						unsigned long level);
+#endif /* CONFIG_SHARP_DISPLAY */
+
 #if defined(CONFIG_FB) || (defined(CONFIG_FB_MODULE) && \
 			   defined(CONFIG_BACKLIGHT_CLASS_DEVICE_MODULE))
 /* This callback gets called when something important happens inside a
@@ -162,6 +172,46 @@ static ssize_t bl_power_store(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RW(bl_power);
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00064 */
+static ssize_t curr_boost_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct backlight_device *bd = to_backlight_device(dev);
+
+	return snprintf(buf,PAGE_SIZE,"req:%d,boosted:%d\n",
+			bd->props.curr_boost_req, bd->props.curr_boosted);
+}
+
+static ssize_t curr_boost_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+#ifdef CONFIG_ARCH_JOHNNY
+	int data, rc;
+	struct backlight_device *bd = to_backlight_device(dev);
+
+	rc = kstrtoint(buf, 10, &data);
+	cancel_delayed_work_sync(&bd->curr_boost_work);
+	bd->props.curr_boost_req = (bool)data;
+
+	queue_delayed_work(bd->ordered_workqueue,
+					&bd->curr_boost_work, 0);
+#endif /* CONFIG_ARCH_JOHNNY */
+	return count;
+}
+
+/* sysfs attributes exported by curr_boost */
+static DEVICE_ATTR(curr_boost, 0664,
+		curr_boost_show, curr_boost_store);
+
+static struct attribute *boost_attrs[] = {
+	&dev_attr_curr_boost.attr,
+	NULL
+};
+static const struct attribute_group bkl_boost_attrs = {
+	.attrs = boost_attrs
+};
+#endif /* CONFIG_SHARP_DISPLAY */
+
 static ssize_t brightness_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -177,6 +227,16 @@ int backlight_device_set_brightness(struct backlight_device *bd,
 
 	mutex_lock(&bd->ops_lock);
 	if (bd->ops) {
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00064 */
+		bd->props.last_level = brightness;
+		if (bd->props.curr_boosted) {
+			if (!!brightness != bd->props.prev_state) {
+				bkl_restore_current_no_sync(bd, bd->props.last_level);
+				bd->props.curr_boosted = false;
+				bd->props.curr_boost_req = false;
+			}
+		} else
+#endif /*  CONFIG_SHARP_DISPLAY */
 		if (brightness > bd->props.max_brightness)
 			rc = -EINVAL;
 		else {
@@ -184,6 +244,9 @@ int backlight_device_set_brightness(struct backlight_device *bd,
 			bd->props.brightness = brightness;
 			rc = backlight_update_status(bd);
 		}
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00064 */
+		bd->props.prev_state = !!brightness;
+#endif /*  CONFIG_SHARP_DISPLAY */
 	}
 	mutex_unlock(&bd->ops_lock);
 
@@ -455,6 +518,16 @@ struct backlight_device *backlight_device_register(const char *name,
 	blocking_notifier_call_chain(&backlight_notifier,
 				     BACKLIGHT_REGISTERED, new_bd);
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00064 */
+	rc = sysfs_create_group(&new_bd->dev.kobj, &bkl_boost_attrs);
+	new_bd->ordered_workqueue =
+		alloc_ordered_workqueue("curr_boost_workqueue", 0);
+	if (!new_bd->ordered_workqueue) {
+		pr_err("%s: alloc_ordered_workqueue failed\n", __func__);
+	} else {
+		INIT_DELAYED_WORK(&new_bd->curr_boost_work, bkl_curr_boost_work);
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 	return new_bd;
 }
 EXPORT_SYMBOL(backlight_device_register);
@@ -487,6 +560,13 @@ void backlight_device_unregister(struct backlight_device *bd)
 {
 	if (!bd)
 		return;
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00064 */
+	sysfs_remove_group(&bd->dev.kobj,
+			&bkl_boost_attrs);
+	cancel_delayed_work_sync(&bd->curr_boost_work);
+	destroy_workqueue(bd->ordered_workqueue);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	mutex_lock(&backlight_dev_list_mutex);
 	list_del(&bd->entry);
@@ -674,6 +754,53 @@ static int __init backlight_class_init(void)
  */
 postcore_initcall(backlight_class_init);
 module_exit(backlight_class_exit);
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00064 */
+static void bkl_curr_boost_work(struct work_struct *work)
+{
+	struct backlight_device *bd;
+
+	bd = container_of(to_delayed_work(work),
+			struct backlight_device, curr_boost_work);
+	if (!bd) {
+		pr_err("%s: backlight_device is null\n", __func__);
+		return;
+	}
+
+	mutex_lock(&bd->ops_lock);
+	if(bd->props.curr_boost_req == true) {
+		bd->props.curr_boosted = true;
+		bd->props.curr_boost_req = false;
+		bkl_set_max(bd);
+		queue_delayed_work(bd->ordered_workqueue,
+				&bd->curr_boost_work,
+				msecs_to_jiffies(cancel_delay_ms));
+	} else {
+		bd->props.curr_boosted = false;
+		bkl_restore_current_no_sync(bd, bd->props.last_level);
+	}
+	mutex_unlock(&bd->ops_lock);
+}
+
+static int bkl_set_max(struct backlight_device *bd)
+{
+//brightness set to MAX
+	pr_debug("%s: in\n", __func__);
+	bd->props.brightness = BKL_CURR_MAX_BRIGHTNESS;
+	backlight_update_status(bd);
+	return 0;
+}
+
+static int bkl_restore_current_no_sync(struct backlight_device *bd,
+						unsigned long level)
+{
+//brightness set return
+	pr_debug("%s: in level=%ld\n", __func__, (long)level);
+	bd->props.brightness = level;
+	backlight_update_status(bd);
+	return 0;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Jamey Hicks <jamey.hicks@hp.com>, Andrew Zabolotny <zap@homelink.ru>");

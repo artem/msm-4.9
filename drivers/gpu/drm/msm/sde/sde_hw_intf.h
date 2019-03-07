@@ -70,8 +70,13 @@ struct sde_hw_intf_ops {
 			const struct intf_timing_params *p,
 			const struct sde_format *fmt);
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	void (*setup_prg_fetch)(struct sde_hw_intf *intf,
+		const struct intf_prog_fetch *fetch, bool mipiclk_chg);
+#else
 	void (*setup_prg_fetch)(struct sde_hw_intf *intf,
 			const struct intf_prog_fetch *fetch);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	void (*setup_rot_start)(struct sde_hw_intf *intf,
 			const struct intf_prog_fetch *fetch);
@@ -130,4 +135,7 @@ struct sde_hw_intf *sde_hw_intf_init(enum sde_intf idx,
  */
 void sde_hw_intf_destroy(struct sde_hw_intf *intf);
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00003 */
+struct sde_hw_intf *get_sde_hw_intf(int index);
+#endif /* CONFIG_SHARP_DISPLAY */
 #endif /*_SDE_HW_INTF_H */

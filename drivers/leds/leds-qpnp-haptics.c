@@ -29,6 +29,19 @@
 #include <linux/qpnp/qpnp-misc.h>
 #include <linux/qpnp/qpnp-revid.h>
 
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+#include <linux/pm_qos.h>
+#include <linux/notifier.h>
+#include <linux/leds-qpnp-haptics.h>
+#ifdef CONFIG_SHARP_BOOT
+#include <soc/qcom/sharp/sh_boot_manager.h>
+#include <soc/qcom/sh_smem.h>
+#endif /* CONFIG_SHARP_BOOT */
+#ifdef CONFIG_SHARP_SHTERM
+#include <misc/shterm_k.h>
+#endif /* CONFIG_SHARP_SHTERM */
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
+
 /* Register definitions */
 #define HAP_STATUS_1_REG(chip)		(chip->base + 0x0A)
 #define HAP_BUSY_BIT			BIT(1)
@@ -358,10 +371,73 @@ struct hap_chip {
 	bool				play_irq_en;
 	bool				auto_res_err_recovery_hw;
 	bool				vcc_pon_enabled;
+
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+	u8 auto_res_reg;
+	u8 vmax_reg;
+	u8 rate_cfg1_reg;
+	u8 rate_cfg2_reg;
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
 };
 
 static int qpnp_haptics_parse_buffer_dt(struct hap_chip *chip);
 static int qpnp_haptics_parse_pwm_dt(struct hap_chip *chip);
+
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+/* haptic debug register set */
+static u8 qpnp_hap_dbg_regs[16][16] = {
+	{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f},
+	{0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f},
+	{0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f},
+	{0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f},
+	{0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f},
+	{0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b, 0x5c, 0x5d, 0x5e, 0x5f},
+	{0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f},
+	{0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f},
+	{0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f},
+	{0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f},
+	{0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf},
+	{0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf},
+	{0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf},
+	{0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf},
+	{0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef},
+	{0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff}
+};
+
+#define QPNP_HAP_LRA_AUTO_RES_PARAM  0x24
+#define QPNP_HAP_VMAX_MIN_REG        ((HAP_VMAX_MIN_MV / HAP_VMAX_MIN_MV) << HAP_VMAX_SHIFT)
+#define QPNP_HAP_VMAX_MAX_REG        ((HAP_VMAX_MAX_MV / HAP_VMAX_MIN_MV) << HAP_VMAX_SHIFT)
+
+#ifdef CONFIG_SHARP_BOOT
+static bool qpnp_hap_set_smem_param = false;
+static unsigned long bootmode = SH_BOOT_NORMAL;
+#endif /* CONFIG_SHARP_BOOT */
+
+static BLOCKING_NOTIFIER_HEAD(qpnp_hap_notifier_list);
+
+#define QPNP_HAP_PM_QOS_LATENCY_VALUE   350
+static struct pm_qos_request qpnp_hap_qos_cpu_dma_latency;
+static void qpnp_hap_pm_qos_init(void)
+{
+	qpnp_hap_qos_cpu_dma_latency.type = PM_QOS_REQ_ALL_CORES;
+	pm_qos_add_request(&qpnp_hap_qos_cpu_dma_latency, PM_QOS_CPU_DMA_LATENCY, PM_QOS_DEFAULT_VALUE);
+}
+
+static void qpnp_hap_qos_exit(void)
+{
+	pm_qos_remove_request(&qpnp_hap_qos_cpu_dma_latency);
+}
+
+static void qpnp_hap_pm_qos_start(void)
+{
+	pm_qos_update_request(&qpnp_hap_qos_cpu_dma_latency, QPNP_HAP_PM_QOS_LATENCY_VALUE );
+}
+
+static void qpnp_hap_pm_qos_end(void)
+{
+	pm_qos_update_request(&qpnp_hap_qos_cpu_dma_latency, PM_QOS_DEFAULT_VALUE );
+}
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
 
 static int qpnp_haptics_read_reg(struct hap_chip *chip, u16 addr, u8 *val,
 				int len)
@@ -695,11 +771,29 @@ static int qpnp_haptics_play_control(struct hap_chip *chip,
 	switch (ctrl) {
 	case HAP_STOP:
 		val = 0;
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+		qpnp_hap_pm_qos_end();
+#ifdef CONFIG_SHARP_SHTERM
+		shterm_k_set_info(SHTERM_INFO_VIB, 0);
+#endif /* CONFIG_SHARP_SHTERM */
+#if defined( CONFIG_SHUB_ML630Q790 )
+		blocking_notifier_call_chain(&qpnp_hap_notifier_list, QPNP_HAP_VIB_STOP, NULL);
+#endif /* CONFIG_SHUB_ML630Q790 */
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
 		break;
 	case HAP_PAUSE:
 		val = PAUSE_BIT;
 		break;
 	case HAP_PLAY:
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+#if defined( CONFIG_SHUB_ML630Q790 )
+		blocking_notifier_call_chain(&qpnp_hap_notifier_list, QPNP_HAP_VIB_START, NULL);
+#endif /* CONFIG_SHUB_ML630Q790 */
+		qpnp_hap_pm_qos_start();
+#ifdef CONFIG_SHARP_SHTERM
+		shterm_k_set_info(SHTERM_INFO_VIB, 1);
+#endif /* CONFIG_SHARP_SHTERM */
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
 		val = PLAY_BIT;
 		break;
 	default:
@@ -715,6 +809,89 @@ static int qpnp_haptics_play_control(struct hap_chip *chip,
 	pr_debug("haptics play ctrl: %d\n", ctrl);
 	return rc;
 }
+
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+#ifdef CONFIG_SHARP_BOOT
+static int qpnp_hap_smem_config(struct hap_chip *chip)
+{
+	int rc = 0;
+	int i;
+	sharp_smem_common_type *p_sh_smem_common_type = NULL;
+	u8 param[4];
+
+	p_sh_smem_common_type = sh_smem_get_common_address();
+	if (!p_sh_smem_common_type) {
+		pr_err("[qpnp_hap]p_sh_smem_common_type is null\n");
+		return 1;
+	}
+	for (i=0; i<4; i++) {
+		param[i] = (u8)p_sh_smem_common_type->shdiag_vib_param[i];
+		pr_debug("[qpnp_hap]smem param[%d]:0x%02X, ", i, param[i]);
+	}
+	pr_debug("\n");
+	
+	if (!param[0] && !param[1] && !param[2] && !param[3]) {
+		pr_debug("[qpnp_hap]org_param write, qpnp_hap_set_smem_param:%d\n", qpnp_hap_set_smem_param);
+		if (qpnp_hap_set_smem_param) {
+			rc = qpnp_haptics_write_reg(chip, HAP_LRA_AUTO_RES_REG(chip), &chip->auto_res_reg, 1);
+			if (rc) {
+				pr_err("[qpnp_hap]QPNP_HAP_LRA_AUTO_RES_REG org_param write err rc:%d\n", rc);
+				return rc;
+			}
+			rc = qpnp_haptics_write_reg(chip, HAP_VMAX_CFG_REG(chip), &chip->vmax_reg, 1);
+			if (rc){
+				pr_err("[qpnp_hap]QPNP_HAP_VMAX_REG org_param write err rc:%d\n", rc);
+				return rc;
+			}
+			rc = qpnp_haptics_write_reg(chip, HAP_RATE_CFG1_REG(chip), &chip->rate_cfg1_reg, 1);
+			if (rc){
+				pr_err("[qpnp_hap]QPNP_HAP_RATE_CFG1_REG org_param write err rc:%d\n", rc);
+				return rc;
+			}
+			rc = qpnp_haptics_write_reg(chip, HAP_RATE_CFG2_REG(chip), &chip->rate_cfg2_reg, 1);
+			if (rc){
+				pr_err("[qpnp_hap]QPNP_HAP_RATE_CFG2_REG org_param write err rc:%d\n", rc);
+				return rc;
+			}
+			qpnp_hap_set_smem_param = false;
+		} 
+	} else {
+		pr_debug("[qpnp_hap]smem_param write\n");
+		qpnp_hap_set_smem_param = true;
+
+		if ((param[0] == 0) || (param[0] == QPNP_HAP_LRA_AUTO_RES_PARAM)) {
+			rc = qpnp_haptics_write_reg(chip, HAP_LRA_AUTO_RES_REG(chip), &param[0], 1);
+			if (rc) {
+				pr_err("[qpnp_hap]QPNP_HAP_LRA_AUTO_RES_REG smem_param write err rc:%d\n", rc);
+				return rc;
+			}
+		} else {
+			pr_err("[qpnp_hap]QPNP_HAP_LRA_AUTO_RES_REG smem_param write param err param:0x%02x\n", rc);
+		}
+		if ((param[1] >= QPNP_HAP_VMAX_MIN_REG) && (param[1] <= QPNP_HAP_VMAX_MAX_REG)) {
+			rc = qpnp_haptics_write_reg(chip, HAP_VMAX_CFG_REG(chip), &param[1], 1);
+			if (rc) {
+				pr_err("[qpnp_hap]QPNP_HAP_VMAX_REG smem_param write err rc:%d\n", rc);
+				return rc;
+			}
+		} else {
+			pr_err("[qpnp_hap]QPNP_HAP_VMAX_REG smem_param write param err param:0x%02x\n", rc);
+		}
+		rc = qpnp_haptics_write_reg(chip, HAP_RATE_CFG1_REG(chip), &param[2], 1);
+		if (rc) {
+			pr_err("[qpnp_hap]QPNP_HAP_RATE_CFG1_REG smem_param write err rc:%d\n", rc);
+			return rc;
+		}
+		rc = qpnp_haptics_write_reg(chip, HAP_RATE_CFG2_REG(chip), &param[3], 1);
+		if (rc) {
+			pr_err("[qpnp_hap]QPNP_HAP_RATE_CFG2_REG smem_param write err rc:%d\n", rc);
+			return rc;
+		}
+	}
+	return rc;
+}
+#endif /* CONFIG_SHARP_BOOT */
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
 
 #define AUTO_RES_ERR_POLL_TIME_NS	(20 * NSEC_PER_MSEC)
 static int qpnp_haptics_play(struct hap_chip *chip, bool enable)
@@ -734,7 +911,15 @@ static int qpnp_haptics_play(struct hap_chip *chip, bool enable)
 				goto out;
 			}
 		}
-
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+#ifdef CONFIG_SHARP_BOOT
+		if ((bootmode == SH_BOOT_D) || (bootmode == SH_BOOT_F_F)) {
+			rc = qpnp_hap_smem_config(chip);
+			if (rc)
+				goto out;
+		}
+#endif /* CONFIG_SHARP_BOOT */
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
 		rc = qpnp_haptics_auto_res_enable(chip, false);
 		if (rc < 0) {
 			pr_err("Error in disabling auto_res, rc=%d\n", rc);
@@ -746,6 +931,7 @@ static int qpnp_haptics_play(struct hap_chip *chip, bool enable)
 			pr_err("Error in enabling module, rc=%d\n", rc);
 			goto out;
 		}
+
 
 		rc = qpnp_haptics_play_control(chip, HAP_PLAY);
 		if (rc < 0) {
@@ -765,7 +951,6 @@ static int qpnp_haptics_play(struct hap_chip *chip, bool enable)
 			pr_err("Error in enabling auto_res, rc=%d\n", rc);
 			goto out;
 		}
-
 		if (is_sw_lra_auto_resonance_control(chip))
 			hrtimer_start(&chip->auto_res_err_poll_timer,
 				ktime_set(0, AUTO_RES_ERR_POLL_TIME_NS),
@@ -788,6 +973,13 @@ static int qpnp_haptics_play(struct hap_chip *chip, bool enable)
 
 		if (chip->play_mode == HAP_BUFFER)
 			chip->wave_samp_idx = 0;
+
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+		rc = qpnp_haptics_mod_enable(chip, false);
+		if (rc < 0) {
+			pr_err("Error in disable module, rc=%d\n", rc);
+		}
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
 	}
 
 out:
@@ -1001,6 +1193,9 @@ static int qpnp_haptics_lra_auto_res_config(struct hap_chip *chip,
 	/* disable auto resonance for ERM */
 	if (chip->act_type == HAP_ERM) {
 		val = 0x00;
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+		chip->auto_res_reg = val;
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
 		rc = qpnp_haptics_write_reg(chip, HAP_LRA_AUTO_RES_REG(chip),
 					&val, 1);
 		return rc;
@@ -1071,6 +1266,9 @@ static int qpnp_haptics_lra_auto_res_config(struct hap_chip *chip,
 		ares_cfg->auto_res_mode, ares_cfg->lra_high_z,
 		ares_cfg->lra_res_cal_period);
 
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+	chip->auto_res_reg = val;
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
 	rc = qpnp_haptics_masked_write_reg(chip, HAP_LRA_AUTO_RES_REG(chip),
 			mask, val);
 	return rc;
@@ -1124,6 +1322,9 @@ static int qpnp_haptics_vmax_config(struct hap_chip *chip, int vmax_mv,
 	if (overdrive)
 		val |= HAP_VMAX_OVD_BIT;
 
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+	chip->vmax_reg = val;
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
 	rc = qpnp_haptics_masked_write_reg(chip, HAP_VMAX_CFG_REG(chip),
 			HAP_VMAX_MASK | HAP_VMAX_OVD_BIT, val);
 	return rc;
@@ -1798,6 +1999,34 @@ static ssize_t qpnp_haptics_store_lra_auto_mode(struct device *dev,
 	return count;
 }
 
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+static ssize_t qpnp_hap_dump_regs_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct led_classdev *cdev = dev_get_drvdata(dev);
+	struct hap_chip *chip = container_of(cdev, struct hap_chip, cdev);
+
+	int count = 0, i, j;
+	u8 val;
+
+	for (i = 0; i < 16; i++) {
+		count += snprintf(buf + count, PAGE_SIZE - count, "%x ", chip->base + qpnp_hap_dbg_regs[i][0]);
+		for(j = 0; j < 16; j++) {
+			qpnp_haptics_read_reg(chip, chip->base + qpnp_hap_dbg_regs[i][j], &val, 1);
+			count += snprintf(buf + count, PAGE_SIZE - count, "%02x", val);
+			if(j == (16 - 1)) {
+				count += snprintf(buf + count, PAGE_SIZE - count, "\n");
+			}
+			else {
+				count += snprintf(buf + count, PAGE_SIZE - count, " ");
+			}
+		}
+	}
+
+	return count;
+}
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
+
 static struct device_attribute qpnp_haptics_attrs[] = {
 	__ATTR(state, 0664, qpnp_haptics_show_state, qpnp_haptics_store_state),
 	__ATTR(duration, 0664, qpnp_haptics_show_duration,
@@ -1815,6 +2044,9 @@ static struct device_attribute qpnp_haptics_attrs[] = {
 	__ATTR(vmax_mv, 0664, qpnp_haptics_show_vmax, qpnp_haptics_store_vmax),
 	__ATTR(lra_auto_mode, 0664, qpnp_haptics_show_lra_auto_mode,
 		qpnp_haptics_store_lra_auto_mode),
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+	__ATTR(dump_regs, 0664, qpnp_hap_dump_regs_show, NULL),
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
 };
 
 /* Dummy functions for brightness */
@@ -1834,6 +2066,9 @@ static int qpnp_haptics_config(struct hap_chip *chip)
 	u8 rc_clk_err_deci_pct;
 	u16 play_rate = 0;
 	int rc;
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+	u8 val[2];
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
 
 	/* Configure the CFG1 register for actuator type */
 	rc = qpnp_haptics_masked_write_reg(chip, HAP_CFG1_REG(chip),
@@ -1903,6 +2138,12 @@ static int qpnp_haptics_config(struct hap_chip *chip)
 	 * Note: For ERM these registers act as play rate and
 	 * for LRA these represent resonance period
 	 */
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+	val[0] = play_rate & HAP_RATE_CFG1_MASK;
+	val[1] = (play_rate >> HAP_RATE_CFG2_SHIFT) & HAP_RATE_CFG2_MASK;
+	chip->rate_cfg1_reg = val[0];
+	chip->rate_cfg2_reg = val[1];
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
 	rc = qpnp_haptics_update_rate_cfg(chip, play_rate);
 	if (chip->act_type == HAP_LRA) {
 		chip->drive_period_code_max_limit = (play_rate *
@@ -2414,6 +2655,12 @@ static int qpnp_haptics_parse_dt(struct hap_chip *chip)
 		chip->vcc_pon = vcc_pon;
 	}
 
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+#ifdef CONFIG_SHARP_BOOT
+	bootmode = sh_boot_get_bootmode();
+#endif /* CONFIG_SHARP_BOOT */
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
+
 	return rc;
 }
 
@@ -2470,6 +2717,10 @@ static int qpnp_haptics_probe(struct platform_device *pdev)
 		goto register_fail;
 	}
 
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+	qpnp_hap_pm_qos_init();
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
+
 	for (i = 0; i < ARRAY_SIZE(qpnp_haptics_attrs); i++) {
 		rc = sysfs_create_file(&chip->cdev.dev->kobj,
 				&qpnp_haptics_attrs[i].attr);
@@ -2483,6 +2734,9 @@ static int qpnp_haptics_probe(struct platform_device *pdev)
 	return 0;
 
 sysfs_fail:
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+	qpnp_hap_qos_exit();
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
 	for (--i; i >= 0; i--)
 		sysfs_remove_file(&chip->cdev.dev->kobj,
 				&qpnp_haptics_attrs[i].attr);
@@ -2503,6 +2757,9 @@ static int qpnp_haptics_remove(struct platform_device *pdev)
 {
 	struct hap_chip *chip = dev_get_drvdata(&pdev->dev);
 
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+	qpnp_hap_qos_exit();
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
 	cancel_work_sync(&chip->haptics_work);
 	hrtimer_cancel(&chip->auto_res_err_poll_timer);
 	hrtimer_cancel(&chip->stop_timer);
@@ -2524,6 +2781,20 @@ static void qpnp_haptics_shutdown(struct platform_device *pdev)
 	/* disable haptics */
 	qpnp_haptics_mod_enable(chip, false);
 }
+
+#ifdef CONFIG_LEDS_SHARP_QPNP_HAPTIC
+int qpnp_hap_register_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_register(&qpnp_hap_notifier_list, nb);
+}
+EXPORT_SYMBOL(qpnp_hap_register_notifier);
+
+int qpnp_hap_unregister_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_unregister(&qpnp_hap_notifier_list, nb);
+}
+EXPORT_SYMBOL(qpnp_hap_unregister_notifier);
+#endif /* CONFIG_LEDS_SHARP_QPNP_HAPTIC */
 
 static const struct dev_pm_ops qpnp_haptics_pm_ops = {
 	.suspend	= qpnp_haptics_suspend,

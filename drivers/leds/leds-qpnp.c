@@ -250,6 +250,11 @@
 #define KPDBL_MODULE_EN_MASK		0x80
 #define NUM_KPDBL_LEDS			4
 #define KPDBL_MASTER_BIT_INDEX		0
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00025 */
+#ifndef MAX
+#define  MAX(x, y) (((x) > (y)) ? (x) : (y))
+#endif
+#endif /* CONFIG_LEDS_SHARP */
 
 /**
  * enum qpnp_leds - QPNP supported led ids
@@ -556,13 +561,122 @@ struct qpnp_led_data {
 	bool				default_on;
 	bool				in_order_command_processing;
 	int				turn_off_delay_ms;
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00025 */
+	u32				calib;
+#endif /* CONFIG_LEDS_SHARP */
 };
 
 static DEFINE_MUTEX(flash_lock);
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00021 */
+static DEFINE_MUTEX(rgb_lock);
+#endif /* CONFIG_LEDS_SHARP */
 static struct pwm_device *kpdbl_master;
 static u32 kpdbl_master_period_us;
 DECLARE_BITMAP(kpdbl_leds_in_use, NUM_KPDBL_LEDS);
 static bool is_kpdbl_master_turn_on;
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00025 */
+static char qpnp_led_system_color[32];
+static u32 calib_enabled = 0;
+module_param_string(system_color, qpnp_led_system_color, sizeof(qpnp_led_system_color), 0);
+module_param(calib_enabled, uint, S_IRUGO | S_IWUSR);
+
+static void qpnp_led_dump_duty_pcts(struct qpnp_led_data *led)
+{
+	int i;
+	struct pwm_config_data *pwm_cfg = led->rgb_cfg->pwm_cfg;
+
+	pr_debug("===== %s LED duty_pcts dump start =====\n", led->cdev.name);
+	for (i = 0; i < pwm_cfg->duty_cycles->num_duty_pcts; i++) {
+		pr_debug("%02d: %03d 0x%04x\n",
+			i + pwm_cfg->duty_cycles->start_idx,
+			pwm_cfg->duty_cycles->duty_pcts[i],
+			(pwm_cfg->duty_cycles->duty_pcts[i] * 511 / 100));
+	}
+	pr_debug("===== %s LED duty_pcts dump end =====\n", led->cdev.name);
+}
+
+static u32 qpnp_led_calib_brightness(struct qpnp_led_data *led)
+{
+	pr_debug("%s: in %s LED calib_enabled=%d\n", __func__, led->cdev.name, calib_enabled);
+	if (led->cdev.brightness && calib_enabled &&
+		led->calib && !led->rgb_cfg->pwm_cfg->blinking) {
+		return MAX(led->cdev.brightness * led->calib / LED_FULL, 1);
+	} else {
+		return led->cdev.brightness;
+	}
+}
+
+static void qpnp_led_calib_duty_pcts(struct qpnp_led_data *led,
+				struct pwm_config_data *pwm_cfg)
+{
+	int i;
+
+	pr_debug("%s: in %s LED calib_enabled=%d calib=%d\n", __func__, led->cdev.name, calib_enabled, led->calib);
+	if (calib_enabled && led->calib) {
+		for (i = 0; i < pwm_cfg->duty_cycles->num_duty_pcts; i++) {
+			u32 *b = &pwm_cfg->duty_cycles->duty_pcts[i];
+			if (*b) {
+				*b = MAX(*b * led->calib / LED_FULL, 1);
+			}
+		}
+	}
+	qpnp_led_dump_duty_pcts(led);
+}
+
+static void qpnp_led_calib_read_clrvari_param(struct qpnp_led_data *led)
+{
+	struct device_node *root, *node;
+	u32 color;
+	char default_name[32];
+	int rc = -EINVAL;
+
+	pr_debug("%s: in %s LED node=%s\n", __func__, led->cdev.name, qpnp_led_system_color);
+
+	root = of_find_node_by_name(NULL, "sharp,shled_leds_color_variation");
+	if (!root) {
+		pr_err("%s: could not find root node.\n", __func__);
+		goto calib_read_error;
+	}
+
+	node = of_find_node_by_name(root, qpnp_led_system_color);
+	if (!node) {
+		pr_err("%s: could not find node %s, try default.\n", __func__, qpnp_led_system_color);
+		rc = of_property_read_u32(root, "sharp,system-color-default", &color);
+		if (rc < 0) {
+			pr_err("%s: could not find default node.\n", __func__);
+			goto calib_read_error;
+		}
+		snprintf(default_name, sizeof(default_name), "sharp,shled-leds-calib-%02x", color);
+		pr_debug("%s: default_name=%s\n", __func__, default_name);
+		node = of_find_node_by_name(root, default_name);
+		if (!node) {
+			pr_err("%s: could not find node %s.\n", __func__, default_name);
+			goto calib_read_error;
+		}
+	}
+
+	if (led->id == QPNP_ID_RGB_RED) {
+		rc = of_property_read_u32(node, "red", &led->calib);
+	} else if (led->id == QPNP_ID_RGB_GREEN) {
+		rc = of_property_read_u32(node, "green", &led->calib);
+	} else if (led->id == QPNP_ID_RGB_BLUE) {
+		rc = of_property_read_u32(node, "blue", &led->calib);
+	}
+	pr_debug("%s: led->calib=%d.\n", __func__, led->calib);
+	if (rc) {
+		pr_err("%s: could not find calibration parameter param:%s led->id:%d.\n", __func__, qpnp_led_system_color, led->id);
+		goto calib_read_error;
+	}
+
+	calib_enabled = 1;
+	qpnp_led_calib_duty_pcts(led, led->rgb_cfg->pwm_cfg);
+	return;
+
+calib_read_error:
+	calib_enabled = 0;
+	return;
+}
+#endif /* CONFIG_LEDS_SHARP */
 
 static int
 qpnp_led_masked_write(struct qpnp_led_data *led, u16 addr, u8 mask, u8 val)
@@ -1713,6 +1827,14 @@ static int qpnp_rgb_set(struct qpnp_led_data *led)
 	int rc;
 	int duty_us, duty_ns, period_us;
 
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00025 */
+	u32 calib_brightness = qpnp_led_calib_brightness(led);
+	pr_debug("%s: brightness=%d calib_brightness=%d\n", __func__,
+		led->cdev.brightness, calib_brightness);
+#endif /* CONFIG_LEDS_SHARP */
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00021 */
+	mutex_lock(&rgb_lock);
+#endif /* CONFIG_LEDS_SHARP */
 	if (led->cdev.brightness) {
 		if (!led->rgb_cfg->pwm_cfg->blinking)
 			led->rgb_cfg->pwm_cfg->mode =
@@ -1724,20 +1846,38 @@ static int qpnp_rgb_set(struct qpnp_led_data *led)
 				dev_err(&led->pdev->dev,
 					"Failed to set PWM mode, rc = %d\n",
 					rc);
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00021 */
+				goto err_unlock;
+#else /* CONFIG_LEDS_SHARP */
 				return rc;
+#endif /* CONFIG_LEDS_SHARP */
 			}
 		}
 		period_us = led->rgb_cfg->pwm_cfg->pwm_period_us;
 		if (period_us > INT_MAX / NSEC_PER_USEC) {
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00025 */
+			duty_us = (period_us * calib_brightness) /
+				LED_FULL;
+			pr_debug("%s: duty_us=%d period_us=%d brightness=%d calib_enabled=%d calib=%d calib_brightness=%d\n",
+				__func__, duty_us, period_us, led->cdev.brightness, calib_enabled, led->calib, calib_brightness);
+#else /* CONFIG_LEDS_SHARP */
 			duty_us = (period_us * led->cdev.brightness) /
 				LED_FULL;
+#endif /* CONFIG_LEDS_SHARP */
 			rc = pwm_config_us(
 				led->rgb_cfg->pwm_cfg->pwm_dev,
 				duty_us,
 				period_us);
 		} else {
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00025 */
+			duty_ns = ((period_us * NSEC_PER_USEC) /
+				LED_FULL) * calib_brightness;
+			pr_debug("%s: duty_ns=%d period_us=%d brightness=%d calib_enabled=%d calib=%d calib_brightness=%d\n",
+				__func__, duty_ns, period_us, led->cdev.brightness, calib_enabled, led->calib, calib_brightness);
+#else /* CONFIG_LEDS_SHARP */
 			duty_ns = ((period_us * NSEC_PER_USEC) /
 				LED_FULL) * led->cdev.brightness;
+#endif /* CONFIG_LEDS_SHARP */
 			rc = pwm_config(
 				led->rgb_cfg->pwm_cfg->pwm_dev,
 				duty_ns,
@@ -1746,7 +1886,11 @@ static int qpnp_rgb_set(struct qpnp_led_data *led)
 		if (rc < 0) {
 			dev_err(&led->pdev->dev,
 				"pwm config failed\n");
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00021 */
+			goto err_unlock;
+#else /* CONFIG_LEDS_SHARP */
 			return rc;
+#endif /* CONFIG_LEDS_SHARP */
 		}
 		rc = qpnp_led_masked_write(led,
 			RGB_LED_EN_CTL(led->base),
@@ -1754,7 +1898,11 @@ static int qpnp_rgb_set(struct qpnp_led_data *led)
 		if (rc) {
 			dev_err(&led->pdev->dev,
 				"Failed to write led enable reg\n");
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00021 */
+			goto err_unlock;
+#else /* CONFIG_LEDS_SHARP */
 			return rc;
+#endif /* CONFIG_LEDS_SHARP */
 		}
 		if (!led->rgb_cfg->pwm_cfg->pwm_enabled) {
 			pwm_enable(led->rgb_cfg->pwm_cfg->pwm_dev);
@@ -1773,14 +1921,24 @@ static int qpnp_rgb_set(struct qpnp_led_data *led)
 		if (rc) {
 			dev_err(&led->pdev->dev,
 				"Failed to write led enable reg\n");
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00021 */
+			goto err_unlock;
+#else /* CONFIG_LEDS_SHARP */
 			return rc;
+#endif /* CONFIG_LEDS_SHARP */
 		}
 	}
 
 	led->rgb_cfg->pwm_cfg->blinking = false;
 	qpnp_dump_regs(led, rgb_pwm_debug_regs, ARRAY_SIZE(rgb_pwm_debug_regs));
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00021 */
+err_unlock:
+	mutex_unlock(&rgb_lock);
 
+	return rc;
+#else /* CONFIG_LEDS_SHARP */
 	return 0;
+#endif /* CONFIG_LEDS_SHARP */
 }
 
 static void qpnp_led_set(struct led_classdev *led_cdev,
@@ -2610,6 +2768,9 @@ static ssize_t duty_pcts_store(struct device *dev,
 	pwm_cfg->old_duty_pcts = previous_duty_pcts;
 	pwm_cfg->lut_params.idx_len = pwm_cfg->duty_cycles->num_duty_pcts;
 
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00025 */
+	qpnp_led_calib_duty_pcts(led, pwm_cfg);
+#endif /* CONFIG_LEDS_SHARP */
 	if (pwm_cfg->pwm_enabled) {
 		pwm_disable(pwm_cfg->pwm_dev);
 		pwm_cfg->pwm_enabled = 0;
@@ -2638,14 +2799,39 @@ restore:
 	return ret;
 }
 
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00021 */
+static void led_blink(struct qpnp_led_data *led,
+			struct pwm_config_data *pwm_cfg, bool blinking)
+#else /* CONFIG_LEDS_SHARP */
 static void led_blink(struct qpnp_led_data *led,
 			struct pwm_config_data *pwm_cfg)
+#endif /* CONFIG_LEDS_SHARP */
 {
 	int rc;
 
 	flush_work(&led->work);
 	mutex_lock(&led->lock);
 	if (pwm_cfg->use_blink) {
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00021 */
+		if (blinking) {
+			pwm_cfg->blinking = true;
+			led->cdev.brightness = led->cdev.max_brightness;
+			if (led->id == QPNP_ID_LED_MPP)
+				led->mpp_cfg->pwm_mode = LPG_MODE;
+			else if (led->id == QPNP_ID_KPDBL)
+				led->kpdbl_cfg->pwm_mode = LPG_MODE;
+			pwm_cfg->mode = LPG_MODE;
+		} else {
+			pwm_cfg->blinking = false;
+			led->cdev.brightness = 0;
+			pwm_cfg->mode = pwm_cfg->default_mode;
+			if (led->id == QPNP_ID_LED_MPP)
+				led->mpp_cfg->pwm_mode = pwm_cfg->default_mode;
+			else if (led->id == QPNP_ID_KPDBL)
+				led->kpdbl_cfg->pwm_mode =
+						pwm_cfg->default_mode;
+		}
+#else /* CONFIG_LEDS_SHARP */
 		if (led->cdev.brightness) {
 			pwm_cfg->blinking = true;
 			if (led->id == QPNP_ID_LED_MPP)
@@ -2662,6 +2848,7 @@ static void led_blink(struct qpnp_led_data *led,
 				led->kpdbl_cfg->pwm_mode =
 						pwm_cfg->default_mode;
 		}
+#endif /* CONFIG_LEDS_SHARP */
 		if (pwm_cfg->pwm_enabled) {
 			pwm_disable(pwm_cfg->pwm_dev);
 			pwm_cfg->pwm_enabled = 0;
@@ -2701,6 +2888,24 @@ static ssize_t blink_store(struct device *dev,
 	if (ret)
 		return ret;
 	led = container_of(led_cdev, struct qpnp_led_data, cdev);
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00021 */
+	switch (led->id) {
+	case QPNP_ID_LED_MPP:
+		led_blink(led, led->mpp_cfg->pwm_cfg, !!blinking);
+		break;
+	case QPNP_ID_RGB_RED:
+	case QPNP_ID_RGB_GREEN:
+	case QPNP_ID_RGB_BLUE:
+		led_blink(led, led->rgb_cfg->pwm_cfg, !!blinking);
+		break;
+	case QPNP_ID_KPDBL:
+		led_blink(led, led->kpdbl_cfg->pwm_cfg, !!blinking);
+		break;
+	default:
+		dev_err(&led->pdev->dev, "Invalid LED id type for blink\n");
+		return -EINVAL;
+	}
+#else /* CONFIG_LEDS_SHARP */
 	led->cdev.brightness = blinking ? led->cdev.max_brightness : 0;
 
 	switch (led->id) {
@@ -2719,6 +2924,7 @@ static ssize_t blink_store(struct device *dev,
 		dev_err(&led->pdev->dev, "Invalid LED id type for blink\n");
 		return -EINVAL;
 	}
+#endif /* CONFIG_LEDS_SHARP */
 	return count;
 }
 
@@ -4098,6 +4304,9 @@ static int qpnp_leds_probe(struct platform_device *pdev)
 				if (rc)
 					goto fail_id_check;
 			}
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00025 */
+			qpnp_led_calib_read_clrvari_param(led);
+#endif /* CONFIG_LEDS_SHARP */
 		} else if (led->id == QPNP_ID_KPDBL) {
 			if (led->kpdbl_cfg->pwm_cfg->mode == PWM_MODE) {
 				rc = sysfs_create_group(&led->cdev.dev->kobj,

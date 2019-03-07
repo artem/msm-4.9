@@ -18,6 +18,10 @@
 #include "cam_eeprom_soc.h"
 #include "cam_debug_util.h"
 
+/* SHLOCAL_CAMERA_IMAGE_QUALITY-> */
+#include "shading_correct.h"
+/* SHLOCAL_CAMERA_IMAGE_QUALITY<- */
+
 /**
  * cam_eeprom_read_memory() - read map data into buffer
  * @e_ctrl:     eeprom control struct
@@ -64,7 +68,13 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 			i2c_reg_settings.size = 1;
 			i2c_reg_array.reg_addr = emap[j].page.addr;
 			i2c_reg_array.reg_data = emap[j].page.data;
+/* SHLOCAL_CAMERA_DRIVERS-> */
+#if 0
 			i2c_reg_array.delay = emap[j].page.delay;
+#else
+			i2c_reg_settings.delay = emap[j].page.delay;
+#endif
+/* SHLOCAL_CAMERA_DRIVERS<- */
 			i2c_reg_settings.reg_setting = &i2c_reg_array;
 			rc = camera_io_dev_write(&e_ctrl->io_master_info,
 				&i2c_reg_settings);
@@ -81,7 +91,13 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 			i2c_reg_settings.size = 1;
 			i2c_reg_array.reg_addr = emap[j].pageen.addr;
 			i2c_reg_array.reg_data = emap[j].pageen.data;
+/* SHLOCAL_CAMERA_DRIVERS-> */
+#if 0
 			i2c_reg_array.delay = emap[j].pageen.delay;
+#else
+			i2c_reg_settings.delay = emap[j].pageen.delay;
+#endif
+/* SHLOCAL_CAMERA_DRIVERS<- */
 			i2c_reg_settings.reg_setting = &i2c_reg_array;
 			rc = camera_io_dev_write(&e_ctrl->io_master_info,
 				&i2c_reg_settings);
@@ -125,7 +141,13 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 			i2c_reg_settings.size = 1;
 			i2c_reg_array.reg_addr = emap[j].pageen.addr;
 			i2c_reg_array.reg_data = 0;
+/* SHLOCAL_CAMERA_DRIVERS-> */
+#if 0
 			i2c_reg_array.delay = emap[j].pageen.delay;
+#else
+			i2c_reg_settings.delay = emap[j].pageen.delay;
+#endif
+/* SHLOCAL_CAMERA_DRIVERS<- */
 			i2c_reg_settings.reg_setting = &i2c_reg_array;
 			rc = camera_io_dev_write(&e_ctrl->io_master_info,
 				&i2c_reg_settings);
@@ -627,6 +649,260 @@ static int32_t cam_eeprom_init_pkt_parser(struct cam_eeprom_ctrl_t *e_ctrl,
 	return rc;
 }
 
+/* SHLOCAL_CAMERA_IMAGE_QUALITY-> *//* lsc for imx318/imx351r/imx351t/ov8856 */
+#define MIN(x, y) (((x) > (y)) ? (y):(x))
+#define MAX(x, y) (((x) > (y)) ? (x):(y))
+#define IMX351_OTP_LSC_W    (9)
+#define IMX351_OTP_LSC_H    (7)
+#define IMX351_OTP_LSC_SIZE (IMX351_OTP_LSC_W * IMX351_OTP_LSC_H)
+#define OV8856_OTP_LSC_W    (9)
+#define OV8856_OTP_LSC_H    (7)
+#define OV8856_OTP_LSC_SIZE (OV8856_OTP_LSC_W * OV8856_OTP_LSC_H)
+#define OV8856_OTP_LSC_BUF_SIZE 96
+#define MESH_ROLLOFF_W      (17)
+#define MESH_ROLLOFF_H      (13)
+#define MESH_ROLLOFF_SIZE   (MESH_ROLLOFF_W * MESH_ROLLOFF_H)
+
+#define IMX318_OTP_LSC_OFFSET   (256)
+#define IMX351_OTP_LSC_OFFSET   (64)
+#define IMX351_OTP_EXLSC_OFFSET (576) /* >= 576 */
+#define OV8856_OTP_LSC_OFFSET   (64)
+#define OV8856_OTP_EXLSC_OFFSET (576) /* >= 512 */
+
+
+static void cam_eeprom_convert_grid(int32_t *src, int32_t *dst, int32_t src_w, int32_t src_h, int32_t dst_w, int32_t dst_h)
+{
+	int32_t src_x, src_y, dst_x, dst_y;
+	int32_t ref_x_Q10, ref_y_Q10, dref_x_Q10, dref_y_Q10;
+
+	for(dst_y = 0; dst_y < dst_h; dst_y++) {
+		for(dst_x = 0; dst_x < dst_w; dst_x++) {
+			ref_x_Q10 = 1024 * dst_x * (src_w - 1) / (dst_w - 1);
+			ref_y_Q10 = 1024 * dst_y * (src_h - 1) / (dst_h - 1);
+			src_x = (int32_t)(ref_x_Q10 / 1024);
+			src_y = (int32_t)(ref_y_Q10 / 1024);
+			dref_x_Q10 = ref_x_Q10 - src_x * 1024;
+			dref_y_Q10 = ref_y_Q10 - src_y * 1024;
+
+			dst[dst_w * dst_y + dst_x] = (1024 - dref_x_Q10) * (1024 - dref_y_Q10) * src[src_w * src_y + src_x]
+				+ (1024 - dref_x_Q10) * dref_y_Q10 * src[src_w * MIN(src_y + 1, src_h - 1) + src_x]
+				+ dref_x_Q10 * (1024 - dref_y_Q10) * src[src_w * src_y + MIN(src_x + 1, src_w - 1)]
+				+ dref_x_Q10 * dref_y_Q10 * src[src_w * MIN(src_y + 1, src_h - 1) + MIN(src_x + 1, src_w - 1)];
+			dst[dst_w * dst_y + dst_x] /= (1024 * 1024);
+		}
+	}
+
+	return;
+}
+
+static void cam_eeprom_write_exlsc(int32_t *tmp_lsc_buf, uint8_t *otp_exlsc_buf)
+{
+	int32_t i;
+	uint16_t val;
+	for(i = 0; i < MESH_ROLLOFF_SIZE; i++) {
+		val = (uint16_t)tmp_lsc_buf[i];
+		otp_exlsc_buf[i * 2] = val & 0x00FF;
+		otp_exlsc_buf[i * 2 + 1] = (val & 0xFF00) >> 8;
+	}
+}
+
+static void cam_eeprom_read_imx351_lsc(uint8_t *otp_buf, int32_t *tmp_lsc_buf)
+{
+	int32_t i;
+	for(i = 0; i < IMX351_OTP_LSC_SIZE; i++) {
+		tmp_lsc_buf[i] = (uint32_t)((otp_buf[i * 2 + 1] << 8) + otp_buf[i * 2]);
+	}
+}
+
+static void cam_eeprom_extract_imx351_lsc(uint8_t *otp_buf)
+{
+	int32_t *tmp_lsc_buf = (int32_t*)kzalloc(IMX351_OTP_LSC_SIZE * sizeof(int32_t), GFP_KERNEL);
+	int32_t *tmp_exlsc_buf = (int32_t*)kzalloc(MESH_ROLLOFF_SIZE * sizeof(int32_t), GFP_KERNEL);
+	uint8_t *otp_lsc_buf = otp_buf + IMX351_OTP_LSC_OFFSET;
+	uint8_t *otp_exlsc_buf = otp_buf + IMX351_OTP_EXLSC_OFFSET;
+
+	if(tmp_lsc_buf != NULL && tmp_exlsc_buf != NULL) {
+		cam_eeprom_read_imx351_lsc(otp_lsc_buf, tmp_lsc_buf);
+		cam_eeprom_convert_grid(tmp_lsc_buf, tmp_exlsc_buf, IMX351_OTP_LSC_W, IMX351_OTP_LSC_H, MESH_ROLLOFF_W, MESH_ROLLOFF_H);
+		cam_eeprom_write_exlsc(tmp_exlsc_buf, otp_exlsc_buf);
+
+		otp_lsc_buf += IMX351_OTP_LSC_SIZE * 2;
+		otp_exlsc_buf += MESH_ROLLOFF_SIZE * 2;
+		cam_eeprom_read_imx351_lsc(otp_lsc_buf, tmp_lsc_buf);
+		cam_eeprom_convert_grid(tmp_lsc_buf, tmp_exlsc_buf, IMX351_OTP_LSC_W, IMX351_OTP_LSC_H, MESH_ROLLOFF_W, MESH_ROLLOFF_H);
+		cam_eeprom_write_exlsc(tmp_exlsc_buf, otp_exlsc_buf);
+
+		otp_lsc_buf += IMX351_OTP_LSC_SIZE * 2;
+		otp_exlsc_buf += MESH_ROLLOFF_SIZE * 2;
+		cam_eeprom_read_imx351_lsc(otp_lsc_buf, tmp_lsc_buf);
+		cam_eeprom_convert_grid(tmp_lsc_buf, tmp_exlsc_buf, IMX351_OTP_LSC_W, IMX351_OTP_LSC_H, MESH_ROLLOFF_W, MESH_ROLLOFF_H);
+		cam_eeprom_write_exlsc(tmp_exlsc_buf, otp_exlsc_buf);
+
+		otp_lsc_buf += IMX351_OTP_LSC_SIZE * 2;
+		otp_exlsc_buf += MESH_ROLLOFF_SIZE * 2;
+		cam_eeprom_read_imx351_lsc(otp_lsc_buf, tmp_lsc_buf);
+		cam_eeprom_convert_grid(tmp_lsc_buf, tmp_exlsc_buf, IMX351_OTP_LSC_W, IMX351_OTP_LSC_H, MESH_ROLLOFF_W, MESH_ROLLOFF_H);
+		cam_eeprom_write_exlsc(tmp_exlsc_buf, otp_exlsc_buf);
+	}
+	
+	if(tmp_lsc_buf != NULL) {
+		kfree(tmp_lsc_buf);
+	}
+	if(tmp_exlsc_buf != NULL) {
+		kfree(tmp_exlsc_buf);
+	}
+}
+
+static void cam_eeprom_read_ov8856_lsc(uint8_t *otp_buf, int32_t *tmp_lsc_buf)
+{
+	int32_t i;
+	for(i = 0; i < OV8856_OTP_LSC_SIZE; i+=2) {
+		tmp_lsc_buf[i] = (uint32_t)(((otp_buf[i / 2 * 3] & 0x03) << 8) + otp_buf[i / 2 * 3 + 1]);
+		if(i + 1 < OV8856_OTP_LSC_SIZE) {
+			tmp_lsc_buf[i + 1] = (uint32_t)(((otp_buf[i / 2 * 3] & 0x30) << 4) + otp_buf[i / 2 * 3 + 2]);
+		}
+	}
+}
+
+static void cam_eeprom_extract_ov8856_lsc(uint8_t *otp_buf)
+{
+	int32_t *tmp_lsc_buf = (int32_t*)kzalloc(OV8856_OTP_LSC_SIZE * sizeof(int32_t), GFP_KERNEL);
+	int32_t *tmp_exlsc_buf = (int32_t*)kzalloc(MESH_ROLLOFF_SIZE * sizeof(int32_t), GFP_KERNEL);
+	uint8_t *otp_lsc_buf = otp_buf + OV8856_OTP_LSC_OFFSET;
+	uint8_t *otp_exlsc_buf = otp_buf + OV8856_OTP_EXLSC_OFFSET;
+
+	if(tmp_lsc_buf != NULL && tmp_exlsc_buf != NULL) {
+		cam_eeprom_read_ov8856_lsc(otp_lsc_buf, tmp_lsc_buf);
+		cam_eeprom_convert_grid(tmp_lsc_buf, tmp_exlsc_buf, OV8856_OTP_LSC_W, OV8856_OTP_LSC_H, MESH_ROLLOFF_W, MESH_ROLLOFF_H);
+		cam_eeprom_write_exlsc(tmp_exlsc_buf, otp_exlsc_buf);
+
+		otp_lsc_buf += OV8856_OTP_LSC_BUF_SIZE;
+		otp_exlsc_buf += MESH_ROLLOFF_SIZE * 2;
+		cam_eeprom_read_ov8856_lsc(otp_lsc_buf, tmp_lsc_buf);
+		cam_eeprom_convert_grid(tmp_lsc_buf, tmp_exlsc_buf, OV8856_OTP_LSC_W, OV8856_OTP_LSC_H, MESH_ROLLOFF_W, MESH_ROLLOFF_H);
+		cam_eeprom_write_exlsc(tmp_exlsc_buf, otp_exlsc_buf);
+
+		otp_lsc_buf += OV8856_OTP_LSC_BUF_SIZE;
+		otp_exlsc_buf += MESH_ROLLOFF_SIZE * 2;
+		cam_eeprom_read_ov8856_lsc(otp_lsc_buf, tmp_lsc_buf);
+		cam_eeprom_convert_grid(tmp_lsc_buf, tmp_exlsc_buf, OV8856_OTP_LSC_W, OV8856_OTP_LSC_H, MESH_ROLLOFF_W, MESH_ROLLOFF_H);
+		cam_eeprom_write_exlsc(tmp_exlsc_buf, otp_exlsc_buf);
+
+		otp_lsc_buf += OV8856_OTP_LSC_BUF_SIZE;
+		otp_exlsc_buf += MESH_ROLLOFF_SIZE * 2;
+		cam_eeprom_read_ov8856_lsc(otp_lsc_buf, tmp_lsc_buf);
+		cam_eeprom_convert_grid(tmp_lsc_buf, tmp_exlsc_buf, OV8856_OTP_LSC_W, OV8856_OTP_LSC_H, MESH_ROLLOFF_W, MESH_ROLLOFF_H);
+		cam_eeprom_write_exlsc(tmp_exlsc_buf, otp_exlsc_buf);
+	}
+	
+	if(tmp_lsc_buf != NULL) {
+		kfree(tmp_lsc_buf);
+	}
+	if(tmp_exlsc_buf != NULL) {
+		kfree(tmp_exlsc_buf);
+	}
+}
+
+static void cam_eeprom_swap_data(uint8_t *buf1, uint8_t *buf2, uint32_t swap_size)
+{
+	uint32_t i = 0;
+	uint8_t tmp;
+	for(i = 0; i < swap_size; i++) {
+		tmp = *(buf1 + i);
+		*(buf1 + i) = *(buf2 + i);
+		*(buf2 + i) = tmp;
+	}
+}
+
+static void cam_eeprom_rotate_exlsc(uint8_t *otp_buf, uint32_t exlsc_offset)
+{
+	uint32_t i = 0;
+	uint8_t *otp_exlsc_buf = otp_buf + exlsc_offset;
+
+	for(i = 0; i < MESH_ROLLOFF_SIZE / 2; i++) {
+		cam_eeprom_swap_data(otp_exlsc_buf + i * 2, otp_exlsc_buf + (MESH_ROLLOFF_SIZE - 1 - i) * 2, 2);
+	}
+
+	otp_exlsc_buf += MESH_ROLLOFF_SIZE * 2;
+	for(i = 0; i < MESH_ROLLOFF_SIZE / 2; i++) {
+		cam_eeprom_swap_data(otp_exlsc_buf + i * 2, otp_exlsc_buf + (MESH_ROLLOFF_SIZE - 1 - i) * 2, 2);
+	}
+
+	otp_exlsc_buf += MESH_ROLLOFF_SIZE * 2;
+	for(i = 0; i < MESH_ROLLOFF_SIZE / 2; i++) {
+		cam_eeprom_swap_data(otp_exlsc_buf + i * 2, otp_exlsc_buf + (MESH_ROLLOFF_SIZE - 1 - i) * 2, 2);
+	}
+
+	otp_exlsc_buf += MESH_ROLLOFF_SIZE * 2;
+	for(i = 0; i < MESH_ROLLOFF_SIZE / 2; i++) {
+		cam_eeprom_swap_data(otp_exlsc_buf + i * 2, otp_exlsc_buf + (MESH_ROLLOFF_SIZE - 1 - i) * 2, 2);
+	}
+}
+
+/* SHLOCAL_CAMERA_IMAGE_QUALITY<- */
+/* SHLOCAL_CAMERA_IMAGE_QUALITY-> *//* af for imx318 */
+#define IMX318_OTP_AF_OFFSET (0x90)
+#define START_MARGIN (1000)
+#define END_MARGIN (0)
+
+#define FOC_10   (12306)
+#define FOC_50   (2392)
+#define PCOC_UM  (582)
+#define DIR_UM   (5900)
+#define MAX_LSB  (1023)
+
+static void cam_eeprom_extract_imx318_af(uint8_t *otp_buf)
+{
+	uint32_t dac_10cm = 0, dac_50cm = 0;
+	uint32_t start_pos = 0, end_pos = 0;
+	uint32_t peak_pos_inf_up, peak_pos_inf_side;
+	uint32_t dac_start_current;
+	uint32_t fullstroke = 0;
+
+	dac_10cm =((otp_buf[IMX318_OTP_AF_OFFSET] & 0x30)<< 4) | otp_buf[IMX318_OTP_AF_OFFSET + 1];
+	dac_50cm =((otp_buf[IMX318_OTP_AF_OFFSET] & 0x0C)<< 6) | otp_buf[IMX318_OTP_AF_OFFSET + 2];
+	dac_start_current = ((otp_buf[IMX318_OTP_AF_OFFSET] & 0x03)<< 8)| + otp_buf[IMX318_OTP_AF_OFFSET + 3];
+	
+	fullstroke = ((otp_buf[IMX318_OTP_AF_OFFSET + 4] & 0xf0)>>4) * 1000 + (otp_buf[IMX318_OTP_AF_OFFSET + 4] & 0x0f) * 100
+                 +((otp_buf[IMX318_OTP_AF_OFFSET + 5] & 0xf0)>>4) *10 +(otp_buf[IMX318_OTP_AF_OFFSET + 5] & 0x0f);
+                 
+    dac_10cm = dac_10cm * 100;
+    dac_50cm = dac_50cm * 100;
+    dac_start_current = dac_start_current * 100;
+    fullstroke = fullstroke * 10;
+	
+	CAM_DBG(CAM_EEPROM, "OTP: dac_10cm*100: %d, dac_50cm*100: %d,  dac_start_current*100 = %d, fullstroke*100 = %d", 
+        dac_10cm, dac_50cm, dac_start_current, fullstroke);
+
+	peak_pos_inf_up = (dac_10cm - FOC_10 * (dac_10cm - dac_50cm) /(FOC_10 - FOC_50));
+
+	peak_pos_inf_side = (peak_pos_inf_up - (DIR_UM * (dac_10cm - dac_50cm) /(FOC_10 - FOC_50)));
+
+	start_pos = peak_pos_inf_side - (DIR_UM * (dac_10cm - dac_50cm) /(FOC_10 - FOC_50)) - START_MARGIN;
+	start_pos = start_pos / 100;
+
+	end_pos = dac_start_current + (fullstroke * (dac_10cm - dac_50cm) /(FOC_10 - FOC_50)) + END_MARGIN;
+	end_pos = end_pos / 100;
+
+	if(start_pos < 0){
+		start_pos = 0;
+	}
+
+	if(end_pos > MAX_LSB){
+		end_pos = MAX_LSB;
+	}
+
+	CAM_DBG(CAM_EEPROM, "macro(end_pos) = %d(0x%04x), Inf(start_pos) =  %d(0x%04x)", end_pos, end_pos, start_pos, start_pos);
+	/* macro update */
+	otp_buf[IMX318_OTP_AF_OFFSET] = end_pos & 0x00FF;
+	otp_buf[IMX318_OTP_AF_OFFSET + 1] = (end_pos & 0xFF00) >> 8;
+	/* inf update */
+	otp_buf[IMX318_OTP_AF_OFFSET + 2] = start_pos & 0x00FF;
+	otp_buf[IMX318_OTP_AF_OFFSET + 2 + 1] = (start_pos & 0xFF00) >> 8;
+
+}
+/* SHLOCAL_CAMERA_IMAGE_QUALITY<- */
+
 /**
  * cam_eeprom_get_cal_data - parse the userspace IO config and
  *                                        copy read data to share with userspace
@@ -678,6 +954,47 @@ static int32_t cam_eeprom_get_cal_data(struct cam_eeprom_ctrl_t *e_ctrl,
 				e_ctrl->cal_data.num_data);
 			memcpy(read_buffer, e_ctrl->cal_data.mapdata,
 					e_ctrl->cal_data.num_data);
+
+/* SHLOCAL_CAMERA_IMAGE_QUALITY-> *//* lsc for imx318/imx351r/imx351t/ov8856 */
+			/*
+			  use buf_size to identify camera module. buf_size derives from registerData of \chi-cdk\vendor\eeprom\xxx_eeprom.xml.
+			  imx318     : buf_size = 2160
+			  imx318d : buf_size = 2144
+			  imx351r : buf_size = 2344
+			  imx351t : buf_size = 2352
+			  ov8856  : buf_size = 2368
+			*/
+			
+			/* imx351r/imx351t */
+			if(buf_size == 2344 || buf_size == 2352) {
+				/* extend eeprom area for imx351 lsc */
+				CAM_DBG(CAM_EEPROM, "extend eeprom area for imx351 lsc. buf_size=%zu num_data=%d", buf_size, e_ctrl->cal_data.num_data);
+				cam_eeprom_extract_imx351_lsc(read_buffer);
+			}
+
+			/* ov8856 */
+			if(buf_size == 2368) {
+				/* extend eeprom area for ov8856 lsc */
+				CAM_DBG(CAM_EEPROM, "extend eeprom area for ov8856 lsc. buf_size=%zu num_data=%d", buf_size, e_ctrl->cal_data.num_data);
+				cam_eeprom_extract_ov8856_lsc(read_buffer);
+			}
+			
+			/* imx318 */
+			if(buf_size == 2160) {
+				cam_eeprom_shading_correction_imx318(read_buffer, IMX318_OTP_LSC_OFFSET);
+			}
+			
+			/* imx318/imx318d */
+			if(buf_size == 2144 || buf_size == 2160) {
+				cam_eeprom_rotate_exlsc(read_buffer, IMX318_OTP_LSC_OFFSET);
+				cam_eeprom_extract_imx318_af(read_buffer);
+			}
+			
+			/* imx351r */
+			if(buf_size == 2344) {
+				cam_eeprom_rotate_exlsc(read_buffer, IMX351_OTP_EXLSC_OFFSET);
+			}
+/* SHLOCAL_CAMERA_IMAGE_QUALITY<- */
 
 		} else {
 			CAM_ERR(CAM_EEPROM, "Invalid direction");

@@ -430,7 +430,8 @@ static inline int valid_ptec_sector(const unsigned char *data)
 	 * If it looks like a PC/BIOS partition, then it
 	 * probably isn't PowerTec.
 	 */
-	if (data[510] == 0x55 && data[511] == 0xaa)
+	if ((data[510] == 0x55 && data[511] == 0xaa) ||
+	    (data[510] == 0xaa && data[511] == 0x55))
 		return 0;
 
 	for (i = 0; i < 511; i++)

@@ -215,6 +215,12 @@ config KEYBOARD_GPIO
 	  To compile this driver as a module, choose M here: the
 	  module will be called gpio_keys.
 
+config KEYBOARD_GPIO_CUST_SC
+	tristate "SC Customize GPIO Buttons"
+	default n
+	help
+	  Say Y here to enable GPIO buttons that SC customize.
+
 config KEYBOARD_GPIO_POLLED
 	tristate "Polled GPIO buttons"
 	depends on GPIOLIB

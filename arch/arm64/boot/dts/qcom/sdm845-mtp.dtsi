@@ -43,7 +43,10 @@
 };
 
 &soc {
-	gpio_keys {
+/* Key Driver Customize Start */
+//	gpio_keys {
+	gpio_keys: gpio_keys {
+/* Key Driver Customize End */
 		compatible = "gpio-keys";
 		label = "gpio-keys";
 
@@ -311,6 +314,8 @@
 	status = "ok";
 };
 
+/* SH_BSP_CUST Del Start */
+#if 0
 &qupv3_se3_i2c {
 	status = "ok";
 	nq@28 {
@@ -331,6 +336,8 @@
 		pinctrl-1 = <&nfc_int_suspend &nfc_enable_suspend>;
 	};
 };
+#endif
+/* SH_BSP_CUST Del End */
 
 &qupv3_se10_i2c {
 	status = "ok";

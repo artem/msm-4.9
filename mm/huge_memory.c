@@ -754,7 +754,7 @@ static void touch_pmd(struct vm_area_struct *vma, unsigned long addr,
 	if (flags & FOLL_WRITE)
 		_pmd = pmd_mkdirty(_pmd);
 	if (pmdp_set_access_flags(vma, addr & HPAGE_PMD_MASK,
-				pmd, _pmd, flags & FOLL_WRITE))
+				pmd, _pmd,  flags & FOLL_WRITE))
 		update_mmu_cache_pmd(vma, addr, pmd);
 }
 

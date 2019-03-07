@@ -1,0 +1,27 @@
+#
+# Sharp Touchscreen configuration
+#
+
+if TOUCHSCREEN_SHARP_TPS
+
+	config SHARP_TPS_SY3X00_DEV
+		tristate "SY3x00 Device"
+		default n
+		depends on TOUCHSCREEN_SHARP_TPS
+
+	config SHARP_TPS_SY3000_PRJ_001860
+		tristate "SY3000 PRJ-001860"
+		default n
+		depends on SHARP_TPS_SY3X00_DEV
+
+	config SHARP_TPS_SY3700_CUSPRJ_1846
+		tristate "SY3700 CUSPRJ-1846"
+		default n
+		depends on SHARP_TPS_SY3X00_DEV
+
+	config SHARP_TPS_SY3700_CUSPRJ_2295
+		tristate "SY3700 CUSPRJ-2295"
+		default n
+		depends on SHARP_TPS_SY3X00_DEV
+
+endif # TOUCHSCREEN_SHARP_TPS

@@ -34,6 +34,9 @@
 #include <linux/slab.h>
 
 #include <video/mipi_display.h>
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00066 */
+#include "msm/msm_drv.h"
+#endif /* CONFIG_SHARP_DISPLAY */
 
 /**
  * DOC: dsi helpers
@@ -1055,11 +1058,36 @@ EXPORT_SYMBOL(mipi_dsi_dcs_set_tear_scanline);
 int mipi_dsi_dcs_set_display_brightness(struct mipi_dsi_device *dsi,
 					u16 brightness)
 {
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00057 */
+	// Brightness Control 000h ~ FFFh
+	// param1(DBV[11:8]) Param2(DBV[7:0])
+	u8 payload[2] = { brightness >> 8, brightness & 0xff };
+	u8 page = 0x00;
+#else
 	u8 payload[2] = { brightness & 0xff, brightness >> 8 };
+#endif /* CONFIG_SHARP_DISPLAY */
+
 	ssize_t err;
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00066 */
+	drm_pagechg_lock(true);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00057 */
+	err = mipi_dsi_dcs_write(dsi, 0xFE,
+				 &page, sizeof(page));
+	if (err < 0) {
+		pr_err("[%s] page change error:%d\n", __func__, (int)err);
+		goto exit;
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 	err = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
 				 payload, sizeof(payload));
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00057 */
+exit:
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00066 */
+	drm_pagechg_lock(false);
+#endif /* CONFIG_SHARP_DISPLAY */
 	if (err < 0)
 		return err;
 

@@ -69,4 +69,9 @@ static inline int lpm_get_latency(struct latency_level *level,
 }
 #endif
 
+#ifdef CONFIG_SHARP_PNP_SLEEP_SLEEPLOG
+int64_t sh_get_pm_stats_suspend(void);
+int64_t sh_get_pm_stats_idle(void);
+#endif /* CONFIG_SHARP_PNP_SLEEP_SLEEPLOG */
+
 #endif  /* __ARCH_ARM_MACH_MSM_PM_H */

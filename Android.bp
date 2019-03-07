@@ -6,6 +6,14 @@ cc_binary_host {
     }
 }
 
+cc_binary_host {
+    name: "unifdefex",
+    srcs: ["scripts/unifdef.c"],
+    sanitize: {
+        never: true,
+    }
+}
+
 gensrcs {
     name: "qseecom-kernel-includes",
 
@@ -24,4 +32,24 @@ cc_library_headers {
     name: "qseecom-kernel-headers",
     generated_headers: ["qseecom-kernel-includes"],
     export_generated_headers: ["qseecom-kernel-includes"],
+}
+
+gensrcs {
+    name: "shterm-kernel-includes",
+
+    // move to out/ as root for header generation because of scripts/unifdef
+    // storage - at the expense of extra ../ references
+    cmd: "pushd out && mkdir -p scripts && rm -f scripts/unifdefex && ln -s ../../$(location unifdefex) scripts/unifdefex && ../$(location scripts/headers_install_ex.sh) `dirname ../$(out)` ../ $(in) && popd",
+
+    tools: ["unifdefex"],
+    tool_files: ["scripts/headers_install_ex.sh"],
+    export_include_dirs: ["include/uapi"],
+    srcs: ["include/uapi/shterm.h"],
+    output_extension: "h",
+}
+
+cc_library_headers {
+    name: "shterm-kernel-headers",
+    generated_headers: ["shterm-kernel-includes"],
+    export_generated_headers: ["shterm-kernel-includes"],
 }

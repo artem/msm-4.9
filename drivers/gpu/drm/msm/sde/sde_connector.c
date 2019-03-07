@@ -23,6 +23,14 @@
 #include "dsi_display.h"
 #include "sde_crtc.h"
 #include "sde_rm.h"
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00030 */
+#ifdef CONFIG_SHARP_SHTERM
+#include <misc/shterm_k.h>
+#endif /* CONFIG_SHARP_SHTERM */
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00066 */
+#include "../sharp/drm_det.h"
+#endif /* CONFIG_SHARP_DISPLAY */
 
 #define BL_NODE_NAME_SIZE 32
 
@@ -61,6 +69,49 @@ static const struct drm_prop_enum_list e_power_mode[] = {
 	{SDE_MODE_DPMS_OFF,	"OFF"},
 };
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00064 */
+static int sde_backlight_currboost(struct dsi_display *display)
+{
+	int brightness = BKL_CURR_MAX_BRIGHTNESS;
+	struct dsi_panel *panel = NULL;
+	struct dsi_backlight_config *bl = NULL;
+	struct mipi_dsi_device *dsi = NULL;
+	int rc = 0;
+
+	if (display) {
+		panel = display->panel;
+		if (panel != NULL) {
+			bl = &panel->bl_config;
+			dsi = &panel->mipi_device;
+		}
+	} else {
+		pr_err("%s: display is NULL\n", __func__);
+		return -EINVAL;
+	}
+	if (!dsi_panel_initialized(panel)) {
+		pr_err("%s:-EINVAL\n",__func__);
+		return -EINVAL;
+	}
+
+	if (bl && dsi) {
+		if (bl->type == DSI_BACKLIGHT_DCS) {
+			rc = mipi_dsi_dcs_set_display_brightness(dsi, brightness);
+			if (rc < 0) {
+				pr_err("failed to curr_boost (%d)\n", brightness);
+			}
+		} else {
+			pr_err("backlight boost not type\n");
+			rc = -EINVAL;
+		}
+	} else {
+		pr_err("can not backlight boost\n");
+		rc = -EINVAL;
+	}
+
+	return rc;
+}
+#endif /*  CONFIG_SHARP_DISPLAY */
+
 static int sde_backlight_device_update_status(struct backlight_device *bd)
 {
 	int brightness;
@@ -79,6 +130,14 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 
 	c_conn = bl_get_data(bd);
 	display = (struct dsi_display *) c_conn->display;
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00064 */
+	if ((bd->props.curr_boosted) && (brightness == BKL_CURR_MAX_BRIGHTNESS)) {
+		rc = sde_backlight_currboost(display);
+		return rc;
+	}
+#endif /*  CONFIG_SHARP_DISPLAY */
+
 	if (brightness > display->panel->bl_config.bl_max_level)
 		brightness = display->panel->bl_config.bl_max_level;
 
@@ -92,10 +151,32 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 	if (c_conn->ops.set_backlight) {
 		event.type = DRM_EVENT_SYS_BACKLIGHT;
 		event.length = sizeof(u32);
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00017 */
+		msm_mode_object_event_notify(&c_conn->base.base,
+				c_conn->base.dev, &event, (u8 *)&brightness, false);
+#else /* CONFIG_SHARP_DISPLAY */
 		msm_mode_object_event_notify(&c_conn->base.base,
 				c_conn->base.dev, &event, (u8 *)&brightness);
+#endif /* CONFIG_SHARP_DISPLAY */
 		rc = c_conn->ops.set_backlight(c_conn->display, bl_lvl);
 	}
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00030 */
+#ifdef CONFIG_SHARP_SHTERM
+	{
+		bool bkl_on = false;
+		int ret = 0;
+
+		bkl_on = (bl_lvl > 0) ? true : false;
+		pr_debug("%s[%d] bkl_on = %d",
+						__func__, __LINE__, bkl_on);
+		ret = shterm_k_set_info(SHTERM_INFO_BACKLIGHT, bkl_on);
+		if (ret != SHTERM_SUCCESS) {
+			pr_err("%s[%d] shterm_k_set_info() error.",
+							__func__, __LINE__);
+		}
+	}
+#endif /* CONFIG_SHARP_SHTERM */
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	return rc;
 }
@@ -685,6 +766,29 @@ int sde_connector_clk_ctrl(struct drm_connector *connector, bool enable)
 
 	return rc;
 }
+
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+void sde_connector_clk_ctrl_mfr(struct drm_connector *connector, bool enable,
+					int islink)
+{
+	struct sde_connector *c_conn;
+	struct dsi_display *display;
+	u32 state = enable ? DSI_CLK_ON : DSI_CLK_OFF;
+	enum dsi_clk_type clk_type = DSI_ALL_CLKS;
+
+	if (!connector) {
+		SDE_ERROR("invalid connector\n");
+		return;
+	}
+
+	c_conn = to_sde_connector(connector);
+	display = (struct dsi_display *) c_conn->display;
+
+	if (display && c_conn->ops.clk_ctrl)
+		c_conn->ops.clk_ctrl(display->dsi_clk_handle,
+				clk_type, state);
+}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 static void sde_connector_destroy(struct drm_connector *connector)
 {
@@ -1765,7 +1869,9 @@ sde_connector_best_encoder(struct drm_connector *connector)
 
 static void _sde_connector_report_panel_dead(struct sde_connector *conn)
 {
+#ifndef CONFIG_SHARP_DISPLAY /* CUST_ID_00066 */
 	struct drm_event event;
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	if (!conn)
 		return;
@@ -1779,10 +1885,14 @@ static void _sde_connector_report_panel_dead(struct sde_connector *conn)
 		return;
 
 	conn->panel_dead = true;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00066 */
+	drm_det_esd_chk_ng();
+#else /* CONFIG_SHARP_DISPLAY */
 	event.type = DRM_EVENT_PANEL_DEAD;
 	event.length = sizeof(bool);
 	msm_mode_object_event_notify(&conn->base.base,
 		conn->base.dev, &event, (u8 *)&conn->panel_dead);
+#endif /* CONFIG_SHARP_DISPLAY */
 	sde_encoder_display_failure_notification(conn->encoder);
 	SDE_EVT32(SDE_EVTLOG_ERROR);
 	SDE_ERROR("esd check failed report PANEL_DEAD conn_id: %d enc_id: %d\n",

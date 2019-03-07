@@ -326,6 +326,9 @@ int drm_atomic_set_mode_for_crtc(struct drm_crtc_state *state,
 				 struct drm_display_mode *mode)
 {
 	struct drm_mode_modeinfo umode;
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+	bool main_display = false;
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	/* Early return for no change. */
 	if (mode && memcmp(&state->mode, mode, sizeof(*mode)) == 0)
@@ -335,7 +338,13 @@ int drm_atomic_set_mode_for_crtc(struct drm_crtc_state *state,
 	state->mode_blob = NULL;
 
 	if (mode) {
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+		if (drm_crtc_index(state->crtc) == 0)
+			main_display = true;
+		drm_mode_convert_to_umode(&umode, mode, main_display);
+#else /* CONFIG_SHARP_DISPLAY */
 		drm_mode_convert_to_umode(&umode, mode);
+#endif /* CONFIG_SHARP_DISPLAY */
 		state->mode_blob =
 			drm_property_create_blob(state->crtc->dev,
 		                                 sizeof(umode),
@@ -374,6 +383,10 @@ EXPORT_SYMBOL(drm_atomic_set_mode_for_crtc);
 int drm_atomic_set_mode_prop_for_crtc(struct drm_crtc_state *state,
                                       struct drm_property_blob *blob)
 {
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+	bool main_display = false;
+#endif /* CONFIG_SHARP_DISPLAY */
+
 	if (blob == state->mode_blob)
 		return 0;
 
@@ -383,10 +396,20 @@ int drm_atomic_set_mode_prop_for_crtc(struct drm_crtc_state *state,
 	memset(&state->mode, 0, sizeof(state->mode));
 
 	if (blob) {
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+		if (drm_crtc_index(state->crtc) == 0)
+			main_display = true;
+#endif /* CONFIG_SHARP_DISPLAY */
 		if (blob->length != sizeof(struct drm_mode_modeinfo) ||
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+		    drm_mode_convert_umode(&state->mode,
+		                           (const struct drm_mode_modeinfo *)
+		                            blob->data, main_display))
+#else /* CONFIG_SHARP_DISPLAY */
 		    drm_mode_convert_umode(&state->mode,
 		                           (const struct drm_mode_modeinfo *)
 		                            blob->data))
+#endif /* CONFIG_SHARP_DISPLAY */
 			return -EINVAL;
 
 		state->mode_blob = drm_property_reference_blob(blob);
@@ -482,8 +505,37 @@ int drm_atomic_crtc_set_property(struct drm_crtc *crtc,
 	bool replaced = false;
 	int ret;
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00070 */
+	if (property == config->prop_active) {
+		if (state->active != val) {
+			pr_info("%s: PANEL %s request.\n", __func__,
+							(val ? "ON" : "OFF"));
+		}
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	if (property == config->prop_active) {
+		state->active = val;
+		if(!val){
+			state->adjusted_mode.hdisplay    = state->mode.hdisplay;
+			state->adjusted_mode.hsync_start = state->mode.hsync_start;
+			state->adjusted_mode.hsync_end   = state->mode.hsync_end;
+			state->adjusted_mode.htotal      = state->mode.htotal;
+			state->adjusted_mode.hskew       = state->mode.hskew;
+			state->adjusted_mode.vdisplay    = state->mode.vdisplay;
+			state->adjusted_mode.vsync_start = state->mode.vsync_start;
+			state->adjusted_mode.vsync_end   = state->mode.vsync_end;
+			state->adjusted_mode.vtotal      = state->mode.vtotal;
+			state->adjusted_mode.vrefresh    = state->mode.vrefresh;
+			state->adjusted_mode.vscan       = state->mode.vscan;
+			state->adjusted_mode.clock       = state->mode.clock;
+		}
+	}
+#else
 	if (property == config->prop_active)
 		state->active = val;
+#endif /* CONFIG_SHARP_DISPLAY */
 	else if (property == config->prop_mode_id) {
 		struct drm_property_blob *mode =
 			drm_property_lookup_blob(dev, val);

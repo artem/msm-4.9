@@ -28,6 +28,9 @@
 #include <linux/workqueue.h>
 #include <linux/debugfs.h>
 #include <linux/kmemleak.h>
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+#include "soc/qcom/sh_smem.h"
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 
 #define MAX_INST_NAME_LEN	40
 
@@ -1021,6 +1024,43 @@ static inline void fdiag_debugfs_init(void) {}
 static inline void fdiag_debugfs_remove(void) {}
 #endif
 
+/* 2016.11.11 USB ADD START */
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+int diag_opts_get_diag_enable_from_smem(void)
+{
+	sharp_smem_common_type *p_smem_addr = NULL;
+	int smem_diag_enable = 0;
+
+	/* smem */
+	p_smem_addr = sh_smem_get_common_address();
+	if ( !p_smem_addr ) {
+		pr_err("%s: sh_smem_get_common_address failed\n", __func__);
+		return 0;
+	}
+	smem_diag_enable = p_smem_addr->shusb_qxdm_ena_flag;
+#ifdef CONFIG_USB_DEBUG_SHARP_LOG
+	pr_info("%s: diag_enable smem:%d\n", __func__, smem_diag_enable);
+#endif /* CONFIG_USB_DEBUG_SHARP_LOG */
+	return !!smem_diag_enable;
+}
+EXPORT_SYMBOL_GPL(diag_opts_get_diag_enable_from_smem);
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
+/* 2016.11.11 USB ADD END */
+
+#ifdef CONFIG_USB_ANDROID_SHARP_SERIALS
+static ssize_t diag_opts_enable_show(struct config_item *item, char *page)
+{
+	return snprintf(page, PAGE_SIZE, "%d\n", diag_opts_get_diag_enable_from_smem());
+}
+
+CONFIGFS_ATTR_RO(diag_opts_, enable);
+
+static struct configfs_attribute *diag_attrs[] = {
+	&diag_opts_attr_enable,
+	NULL,
+};
+#endif /* CONFIG_USB_ANDROID_SHARP_SERIALS */
+
 static void diag_opts_release(struct config_item *item)
 {
 	struct diag_opts *opts = to_diag_opts(item);
@@ -1034,6 +1074,9 @@ static struct configfs_item_operations diag_item_ops = {
 
 static struct config_item_type diag_func_type = {
 	.ct_item_ops	= &diag_item_ops,
+#ifdef CONFIG_USB_ANDROID_SHARP_SERIALS
+	.ct_attrs	= diag_attrs,
+#endif /* CONFIG_USB_ANDROID_SHARP_SERIALS */
 	.ct_owner	= THIS_MODULE,
 };
 

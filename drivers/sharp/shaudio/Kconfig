@@ -1,0 +1,23 @@
+#
+# audio device configuration
+#
+# CONFIG_SH_AUDIO_DRIVER newly created
+
+menu "SHARP audio driver"
+
+comment "SHARP audio drivers"
+
+config SH_AUDIO_DRIVER_MODEL_NUMBER
+	int "SH_AUDIO_DRIVER_MODEL_NUMBER"
+	range 0 999
+	default "0"
+
+config SH_AUDIO_DRIVER
+	tristate "SHARP Audio Driver customized"
+	default y
+
+config SND_SOC_TREBLE_ENABLE
+	tristate "SHARP Audio Driver Treble Enable"
+	default y
+
+endmenu

@@ -22,6 +22,9 @@
 #include <linux/slab.h>
 #include <linux/input.h>
 #include <linux/time.h>
+#ifdef CONFIG_SHARP_PNP_CLOCK
+#include <linux/msm_drm_notify.h>
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 struct cpu_sync {
 	int cpu;
@@ -47,6 +50,10 @@ static bool sched_boost_active;
 static struct delayed_work input_boost_rem;
 static u64 last_input_time;
 #define MIN_INPUT_INTERVAL (150 * USEC_PER_MSEC)
+
+#ifdef CONFIG_SHARP_PNP_CLOCK
+static bool sh_disp_on = true;
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 static int set_input_boost_freq(const char *buf, const struct kernel_param *kp)
 {
@@ -129,6 +136,20 @@ static int boost_adjust_notify(struct notifier_block *nb, unsigned long val,
 	unsigned int ib_min = s->input_boost_min;
 
 	switch (val) {
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	case SH_CPUFREQ_BASE_LIMIT:
+		if (!ib_min)
+			break;
+
+		pr_debug("CPU%u policy max before boost: %u kHz\n",
+			 cpu, policy->max);
+
+		sh_cpufreq_verify_within_limits_max(policy, UINT_MAX);
+
+		pr_debug("CPU%u policy max after boost: %u kHz\n",
+			 cpu, policy->max);
+		break;
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 	case CPUFREQ_ADJUST:
 		if (!ib_min)
 			break;
@@ -221,6 +242,27 @@ static void do_input_boost(struct work_struct *work)
 					msecs_to_jiffies(input_boost_ms));
 }
 
+#ifdef CONFIG_SHARP_PNP_CLOCK
+static int is_ignorable_event(struct input_handle *handle,
+		unsigned int type, unsigned int code, int value)
+{
+	struct input_dev *dev = handle->dev;
+
+	if (sh_disp_on == false) {
+		if (((type == EV_KEY) && (code == KEY_POWER) && (value == 1))	||
+			((type == EV_KEY) && (code == KEY_DOUBLETAP))				||
+			((type == EV_ABS) && (code == ABS_DISTANCE) && (value == 7))||
+			((type == EV_SW)  && (code == SW_LID) && (value == 0))		||
+			(!strcmp(dev->name, "shub_ex_notify") && (type == EV_ABS) && (code == ABS_Y) && (value & 0x100))) {
+			pr_debug("start clock boosted by input event dev_name = %s type = %d code = %d value = %d disp_status = %d\n", dev->name, type, code, value, sh_disp_on);
+			return false;
+		}
+	}
+	pr_debug("ignore input event dev_name = %s type = %d code = %d value = %d disp_status = %d\n", dev->name, type, code, value, sh_disp_on);
+	return true;
+}
+#endif /* CONFIG_SHARP_PNP_CLOCK */
+
 static void cpuboost_input_event(struct input_handle *handle,
 		unsigned int type, unsigned int code, int value)
 {
@@ -232,6 +274,11 @@ static void cpuboost_input_event(struct input_handle *handle,
 	now = ktime_to_us(ktime_get());
 	if (now - last_input_time < MIN_INPUT_INTERVAL)
 		return;
+
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	if (is_ignorable_event(handle, type, code, value))
+		return;
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 	if (work_pending(&input_boost_work))
 		return;
@@ -300,8 +347,63 @@ static const struct input_device_id cpuboost_ids[] = {
 		.flags = INPUT_DEVICE_ID_MATCH_EVBIT,
 		.evbit = { BIT_MASK(EV_KEY) },
 	},
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	/* proximity sensor */
+	{
+		.flags = INPUT_DEVICE_ID_MATCH_EVBIT |
+			INPUT_DEVICE_ID_MATCH_ABSBIT,
+		.evbit = { BIT_MASK(EV_ABS) },
+		.absbit = { [BIT_WORD(ABS_DISTANCE)] =
+			BIT_MASK(ABS_DISTANCE) },
+	},
+	/* cover */
+	{
+		.flags = INPUT_DEVICE_ID_MATCH_EVBIT |
+			INPUT_DEVICE_ID_MATCH_SWBIT,
+		.evbit = { BIT_MASK(EV_SW) },
+		.swbit = { BIT_MASK(SW_LID) },
+	},
+	/* pick up */
+	{
+		.flags = INPUT_DEVICE_ID_MATCH_EVBIT |
+			INPUT_DEVICE_ID_MATCH_ABSBIT,
+		.evbit = { BIT_MASK(EV_ABS) },
+		.absbit = { [BIT_WORD( ABS_Y)] =
+			BIT_MASK( ABS_Y) },
+	},
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 	{ },
 };
+
+#ifdef CONFIG_SHARP_PNP_CLOCK
+static int drm_notifier_callback(struct notifier_block *self, unsigned long event, void *data)
+{
+	int blank;
+	struct msm_drm_notifier *evdata = data;
+	if (data) {
+		if (evdata->id == MSM_DRM_PRIMARY_DISPLAY) {
+			blank = *(int *)(evdata->data);
+			switch (event) {
+			case MSM_DRM_EARLY_EVENT_BLANK:
+				if (blank == MSM_DRM_BLANK_POWERDOWN)
+					sh_disp_on = false;
+				break;
+			case MSM_DRM_EVENT_BLANK:
+				if (blank == MSM_DRM_BLANK_UNBLANK)
+					sh_disp_on = true;
+				break;
+			default:
+				break;
+			}
+		}
+	}
+	return 0;
+}
+
+static struct notifier_block drm_notif = {
+	.notifier_call = drm_notifier_callback,
+};
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 static struct input_handler cpuboost_input_handler = {
 	.event          = cpuboost_input_event,
@@ -330,6 +432,10 @@ static int cpu_boost_init(void)
 	cpufreq_register_notifier(&boost_adjust_nb, CPUFREQ_POLICY_NOTIFIER);
 
 	ret = input_register_handler(&cpuboost_input_handler);
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	msm_drm_register_client(&drm_notif);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
+
 	return 0;
 }
 late_initcall(cpu_boost_init);

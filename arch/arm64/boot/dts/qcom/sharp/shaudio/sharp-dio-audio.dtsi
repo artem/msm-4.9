@@ -1,0 +1,168 @@
+/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+/* SH_AUDIO_DRIVER -> */ /*A-001*/
+&snd_934x{
+	qcom,audio-routing =
+		"AIF4 VI", "MCLK",
+		"RX_BIAS", "MCLK",
+		"MADINPUT", "MCLK",
+		"AMIC1", "MIC BIAS1",
+		"MIC BIAS1", "Primary Mic",
+		"AMIC2", "MIC BIAS2",
+		"MIC BIAS2", "Headset Mic",
+		"AMIC4", "MIC BIAS4",
+		"MIC BIAS4", "Secondary Mic";
+
+	qcom,wsa-max-devs = <0>;
+	qcom,mbhc-audio-jack-type = "4-pole-jack";
+/* SH_AUDIO_DRIVER -> */ /*A-010*/
+	qcom,msm-mbhc-usbc-audio-supported = <0>;
+/* SH_AUDIO_DRIVER <- */ /*A-010*/
+	/* SH_AUDIO_DRIVER -> */ /*A-004*/
+	asoc-codec = <&stub_codec>,
+			<&nxp_tfa98xx>,
+			<&ext_disp_audio_codec>;
+	asoc-codec-names = "msm-stub-codec.1",
+				"tfa98xx-aif",
+				"msm-ext-disp-audio-codec-rx";
+	/* SH_AUDIO_DRIVER <- */ /*A-004*/
+};
+/* SH_AUDIO_DRIVER <- */ /*A-001*/
+
+/* SH_AUDIO_DRIVER -> */ /*A-004*/
+&dai_mi2s2 {
+	compatible = "qcom,msm-dai-q6-mi2s";
+	qcom,msm-dai-q6-mi2s-dev-id = <2>;
+	qcom,msm-mi2s-rx-lines = <1>;
+	qcom,msm-mi2s-tx-lines = <2>;
+	qcom,msm-mi2s-slave = <0>;
+	qcom,msm-mi2s-ext-mclk = <0>;
+	pinctrl-names = "default", "idle";
+	pinctrl-0 = <&tert_mi2s_active &tert_mi2s_sd0_active &tert_mi2s_sd1_active>;
+	pinctrl-1 = <&tert_mi2s_sleep &tert_mi2s_sd0_sleep &tert_mi2s_sd1_sleep>;
+};
+/* SH_AUDIO_DRIVER <- */ /*A-004*/
+
+/* SH_AUDIO_DRIVER -> */ /*A-001*/
+&wcd934x_cdc {
+	qcom,cdc-micbias1-mv = <2700>;
+	qcom,cdc-micbias2-mv = <2700>;
+	qcom,cdc-micbias4-mv = <2700>;
+	qcom,cdc-mad-dmic-rate = <4800000>;
+	/delete-node/ wsa_spkr_wcd_sd1;
+	/delete-node/ wsa_spkr_wcd_sd2;
+};
+&slim_aud{
+	codec_tavil {
+		/delete-node/ wsa_spkr_wcd_sd1;
+		/delete-node/ wsa_spkr_wcd_sd2;
+	};
+	tavil_codec {
+		wcd {
+			us_euro_sw_wcd_active {
+				mux {
+					pins = "gpio1";
+				};
+
+				config {
+					pins = "gpio1";
+					/delete-property/ output-high;
+					input-enable;
+				};
+			};
+			us_euro_sw_wcd_sleep {
+				mux {
+					pins = "gpio1";
+				};
+
+				config {
+					pins = "gpio1";
+					/delete-property/ output-low;
+					input-enable;
+				};
+			};
+			spkr_1_wcd_en_active {
+				mux {
+					pins = "gpio2";
+				};
+
+				config {
+					pins = "gpio2";
+					/delete-property/ output-high;
+					input-enable;
+				};
+			};
+			spkr_2_wcd_en_active {
+				mux {
+					pins = "gpio3";
+				};
+
+				config {
+					pins = "gpio3";
+					/delete-property/ output-high;
+					input-enable;
+				};
+			};
+			hph_en0_wcd_active {
+				mux {
+					pins = "gpio4";
+				};
+
+				config {
+					pins = "gpio4";
+					/delete-property/ output-high;
+					input-enable;
+				};
+			};
+			hph_en0_wcd_sleep {
+				mux {
+					pins = "gpio4";
+				};
+
+				config {
+					pins = "gpio4";
+					/delete-property/ output-low;
+					input-enable;
+				};
+			};
+			hph_en1_wcd_active {
+				mux {
+					pins = "gpio5";
+				};
+
+				config {
+					pins = "gpio5";
+					/delete-property/ output-high;
+					input-enable;
+				};
+			};
+			hph_en1_wcd_sleep {
+				mux {
+					pins = "gpio5";
+				};
+
+				config {
+					pins = "gpio5";
+					/delete-property/ output-low;
+					input-enable;
+				};
+			};
+		};
+	};
+};
+/* SH_AUDIO_DRIVER <- */ /*A-001*/
+
+/* SH_AUDIO_DRIVER -> */ /*A-004*/
+&wcd_spi_0 {
+	qcom,master-bus-num = <8>;
+};
+/* SH_AUDIO_DRIVER <- */ /*A-004*/

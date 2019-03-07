@@ -339,7 +339,11 @@ static int cpufreq_thermal_notifier(struct notifier_block *nb,
 	unsigned long clipped_freq = ULONG_MAX, floor_freq = 0;
 	struct cpufreq_cooling_device *cpufreq_dev;
 
+#ifdef CONFIG_SHARP_PNP_THERMAL
+	if (event != CPUFREQ_INCOMPATIBLE)
+#else /* CONFIG_SHARP_PNP_THERMAL */
 	if (event != CPUFREQ_ADJUST)
+#endif /* CONFIG_SHARP_PNP_THERMAL */
 		return NOTIFY_DONE;
 
 	mutex_lock(&cooling_list_lock);
@@ -1286,8 +1290,13 @@ cpufreq_platform_cooling_register(const struct cpumask *clip_cpus,
 	struct device_node *cpu_node;
 
 	cpu_node = of_cpu_device_node_get(cpumask_first(clip_cpus));
+#ifdef CONFIG_SHARP_PNP_THERMAL
+	return __cpufreq_cooling_register(cpu_node, clip_cpus, 0, NULL,
+						NULL);
+#else /* CONFIG_SHARP_PNP_THERMAL */
 	return __cpufreq_cooling_register(cpu_node, clip_cpus, 0, NULL,
 						plat_ops);
+#endif /* CONFIG_SHARP_PNP_THERMAL */
 }
 EXPORT_SYMBOL(cpufreq_platform_cooling_register);
 

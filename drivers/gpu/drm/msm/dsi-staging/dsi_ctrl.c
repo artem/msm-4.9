@@ -32,7 +32,6 @@
 #include "dsi_catalog.h"
 
 #include "sde_dbg.h"
-
 #define DSI_CTRL_DEFAULT_LABEL "MDSS DSI CTRL"
 
 #define DSI_CTRL_TX_TO_MS     200
@@ -120,6 +119,47 @@ static ssize_t debugfs_state_info_read(struct file *file,
 			dsi_ctrl->clk_freq.byte_clk_rate,
 			dsi_ctrl->clk_freq.pix_clk_rate,
 			dsi_ctrl->clk_freq.esc_clk_rate);
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	/* Dump Video Timing */
+	len += snprintf((buf + len), (SZ_4K - len), "\nVideo Timing:\n");
+	len += snprintf((buf + len), (SZ_4K - len),
+			"\th_active        = %u\n",
+			dsi_ctrl->host_config.video_timing.h_active       );
+	len += snprintf((buf + len), (SZ_4K - len),
+			"\th_back_porch    = %u\n",
+			dsi_ctrl->host_config.video_timing.h_back_porch   );
+	len += snprintf((buf + len), (SZ_4K - len),
+			"\th_sync_width    = %u\n",
+			dsi_ctrl->host_config.video_timing.h_sync_width   );
+	len += snprintf((buf + len), (SZ_4K - len),
+			"\th_front_porch   = %u\n",
+			dsi_ctrl->host_config.video_timing.h_front_porch  );
+	len += snprintf((buf + len), (SZ_4K - len),
+			"\th_skew          = %u\n",
+			dsi_ctrl->host_config.video_timing.h_skew         );
+	len += snprintf((buf + len), (SZ_4K - len),
+			"\th_sync_polarity = %d\n",
+			dsi_ctrl->host_config.video_timing.h_sync_polarity);
+	len += snprintf((buf + len), (SZ_4K - len),
+			"\tv_active        = %u\n",
+			dsi_ctrl->host_config.video_timing.v_active       );
+	len += snprintf((buf + len), (SZ_4K - len),
+			"\tv_back_porch    = %u\n",
+			dsi_ctrl->host_config.video_timing.v_back_porch   );
+	len += snprintf((buf + len), (SZ_4K - len),
+			"\tv_sync_width    = %u\n",
+			dsi_ctrl->host_config.video_timing.v_sync_width   );
+	len += snprintf((buf + len), (SZ_4K - len),
+			"\tv_front_porch   = %u\n",
+			dsi_ctrl->host_config.video_timing.v_front_porch  );
+	len += snprintf((buf + len), (SZ_4K - len),
+			"\tv_sync_polarity = %d\n",
+			dsi_ctrl->host_config.video_timing.v_sync_polarity);
+	len += snprintf((buf + len), (SZ_4K - len),
+			"\trefresh_rate    = %u\n",
+			dsi_ctrl->host_config.video_timing.refresh_rate   );
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	/* TODO: make sure that this does not exceed 4K */
 	if (copy_to_user(buff, buf, len)) {
@@ -1184,7 +1224,22 @@ kickoff:
 	}
 
 	if (!(flags & DSI_CTRL_CMD_DEFER_TRIGGER)) {
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00003 */
+		bool is_enabled_vid;
+		if (!dsi_ctrl) {
+			pr_err("%s: no dsi_ctrl\n", __func__);
+			goto error;
+		}
+		is_enabled_vid = (dsi_ctrl->current_state.vid_engine_state ==
+					DSI_CTRL_ENGINE_ON) ? true : false;
+		pr_debug("%s: vid_engine_state = %s\n", __func__,
+				(is_enabled_vid ? "ON" : "OFF or MAX"));
+		if (is_enabled_vid) {
+			dsi_ctrl_wait_for_video_done(dsi_ctrl);
+		}
+#else /* CONFIG_SHARP_DISPLAY */
 		dsi_ctrl_wait_for_video_done(dsi_ctrl);
+#endif /* CONFIG_SHARP_DISPLAY */
 		dsi_ctrl_enable_status_interrupt(dsi_ctrl,
 					DSI_SINT_CMD_MODE_DMA_DONE, NULL);
 		if (dsi_ctrl->hw.ops.mask_error_intr)
@@ -1790,6 +1845,7 @@ static int dsi_ctrl_dev_remove(struct platform_device *pdev)
 	devm_kfree(&pdev->dev, dsi_ctrl);
 
 	platform_set_drvdata(pdev, NULL);
+
 	return 0;
 }
 
@@ -1923,6 +1979,7 @@ int dsi_ctrl_drv_init(struct dsi_ctrl *dsi_ctrl, struct dentry *parent)
 		       dsi_ctrl->cell_index, rc);
 		goto error;
 	}
+
 
 error:
 	mutex_unlock(&dsi_ctrl->ctrl_lock);
@@ -2099,7 +2156,11 @@ exit:
 	return rc;
 }
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+int dsi_ctrl_setup(struct dsi_ctrl *dsi_ctrl, bool mipiclkchg_progress)
+#else
 int dsi_ctrl_setup(struct dsi_ctrl *dsi_ctrl)
+#endif /* CONFIG_SHARP_DISPLAY */
 {
 	int rc = 0;
 
@@ -2137,7 +2198,14 @@ int dsi_ctrl_setup(struct dsi_ctrl *dsi_ctrl)
 	}
 
 	dsi_ctrl->hw.ops.enable_status_interrupts(&dsi_ctrl->hw, 0x0);
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	if (mipiclkchg_progress)
+		dsi_ctrl->hw.ops.enable_error_interrupts(&dsi_ctrl->hw, 0xE0);
+	else
+		dsi_ctrl->hw.ops.enable_error_interrupts(&dsi_ctrl->hw, 0xFF00E0);
+#else
 	dsi_ctrl->hw.ops.enable_error_interrupts(&dsi_ctrl->hw, 0xFF00E0);
+#endif /* CONFIG_SHARP_DISPLAY */
 	dsi_ctrl->hw.ops.ctrl_en(&dsi_ctrl->hw, true);
 
 	mutex_unlock(&dsi_ctrl->ctrl_lock);
@@ -3469,3 +3537,24 @@ void dsi_ctrl_drv_unregister(void)
 {
 	platform_driver_unregister(&dsi_ctrl_driver);
 }
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+int dsi_ctrl_check_vid_engine_state(struct dsi_ctrl *dsi_ctrl, u32 op_state)
+{
+	int rc = 0;
+	struct dsi_ctrl_state_info *state = &dsi_ctrl->current_state;
+
+	if (state->vid_engine_state == op_state) {
+		pr_debug("[%d] No change in state, cmd_state=%d\n",
+		       dsi_ctrl->cell_index, op_state);
+		rc = -EINVAL;
+	}
+
+	return rc;
+}
+
+void dsi_ctrl_update_vid_engine_state(struct dsi_ctrl *dsi_ctrl, u32 op_state)
+{
+	dsi_ctrl_update_state(dsi_ctrl, DSI_CTRL_OP_VID_ENGINE, op_state);
+}
+#endif /* CONFIG_SHARP_DISPLAY */

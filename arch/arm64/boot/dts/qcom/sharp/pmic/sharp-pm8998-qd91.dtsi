@@ -1,0 +1,45 @@
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/*****************************************/
+/*  pm8998-gpios: qpnp-pin               */
+/*****************************************/
+
+/*****************************************/
+/*  pm8998: rpm-regulator              */
+/*****************************************/
+
+/*****************************************/
+/*  qpnp-adc-voltage                     */
+/*****************************************/
+
+/*****************************************/
+/*  qpnp-vadc-tm                         */
+/*****************************************/
+
+/*****************************************/
+/*  thermal_zones                        */
+/*****************************************/
+
+/*****************************************/
+/*  SHARP Device Drivers                 */
+/*****************************************/
+&soc {
+	/*---------------------------------------*/
+	/*  Battery Control Driver               */
+	/*---------------------------------------*/
+	sharp,shbatt {
+		sharp,show-batt-auth;
+		sharp,cl-high-thresh = <70>;
+		sharp,cl-low-thresh = <45>;
+	};
+};

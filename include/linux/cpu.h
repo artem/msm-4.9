@@ -189,6 +189,9 @@ extern void cpu_hotplug_begin(void);
 extern void cpu_hotplug_done(void);
 extern void get_online_cpus(void);
 extern void cpu_hotplug_mutex_held(void);
+#ifdef CONFIG_SHARP_PNP_CLOCK
+extern int get_online_cpus_try(void);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 extern void put_online_cpus(void);
 extern void cpu_hotplug_disable(void);
 extern void cpu_hotplug_enable(void);
@@ -206,6 +209,9 @@ int cpu_down(unsigned int cpu);
 static inline void cpu_hotplug_begin(void) {}
 static inline void cpu_hotplug_done(void) {}
 #define get_online_cpus()	do { } while (0)
+#ifdef CONFIG_SHARP_PNP_CLOCK
+#define get_online_cpus_try()	(-1)
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 #define put_online_cpus()	do { } while (0)
 #define cpu_hotplug_disable()	do { } while (0)
 #define cpu_hotplug_enable()	do { } while (0)

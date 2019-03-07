@@ -45,12 +45,31 @@ static void thermal_zone_trip_update(struct thermal_zone_device *tz, int trip)
 		if (instance->trip != trip)
 			continue;
 
+#ifdef CONFIG_SHARP_PNP_THERMAL
+		if (!strncmp(tz->governor->name, "low_limits_floor",
+				sizeof("low_limits_floor") - 1)) {
+			if ((tz->temperature <= trip_temp + 1000) ||
+				(instance->target != THERMAL_NO_TARGET
+					&& tz->temperature < trip_hyst - 1000))
+				throttle = true;
+			else
+				throttle = false;
+		} else {
+			if ((tz->temperature <= trip_temp) ||
+				(instance->target != THERMAL_NO_TARGET
+					&& tz->temperature < trip_hyst))
+				throttle = true;
+			else
+				throttle = false;
+		}
+#else /* CONFIG_SHARP_PNP_THERMAL */
 		if ((tz->temperature <= trip_temp) ||
 			(instance->target != THERMAL_NO_TARGET
 				&& tz->temperature < trip_hyst))
 			throttle = true;
 		else
 			throttle = false;
+#endif /* CONFIG_SHARP_PNP_THERMAL */
 
 		dev_dbg(&tz->device,
 			"Trip%d[type=%d,temp=%d,hyst=%d],throttle=%d\n",

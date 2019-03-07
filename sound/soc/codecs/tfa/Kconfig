@@ -1,0 +1,14 @@
+menu "NXP Audio Chip"
+
+config SND_SOC_NXP_CHIP
+	tristate "NXP Audio Chip"
+	---help---
+	  Enable support for NXP Audio Chip
+
+config SND_SOC_NXP_TFA98XX
+	depends on SND_SOC_NXP_CHIP
+	tristate "NXP TFA98XX"
+	---help---
+	  Enable TFA98XX
+
+endmenu

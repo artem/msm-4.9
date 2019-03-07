@@ -432,11 +432,15 @@ int drm_release(struct inode *inode, struct file *filp)
 	 * End inline drm_release
 	 */
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00042 */
+	--dev->open_count;
+#else /* CONFIG_SHARP_DISPLAY */
 	if (!--dev->open_count) {
 		drm_lastclose(dev);
 		if (drm_device_is_unplugged(dev))
 			drm_put_dev(dev);
 	}
+#endif /* CONFIG_SHARP_DISPLAY */
 	mutex_unlock(&drm_global_mutex);
 
 	drm_minor_release(minor);

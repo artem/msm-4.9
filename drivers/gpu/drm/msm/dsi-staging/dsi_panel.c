@@ -22,6 +22,12 @@
 
 #include "dsi_panel.h"
 #include "dsi_ctrl_hw.h"
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00010 */ /* CUST_ID_00014 */
+#include "sharp/drm_diag.h"
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00067 */
+#include "sharp/drm_cmn.h"
+#endif /* CONFIG_SHARP_DISPLAY */
 
 /**
  * topology is currently defined by a set of following 3 values:
@@ -42,6 +48,21 @@
 #define DEFAULT_PANEL_JITTER_ARRAY_SIZE		2
 #define MAX_PANEL_JITTER		10
 #define DEFAULT_PANEL_PREFILL_LINES	25
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00026 */
+static int dsi_panel_reset_ext_clk_on(struct dsi_panel *panel);
+static int dsi_panel_ext_clk_off_reset(struct dsi_panel *panel);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00057 */
+static int dsi_panel_parse_brightness(struct dsi_panel *panel,
+	struct device_node *of_node);
+static u32 dsi_panel_brightness_to_bl(int value,
+		struct dsi_panel_linear_params *linear_params);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00067 */
+static int dsi_panel_parse_mfr(struct dsi_panel *panel,
+	struct device_node *of_node);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 enum dsi_dsc_ratio_type {
 	DSC_8BPC_8BPP,
@@ -289,7 +310,22 @@ static int dsi_panel_gpio_request(struct dsi_panel *panel)
 		}
 	}
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00053 */
+	if (gpio_is_valid(panel->vcc_gpio)) {
+		rc = gpio_request(panel->vcc_gpio, "vcc_gpio");
+		if (rc) {
+			pr_err("request for vcc_gpio failed, rc=%d\n", rc);
+			goto error_release_vcc;
+		}
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 	goto error;
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00053 */
+error_release_vcc:
+    if (gpio_is_valid(r_config->lcd_mode_sel_gpio))
+        gpio_free(r_config->lcd_mode_sel_gpio);
+#endif /* CONFIG_SHARP_DISPLAY */
 error_release_mode_sel:
 	if (gpio_is_valid(panel->bl_config.en_gpio))
 		gpio_free(panel->bl_config.en_gpio);
@@ -308,6 +344,11 @@ static int dsi_panel_gpio_release(struct dsi_panel *panel)
 	int rc = 0;
 	struct dsi_panel_reset_config *r_config = &panel->reset_config;
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00053 */
+	if (gpio_is_valid(panel->vcc_gpio)) {
+		gpio_free(panel->vcc_gpio);
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 	if (gpio_is_valid(r_config->reset_gpio))
 		gpio_free(r_config->reset_gpio);
 
@@ -408,10 +449,50 @@ exit:
 	return rc;
 }
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00011 */
+int dsi_panel_set_ext_clk_state(struct dsi_panel *panel, bool enable)
+{
+	int rc = 0;
+	int sleep_ms = 0;
+	if (!panel->ext_clk) {
+		pr_err("ext_clk is nothing\n");
+		return rc;
+	}
+
+	if (enable) {
+		rc = clk_prepare_enable(panel->ext_clk);
+		if (rc) {
+			pr_err("failed to enable ext_clk, rc=%d\n", rc);
+		} else {
+			if (panel->ext_clk_post_on_sleep_ms) {
+				sleep_ms = panel->ext_clk_post_on_sleep_ms * 1000;
+				usleep_range(sleep_ms, sleep_ms);
+			}
+		}
+	} else {
+		clk_disable_unprepare(panel->ext_clk);
+		if (panel->ext_clk_post_off_sleep_ms) {
+			sleep_ms = panel->ext_clk_post_off_sleep_ms * 1000;
+			usleep_range(sleep_ms, sleep_ms);
+		}
+	}
+
+	return rc;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
+
 static int dsi_panel_set_pinctrl_state(struct dsi_panel *panel, bool enable)
 {
 	int rc = 0;
 	struct pinctrl_state *state;
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00013 */
+	if (IS_ERR_OR_NULL(panel->pinctrl.pinctrl) ||
+		IS_ERR_OR_NULL(panel->pinctrl.active) ||
+		IS_ERR_OR_NULL(panel->pinctrl.suspend)) {
+		goto error;
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	if (enable)
 		state = panel->pinctrl.active;
@@ -423,6 +504,9 @@ static int dsi_panel_set_pinctrl_state(struct dsi_panel *panel, bool enable)
 		pr_err("[%s] failed to set pin state, rc=%d\n", panel->name,
 		       rc);
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00013 */
+error:
+#endif /* CONFIG_SHARP_DISPLAY */
 	return rc;
 }
 
@@ -448,6 +532,14 @@ static int dsi_panel_power_on(struct dsi_panel *panel)
 		pr_err("[%s] failed to reset panel, rc=%d\n", panel->name, rc);
 		goto error_disable_gpio;
 	}
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00011 */
+	{
+		int ret = dsi_panel_set_ext_clk_state(panel, true);
+		if (ret) {
+			pr_err("[%s] failed to set ext_clk state, rc=%d\n", panel->name, rc);
+		}
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	goto exit;
 
@@ -471,6 +563,13 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 {
 	int rc = 0;
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00011 */
+	rc = dsi_panel_set_ext_clk_state(panel, false);
+	if (rc) {
+		pr_err("[%s] failed set ext_clk state, rc=%d\n", panel->name,
+		       rc);
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 	if (gpio_is_valid(panel->reset_config.disp_en_gpio))
 		gpio_set_value(panel->reset_config.disp_en_gpio, 0);
 
@@ -527,7 +626,9 @@ static int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
 
 		if (cmds->last_command)
 			cmds->msg.flags |= MIPI_DSI_MSG_LASTCOMMAND;
-
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00071 */
+		cmds->msg.flags |= MIPI_DSI_MSG_UNICAST;
+#endif /* CONFIG_SHARP_DISPLAY */
 		len = ops->transfer(panel->host, &cmds->msg);
 		if (len < 0) {
 			rc = len;
@@ -639,6 +740,9 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 
 	dsi = &panel->mipi_device;
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00057 */
+	bl_lvl = dsi_panel_brightness_to_bl(bl_lvl, &panel->linear_params);
+#endif /* CONFIG_SHARP_DISPLAY */
 	rc = mipi_dsi_dcs_set_display_brightness(dsi, bl_lvl);
 	if (rc < 0)
 		pr_err("failed to update dcs backlight:%d\n", bl_lvl);
@@ -711,7 +815,17 @@ static int dsi_panel_bl_unregister(struct dsi_panel *panel)
 error:
 	return rc;
 }
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00011 */
+static int dsi_panel_ext_clk_deinit(struct dsi_panel *panel)
+{
+	if (panel->ext_clk) {
+		devm_clk_put(panel->parent, panel->ext_clk);
+		panel->ext_clk = NULL;
+	}
 
+	return 0;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
 static int dsi_panel_fw_parse(const struct firmware *fw_entry,
 		char *id_match, u32 *param_value)
 {
@@ -1854,6 +1968,10 @@ static int dsi_panel_parse_gpios(struct dsi_panel *panel,
 	int rc = 0;
 	const char *data;
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00053 */
+	panel->vcc_gpio = of_get_named_gpio(of_node,
+				"sharp,panel-vcc-supply-gpio", 0);
+#endif /* CONFIG_SHARP_DISPLAY */
 	panel->reset_config.reset_gpio = of_get_named_gpio(of_node,
 					      "qcom,platform-reset-gpio",
 					      0);
@@ -1914,6 +2032,110 @@ static int dsi_panel_parse_gpios(struct dsi_panel *panel,
 error:
 	return rc;
 }
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00011 */
+static int dsi_panel_ext_clk_init(struct dsi_panel *panel)
+{
+	int rc = 0;
+
+	panel->ext_clk = devm_clk_get(panel->parent, "consumer_s-div_clk-name");
+	if (IS_ERR_OR_NULL(panel->ext_clk)) {
+		rc = PTR_ERR(panel->ext_clk);
+		pr_err("failed to get ext_clk, rc=%d, ext_clk = %p\n", rc, panel->ext_clk);
+	}
+
+	rc = of_property_read_u32(panel->panel_of_node, "sharp,ext_clk-post-on-sleep-ms",
+				  &panel->ext_clk_post_on_sleep_ms);
+	if (rc) {
+		pr_err("sharp,ext_clk-post-on-sleep-ms is not defined, rc=%d\n", rc);
+	}
+
+	rc = of_property_read_u32(panel->panel_of_node, "sharp,ext_clk-post-off-sleep-ms",
+				  &panel->ext_clk_post_off_sleep_ms);
+
+	if (rc) {
+		pr_err("sharp,ext_clk-post-off-sleep-ms is not defined, rc=%d\n", rc);
+	}
+
+	return 0;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00014 */
+static void dsi_panel_destroy_cmd_gamm(struct dsi_panel_gmm *cmds)
+{
+	u32 i = 0;
+	struct dsi_cmd_desc *cmd;
+
+	if(!cmds){
+		return;
+	}
+	for (i = 0; i < cmds->count; i++) {
+		cmd = &cmds->panel_typ_cmds[i];
+		kfree(cmd->msg.tx_buf);
+	}
+
+	kfree(cmds);
+	cmds = NULL;
+}
+
+static int dsi_panel_parse_cmd_sets_gamm(struct device_node *of_node,
+				char *prop_key, char *prop_state,
+				struct dsi_panel_gmm *cmd)
+{
+	int rc = 0;
+	u32 length = 0;
+	const char *data;
+	const char *state;
+	u32 packet_count = 0;
+	u32 size;
+
+	data = of_get_property(of_node, prop_key, &length);
+	if (!data) {
+		pr_debug("commands not defined\n");
+		rc = -ENOTSUPP;
+		goto error;
+	}
+
+	rc = dsi_panel_get_cmd_pkt_count(data, length, &packet_count);
+	if (rc) {
+		pr_err("commands failed, rc=%d\n", rc);
+		goto error;
+	}
+	pr_debug("packet-count=%d, %d\n", packet_count, length);
+	size = packet_count * sizeof(*cmd->panel_typ_cmds);
+	cmd->panel_typ_cmds = kzalloc(size, GFP_KERNEL);
+	if (!cmd->panel_typ_cmds) {
+		pr_err("failed to allocate cmd packets\n");
+		rc = -ENOMEM;
+		goto error;
+	}
+	cmd->count = packet_count;
+
+	rc = dsi_panel_create_cmd_packets(data, length, packet_count,
+					  cmd->panel_typ_cmds);
+	if (rc) {
+		pr_err("failed to create cmd packets, rc=%d\n", rc);
+		goto error_free_mem;
+	}
+
+	state = of_get_property(of_node, prop_state, NULL);
+	if (!state || !strcmp(state, "dsi_lp_mode")) {
+		cmd->state = DSI_CMD_SET_STATE_LP;
+	} else if (!strcmp(state, "dsi_hs_mode")) {
+		cmd->state = DSI_CMD_SET_STATE_HS;
+	} else {
+		pr_err("command state unrecognized-%s\n", state);
+		goto error_free_mem;
+	}
+	return rc;
+error_free_mem:
+	kfree(cmd->panel_typ_cmds);
+	cmd->panel_typ_cmds = NULL;
+error:
+	return rc;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 static int dsi_panel_parse_bl_pwm_config(struct dsi_backlight_config *config,
 					 struct device_node *of_node)
@@ -2240,9 +2462,15 @@ static int dsi_panel_parse_phy_timing(struct dsi_display_mode *mode,
 		priv_info->phy_timing_len = len;
 	};
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00062 */
+	mode->pixel_clk_khz = (DSI_H_TOTAL(&mode->timing) *
+			DSI_V_TOTAL(&mode->timing) *
+			mode->timing.refresh_rate) / 1000;
+#else /* CONFIG_SHARP_DISPLAY */
 	mode->pixel_clk_khz = (mode->timing.h_active *
 			DSI_V_TOTAL(&mode->timing) *
 			mode->timing.refresh_rate) / 1000;
+#endif /* CONFIG_SHARP_DISPLAY */
 	return rc;
 }
 
@@ -2958,6 +3186,18 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 		goto error;
 	}
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00057 */
+	rc = dsi_panel_parse_brightness(panel, of_node);
+	if (rc)
+		pr_err("failed to linear params, rc=%d\n", rc);
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00067 */
+	rc = dsi_panel_parse_mfr(panel, of_node);
+	if (rc)
+		pr_err("failed to mfr params, rc=%d\n", rc);
+#endif /* CONFIG_SHARP_DISPLAY */
+
 	panel->panel_of_node = of_node;
 	drm_panel_init(&panel->drm_panel);
 	mutex_init(&panel->panel_lock);
@@ -3015,7 +3255,9 @@ int dsi_panel_drv_init(struct dsi_panel *panel,
 	rc = dsi_panel_pinctrl_init(panel);
 	if (rc) {
 		pr_err("[%s] failed to init pinctrl, rc=%d\n", panel->name, rc);
+#ifndef CONFIG_SHARP_DISPLAY /* CUST_ID_00013 */
 		goto error_vreg_put;
+#endif /* CONFIG_SHARP_DISPLAY */
 	}
 
 	rc = dsi_panel_gpio_request(panel);
@@ -3032,6 +3274,12 @@ int dsi_panel_drv_init(struct dsi_panel *panel,
 			       panel->name, rc);
 		goto error_gpio_release;
 	}
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00011 */
+	rc = dsi_panel_ext_clk_init(panel);
+	if (rc) {
+		pr_err("failed to init ext_clk, rc=%d\n", rc);
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	goto exit;
 
@@ -3039,7 +3287,9 @@ error_gpio_release:
 	(void)dsi_panel_gpio_release(panel);
 error_pinctrl_deinit:
 	(void)dsi_panel_pinctrl_deinit(panel);
+#ifndef CONFIG_SHARP_DISPLAY /* CUST_ID_00013 */
 error_vreg_put:
+#endif /* CONFIG_SHARP_DISPLAY */
 	(void)dsi_panel_vreg_put(panel);
 exit:
 	mutex_unlock(&panel->panel_lock);
@@ -3060,6 +3310,16 @@ int dsi_panel_drv_deinit(struct dsi_panel *panel)
 
 	mutex_lock(&panel->panel_lock);
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00011 */
+	rc = dsi_panel_ext_clk_deinit(panel);
+	if (rc) {
+		pr_err("[%s] failed to deinit ext_clk, rc=%d\n", panel->name,
+		       rc);
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00014 */
+	dsi_panel_destroy_cmd_gamm(&panel->gmm_cmds);
+#endif /* CONFIG_SHARP_DISPLAY */
 	rc = dsi_panel_bl_unregister(panel);
 	if (rc)
 		pr_err("[%s] failed to unregister backlight, rc=%d\n",
@@ -3262,6 +3522,17 @@ int dsi_panel_get_mode(struct dsi_panel *panel,
 		rc = dsi_panel_parse_partial_update_caps(mode, child_np);
 		if (rc)
 			pr_err("failed to partial update caps, rc=%d\n", rc);
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00014 */
+		dsi_panel_parse_cmd_sets_gamm(child_np,
+			"sharp,mdss-dsi-typ-volt-command",
+			"sharp,mdss-dsi-typ-volt-command-state",
+			&panel->volt_cmds);
+		dsi_panel_parse_cmd_sets_gamm(child_np,
+			"sharp,mdss-dsi-typ-gmm-command",
+			"sharp,mdss-dsi-typ-gmm-command-state",
+			&panel->gmm_cmds);
+#endif /* CONFIG_SHARP_DISPLAY */
 	}
 	goto done;
 
@@ -3325,6 +3596,18 @@ int dsi_panel_pre_prepare(struct dsi_panel *panel)
 
 	mutex_lock(&panel->panel_lock);
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00026 *//* CUST_ID_00053 */
+	if (panel->lp11_init) {
+		rc = dsi_pwr_enable_regulator(&panel->power_info, true);
+		if (rc) {
+			pr_err("[%s] failed to enable vregs, rc=%d\n", panel->name, rc);
+		}
+		if (gpio_is_valid(panel->vcc_gpio)) {
+			gpio_set_value(panel->vcc_gpio, 1);
+			usleep_range(5*1000, 5*1000);
+		}
+	}
+#endif /* CONFIG_SHARP_DISPLAY *//* CUST_ID_00053 */
 	/* If LP11_INIT is set, panel will be powered up during prepare() */
 	if (panel->lp11_init)
 		goto error;
@@ -3458,12 +3741,21 @@ int dsi_panel_prepare(struct dsi_panel *panel)
 	mutex_lock(&panel->panel_lock);
 
 	if (panel->lp11_init) {
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00026 */
+		rc = dsi_panel_reset_ext_clk_on(panel);
+		if (rc) {
+			pr_err("[%s] failed dsi_panel_reset_ext_clk_on(),"
+						"rc=%d\n", panel->name, rc);
+			goto error;
+		}
+#else /* CONFIG_SHARP_DISPLAY */
 		rc = dsi_panel_power_on(panel);
 		if (rc) {
 			pr_err("[%s] panel power on failed, rc=%d\n",
 			       panel->name, rc);
 			goto error;
 		}
+#endif /* CONFIG_SHARP_DISPLAY */
 	}
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_PRE_ON);
@@ -3663,6 +3955,12 @@ int dsi_panel_enable(struct dsi_panel *panel)
 	}
 	panel->panel_initialized = true;
 	mutex_unlock(&panel->panel_lock);
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00067 */
+	panel->mfr_idx = -1;
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00010 */ /* CUST_ID_00014 */
+	drm_diag_set_adjusted();
+#endif /* CONFIG_SHARP_DISPLAY */
 	return rc;
 }
 
@@ -3768,6 +4066,15 @@ int dsi_panel_unprepare(struct dsi_panel *panel)
 		goto error;
 	}
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00026 */
+	if (panel->lp11_init) {
+		rc = dsi_panel_ext_clk_off_reset(panel);
+		if (rc) {
+			pr_err("[%s] failed dsi_panel_ext_clk_off_reset(),"
+						"rc=%d\n", panel->name, rc);
+		}
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 error:
 	mutex_unlock(&panel->panel_lock);
 	return rc;
@@ -3787,13 +4094,377 @@ int dsi_panel_post_unprepare(struct dsi_panel *panel)
 
 	mutex_lock(&panel->panel_lock);
 
-	rc = dsi_panel_power_off(panel);
-	if (rc) {
-		pr_err("[%s] panel power_Off failed, rc=%d\n",
-		       panel->name, rc);
-		goto error;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00026 *//* CUST_ID_00053 */
+	if (!panel->lp11_init) {
+#endif /* CONFIG_SHARP_DISPLAY *//* CUST_ID_00053 */
+		rc = dsi_panel_power_off(panel);
+		if (rc) {
+			pr_err("[%s] panel power_Off failed, rc=%d\n",
+			       panel->name, rc);
+			goto error;
+		}
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00026 *//* CUST_ID_00053 */
 	}
+#endif /* CONFIG_SHARP_DISPLAY *//* CUST_ID_00053 */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00026 *//* CUST_ID_00053 */
+	if (panel->lp11_init) {
+		if (gpio_is_valid(panel->vcc_gpio)) {
+			gpio_set_value(panel->vcc_gpio, 0);
+			usleep_range(2*1000, 2*1000);
+		}
+		rc = dsi_pwr_enable_regulator(&panel->power_info, false);
+		if (rc) {
+			pr_err("[%s] failed to enable vregs, rc=%d\n", panel->name, rc);
+		}
+	}
+#endif /* CONFIG_SHARP_DISPLAY *//* CUST_ID_00053 */
+
 error:
 	mutex_unlock(&panel->panel_lock);
 	return rc;
 }
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00026 */
+static int dsi_panel_reset_ext_clk_on(struct dsi_panel *panel)
+{
+	int rc = 0;
+
+	rc = dsi_panel_set_pinctrl_state(panel, true);
+	if (rc) {
+		pr_err("[%s] failed to set pinctrl, rc=%d\n", panel->name, rc);
+		goto error_disable_vregs;
+	}
+
+	rc = dsi_panel_reset(panel);
+	if (rc) {
+		pr_err("[%s] failed to reset panel, rc=%d\n", panel->name, rc);
+		goto error_disable_gpio;
+	}
+
+	rc = dsi_panel_set_ext_clk_state(panel, true);
+	if (rc) {
+		pr_err("[%s] failed to set ext_clk state, rc=%d\n", panel->name, rc);
+	}
+
+	goto exit;
+
+error_disable_gpio:
+	if (gpio_is_valid(panel->reset_config.disp_en_gpio))
+		gpio_set_value(panel->reset_config.disp_en_gpio, 0);
+
+	if (gpio_is_valid(panel->bl_config.en_gpio))
+		gpio_set_value(panel->bl_config.en_gpio, 0);
+
+	(void)dsi_panel_set_pinctrl_state(panel, false);
+
+error_disable_vregs:
+	(void)dsi_pwr_enable_regulator(&panel->power_info, false);
+
+exit:
+	return rc;
+}
+
+static int dsi_panel_ext_clk_off_reset(struct dsi_panel *panel)
+{
+	int rc = 0;
+
+	rc = dsi_panel_set_ext_clk_state(panel, false);
+	if (rc) {
+		pr_err("[%s] failed set ext_clk state, rc=%d\n", panel->name,
+		       rc);
+	}
+
+	if (gpio_is_valid(panel->reset_config.disp_en_gpio))
+		gpio_set_value(panel->reset_config.disp_en_gpio, 0);
+
+	if (gpio_is_valid(panel->reset_config.reset_gpio)) {
+		gpio_set_value(panel->reset_config.reset_gpio, 0);
+		usleep_range(2 * 1000, 2 * 1000);
+	}
+
+	if (gpio_is_valid(panel->reset_config.lcd_mode_sel_gpio))
+		gpio_set_value(panel->reset_config.lcd_mode_sel_gpio, 0);
+
+	rc = dsi_panel_set_pinctrl_state(panel, false);
+	if (rc) {
+		pr_err("[%s] failed set pinctrl state, rc=%d\n", panel->name,
+		       rc);
+	}
+
+	return rc;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00057 */
+static u32 dsi_panel_brightness_to_bl(int value,
+		struct dsi_panel_linear_params *linear_params)
+{
+	int64_t in = value;
+	int64_t out = value;
+	int i, cnt;
+	int x, x1, y, y1;
+
+	pr_debug("%s:in value:%d\n", __func__, value);
+
+	if (value == 0) {
+		return 0;
+	}
+
+	if (!linear_params) {
+		pr_debug("%s:linear_params is null\n", __func__);
+		goto param_err;
+	}
+
+	cnt = linear_params->cnt;
+	pr_debug("%s:param cnt:%d\n", __func__, cnt);
+	for (i = 0;i < cnt;i++) {
+		pr_debug("%s:param %d x:%d y:%d\n", __func__,
+			i, linear_params->param[i].x, linear_params->param[i].y);
+	}
+
+	if (cnt < 2) {
+		pr_debug("%s:cnt < 2\n", __func__);
+		goto param_err;
+	}
+
+	if (in <= linear_params->param[0].x) {
+		out = linear_params->param[0].y;
+	} else
+	if (in >= linear_params->param[cnt-1].x) {
+		out = linear_params->param[cnt-1].y;
+	} else {
+		for (i = 1;i < cnt;i++) {
+			if (in <= linear_params->param[i].x) {
+				x  = linear_params->param[i].x;
+				x1 = linear_params->param[i-1].x;
+				y  = linear_params->param[i].y;
+				y1 = linear_params->param[i-1].y;
+				out = ((y - y1) * in + y1 * x - y * x1) /
+					(x - x1);
+				break;
+			}
+		}
+	}
+
+param_err:
+	pr_debug("%s:out ret:%d\n", __func__, (u32)out);
+
+	return (u32)out;
+}
+
+static int dsi_panel_parse_brightness(struct dsi_panel *panel,
+	struct device_node *of_node)
+{
+	int rc, i;
+	int size = 0, cnt;
+
+	panel->linear_params.cnt = 0;
+
+	if (of_get_property(of_node,
+		"sharp,dsi-linear-params", &size)) {
+		cnt = size / sizeof(int);
+	} else {
+		pr_err("%s:Property linear-params not available\n", __func__);
+		return 0;
+	}
+
+	if (!size) {
+		pr_err("%s:Property linear-params size = 0\n", __func__);
+		return 0;
+	}
+
+	panel->linear_params.param = kzalloc(size, GFP_KERNEL);
+	if (!panel->linear_params.param) {
+		pr_err("%s:Failed to alloc mem for linear-params\n",__func__);
+		return 0;
+	}
+
+	rc = of_property_read_u32_array(of_node,
+		"sharp,dsi-linear-params",
+		(u32 *)panel->linear_params.param, cnt);
+	if (rc) {
+		pr_err("%s:Error in reading property: linear-params\n",
+			__func__);
+		return 0;
+	}
+	panel->linear_params.cnt = cnt / 2;
+
+	pr_debug("%s:linear_params cnt:%d\n", __func__, panel->linear_params.cnt);
+	for (i = 0;i < panel->linear_params.cnt;i++) {
+		pr_debug("%s:linear_param %d x:%d y:%d\n", __func__, i,
+			panel->linear_params.param[i].x,
+			panel->linear_params.param[i].y);
+	}
+
+	return 0;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00067 */
+int dsi_panel_backlight_mfr(struct dsi_panel *panel, int value)
+{
+	struct dsi_panel_cmd_set *mfr_cmds = NULL;
+	int ret = 0;
+	int i = 0;
+	struct dsi_display *display = NULL;
+
+	pr_debug("%s:value=%d\n", __func__, value);
+
+	if (panel == NULL) {
+		pr_err("%s: dsi_panel is NULL.\n", __func__);
+		return -ENXIO;
+	}
+
+	display = msm_drm_get_dsi_displey();
+	if(!display){
+		pr_err("[%s]Invalid dsi_display\n", __func__);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < panel->num_mfr; i++) {
+		if (value <= panel->mfr_config[i].upper && value >= panel->mfr_config[i].lower) {
+			if (i == panel->mfr_idx) {
+				pr_debug("%s:already mfr setting\n", __func__);
+				goto end;
+			} else {
+				mfr_cmds = &panel->mfr_config[i].mfr_cmds;
+				break;
+			}
+		}
+	}
+
+	if (mfr_cmds == NULL) {
+		goto end;
+	}
+
+	pr_debug("%s: count=%d\n", __func__, mfr_cmds->count);
+
+	if (mfr_cmds->count) {
+		mutex_lock(&display->display_lock);
+		drm_cmn_panel_cmds_transfer(display, mfr_cmds->cmds, mfr_cmds->count);
+		panel->mfr_idx = i;
+		mutex_unlock(&display->display_lock);
+	} else {
+		pr_err("%s:mfr_cmds is zero. idx=%d\n", __func__, i);
+	}
+end:
+	pr_debug("%s:out\n", __func__);
+	return ret;
+}
+
+static int dsi_panel_parse_dcs_cmds(struct device_node *of_node,
+				char *prop_key, char *state_key,
+				struct dsi_panel_cmd_set *cmd)
+{
+	int i, rc = 0;
+	u32 length = 0;
+	const char *data;
+	u32 packet_count = 0;
+	const char *state;
+
+	data = of_get_property(of_node, prop_key, &length);
+	if (!data) {
+		pr_debug("%s commands not defined\n", prop_key);
+		rc = -ENOTSUPP;
+		goto error;
+	}
+
+	rc = dsi_panel_get_cmd_pkt_count(data, length, &packet_count);
+	if (rc) {
+		pr_err("commands failed, rc=%d\n", rc);
+		goto error;
+	}
+	pr_debug("[%s] packet-count=%d, %d\n", prop_key,
+		packet_count, length);
+
+	rc = dsi_panel_alloc_cmd_packets(cmd, packet_count);
+	if (rc) {
+		pr_err("failed to allocate cmd packets, rc=%d\n", rc);
+		goto error;
+	}
+
+	rc = dsi_panel_create_cmd_packets(data, length, packet_count,
+					  cmd->cmds);
+	if (rc) {
+		pr_err("failed to create cmd packets, rc=%d\n", rc);
+		goto error_free_mem;
+	}
+
+	state = of_get_property(of_node, state_key, NULL);
+	if (!state || !strcmp(state, "dsi_lp_mode")) {
+		cmd->state = DSI_CMD_SET_STATE_LP;
+	} else if (!strcmp(state, "dsi_hs_mode")) {
+		cmd->state = DSI_CMD_SET_STATE_HS;
+	}
+
+	if ((cmd->state & DSI_CMD_SET_STATE_LP) == DSI_CMD_SET_STATE_LP) {
+		for (i = 0; i < cmd->count;i++) {
+			cmd->cmds[i].msg.flags |= MIPI_DSI_MSG_USE_LPM;
+		}
+	}
+
+	return rc;
+error_free_mem:
+	kfree(cmd->cmds);
+	cmd->cmds = NULL;
+error:
+	return rc;
+}
+
+static int dsi_panel_parse_mfr(struct dsi_panel *panel,
+	struct device_node *of_node)
+{
+	u32 tmp;
+	int rc, i = 0;
+	struct device_node *mfr_node = NULL;
+	struct device_node *mfr_root_node = NULL;
+
+	if (panel == NULL) {
+		pr_err("%s: dsi_panel is NULL.\n", __func__);
+		return -ENXIO;
+	}
+	panel->num_mfr = 0;
+
+	mfr_root_node = of_get_child_by_name(of_node, "sharp,mdss-dsi-mfr-entries");
+	if (!mfr_root_node) {
+		pr_debug("no supply entry present: mfr-entries\n");
+	} else {
+		for_each_child_of_node(mfr_root_node, mfr_node) {
+			panel->num_mfr++;
+		}
+		if (!panel->num_mfr) {
+			pr_err("%s: failed to parse mfr node. num_mfr=%d\n", __func__, panel->num_mfr);
+			goto error;
+		}
+		pr_debug("%s: num_mfr=%d\n", __func__, panel->num_mfr);
+
+		panel->mfr_config = kzalloc(sizeof(struct dsi_panel_mfr_ctrl) *
+			panel->num_mfr, GFP_KERNEL);
+		if (!panel->mfr_config) {
+			pr_err("%s: failed to alloc mfr memory\n", __func__);
+			goto error;
+		}
+
+		for_each_child_of_node(mfr_root_node, mfr_node) {
+			rc = of_property_read_u32
+				(mfr_node, "sharp,mdss-dsi-mfr-lower", &tmp);
+			panel->mfr_config[i].lower = (!rc ? tmp : 0);
+			rc = of_property_read_u32
+				(mfr_node, "sharp,mdss-dsi-mfr-upper", &tmp);
+			panel->mfr_config[i].upper = (!rc ? tmp : 0);
+			dsi_panel_parse_dcs_cmds(mfr_node, "sharp,mdss-dsi-mfr-command",
+					"sharp,mdss-dsi-mfr-command-state"
+				, &panel->mfr_config[i].mfr_cmds);
+			pr_debug("%s:[%d] lower=%d upper=%d cmds_num=%d\n", __func__, i,
+				panel->mfr_config[i].lower, panel->mfr_config[i].upper,
+				panel->mfr_config[i].mfr_cmds.count);
+			++i;
+		}
+		panel->mfr_idx = -1;
+	}
+
+	return 0;
+
+error:
+	return -EINVAL;
+}
+#endif /* CONFIG_SHARP_DISPLAY */

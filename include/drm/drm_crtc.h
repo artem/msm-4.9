@@ -1399,8 +1399,13 @@ static inline uint32_t drm_crtc_mask(struct drm_crtc *crtc)
 	return 1 << drm_crtc_index(crtc);
 }
 
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+extern void drm_crtc_get_hv_timing(const struct drm_display_mode *mode,
+			   int *hdisplay, int *vdisplay, bool main_display);
+#else /* CONFIG_SHARP_DISPLAY */
 extern void drm_crtc_get_hv_timing(const struct drm_display_mode *mode,
 				   int *hdisplay, int *vdisplay);
+#endif /* CONFIG_SHARP_DISPLAY */
 extern int drm_crtc_force_disable(struct drm_crtc *crtc);
 extern int drm_crtc_force_disable_all(struct drm_device *dev);
 

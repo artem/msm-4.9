@@ -52,8 +52,27 @@
 #include "sd_ops.h"
 #include "sdio_ops.h"
 
+#if defined(CONFIG_SHARP_MMC) && defined(CONFIG_ANDROID_ENGINEERING)
+static int sh_mmc_debug_mask = 0;
+module_param_named(sh_debug_mask, sh_mmc_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
+MODULE_PARM_DESC(sh_debug_mask, "MMC/SD cards tests param");
+static int sh_mmc_time_debug_mask = 0;
+module_param_named(sh_time_debug_mask, sh_mmc_time_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
+MODULE_PARM_DESC(sh_debug_time_mask, "MMC/SD cards tests param2");
+static int sh_mmc_clk_debug_mask = 0;
+module_param_named(sh_clk_debug_mask, sh_mmc_clk_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
+MODULE_PARM_DESC(sh_debug_clk_mask, "MMC/SD cards tests param3");
+#endif /* CONFIG_SHARP_MMC && CONFIG_ANDROID_ENGINEERING */
+
 /* If the device is not responding */
 #define MMC_CORE_TIMEOUT_MS	(10 * 60 * 1000) /* 10 minute timeout */
+
+#if defined(CONFIG_SHARP_MMC_SD_BATTLOG) && defined(CONFIG_SHARP_SHTERM)
+char mmc_sd_card_type[8] = "UNKN";
+char mmc_sd_clk_mode[8] = "UNKN";
+module_param_string(mmc_sd_card_type, mmc_sd_card_type, 8, S_IRUGO);
+module_param_string(mmc_sd_clk_mode, mmc_sd_clk_mode, 8, S_IRUGO);
+#endif /* CONFIG_SHARP_MMC_SD_BATTLOG && CONFIG_SHARP_SHTERM */
 
 /*
  * Background operations can take a long time, depending on the housekeeping
@@ -982,6 +1001,14 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 #ifdef CONFIG_MMC_PERF_PROFILING
 	ktime_t diff;
 #endif
+#if defined(CONFIG_SHARP_MMC) && defined(CONFIG_ANDROID_ENGINEERING)
+	struct mmc_card *card = host->card;
+	long   proc_time = 0;
+
+	if (host->clk_scaling.enable)
+		proc_time = (long)ktime_to_us(ktime_sub(ktime_get(),
+					host->clk_scaling.start_busy));
+#endif /* CONFIG_SHARP_MMC && CONFIG_ANDROID_ENGINEERING */
 
 	if (host->clk_scaling.is_busy_started)
 		mmc_clk_scaling_stop_busy(host, true);
@@ -1031,6 +1058,28 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 			mmc_hostname(host), cmd->opcode, err,
 			cmd->resp[0], cmd->resp[1],
 			cmd->resp[2], cmd->resp[3]);
+#if defined(CONFIG_SHARP_MMC) && defined(CONFIG_ANDROID_ENGINEERING)
+		if (sh_mmc_debug_mask && card &&
+			((card)->type == ((sh_mmc_debug_mask&0xF)-1)) &&
+			((sh_mmc_debug_mask&0xF0)==0x10))
+			pr_info(" req done %u: %d: %08x %08x %08x %08x\n",
+				cmd->opcode, err,
+				cmd->resp[0], cmd->resp[1],
+				cmd->resp[2], cmd->resp[3]);
+
+		if (sh_mmc_time_debug_mask && card &&
+			((card)->type == (sh_mmc_time_debug_mask-1))) {
+			if (mrq->data)
+				pr_info("(done)%u,%d,%d,%ld\n",
+					mrq->cmd->opcode,
+					((mrq->cmd->arg)/((mmc_card_blockaddr(card)) ?
+						1 : mrq->data->blksz)),
+					mrq->data->blocks, proc_time);
+			else
+				pr_info("(done)%u,%d,%d,%ld\n",
+					cmd->opcode, cmd->arg, cmd->flags, proc_time );
+		}
+#endif /* CONFIG_SHARP_MMC && CONFIG_ANDROID_ENGINEERING */
 
 		if (mrq->data) {
 #ifdef CONFIG_MMC_PERF_PROFILING
@@ -1068,6 +1117,14 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 					&host->io_lat_write, delta_us);
 			}
 #endif
+
+#if defined(CONFIG_SHARP_MMC) && defined(CONFIG_ANDROID_ENGINEERING)
+			if (sh_mmc_debug_mask && card &&
+				((card)->type == ((sh_mmc_debug_mask&0xF)-1)) &&
+				((sh_mmc_debug_mask&0xF0)==0x10))
+				pr_info("     %d bytes transferred: %d\n",
+					mrq->data->bytes_xfered, mrq->data->error);
+#endif /* CONFIG_SHARP_MMC && CONFIG_ANDROID_ENGINEERING */
 		}
 
 		if (mrq->stop) {
@@ -1076,6 +1133,16 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 				mrq->stop->error,
 				mrq->stop->resp[0], mrq->stop->resp[1],
 				mrq->stop->resp[2], mrq->stop->resp[3]);
+#if defined(CONFIG_SHARP_MMC) && defined(CONFIG_ANDROID_ENGINEERING)
+			if (sh_mmc_debug_mask && card &&
+				((card)->type == ((sh_mmc_debug_mask&0xF)-1)) &&
+				((sh_mmc_debug_mask&0xF0)==0x10))
+				pr_info(" stop %u: %d: %08x %08x %08x %08x\n",
+					mrq->stop->opcode,
+					mrq->stop->error,
+					mrq->stop->resp[0], mrq->stop->resp[1],
+					mrq->stop->resp[2], mrq->stop->resp[3]);
+#endif /* CONFIG_SHARP_MMC && CONFIG_ANDROID_ENGINEERING */
 		}
 
 		if (mrq->done)
@@ -1136,6 +1203,9 @@ static int mmc_start_request(struct mmc_host *host, struct mmc_request *mrq)
 	unsigned int i, sz;
 	struct scatterlist *sg;
 #endif
+#if defined(CONFIG_SHARP_MMC) && defined(CONFIG_ANDROID_ENGINEERING)
+	struct mmc_card *card = host->card;
+#endif /* CONFIG_SHARP_MMC && CONFIG_ANDROID_ENGINEERING */
 	mmc_retune_hold(host);
 
 	if (mmc_card_removed(host->card))
@@ -1145,11 +1215,27 @@ static int mmc_start_request(struct mmc_host *host, struct mmc_request *mrq)
 		pr_debug("<%s: starting CMD%u arg %08x flags %08x>\n",
 			 mmc_hostname(host), mrq->sbc->opcode,
 			 mrq->sbc->arg, mrq->sbc->flags);
+#if defined(CONFIG_SHARP_MMC) && defined(CONFIG_ANDROID_ENGINEERING)
+		if (sh_mmc_debug_mask && card &&
+			((card)->type == ((sh_mmc_debug_mask&0xF)-1)) &&
+			((sh_mmc_debug_mask&0xF0)==0x10))
+			pr_info("<%s: starting CMD%u arg %08x flags %08x>\n",
+				 mmc_hostname(host), mrq->sbc->opcode,
+				 mrq->sbc->arg, mrq->sbc->flags);
+#endif /* CONFIG_SHARP_MMC && CONFIG_ANDROID_ENGINEERING */
 	}
 
 	pr_debug("%s: starting CMD%u arg %08x flags %08x\n",
 		 mmc_hostname(host), mrq->cmd->opcode,
 		 mrq->cmd->arg, mrq->cmd->flags);
+#if defined(CONFIG_SHARP_MMC) && defined(CONFIG_ANDROID_ENGINEERING)
+	if (sh_mmc_debug_mask && card &&
+		((card)->type == ((sh_mmc_debug_mask&0xF)-1)) &&
+		((sh_mmc_debug_mask&0xF0)==0x10))
+		pr_info(" starting CMD%u arg %08x flags %08x\n",
+			mrq->cmd->opcode,
+			mrq->cmd->arg, mrq->cmd->flags);
+#endif /* CONFIG_SHARP_MMC && CONFIG_ANDROID_ENGINEERING */
 
 	if (mrq->data) {
 		pr_debug("%s:     blksz %d blocks %d flags %08x "
@@ -1158,12 +1244,37 @@ static int mmc_start_request(struct mmc_host *host, struct mmc_request *mrq)
 			mrq->data->blocks, mrq->data->flags,
 			mrq->data->timeout_ns / 1000000,
 			mrq->data->timeout_clks);
+#if defined(CONFIG_SHARP_MMC) && defined(CONFIG_ANDROID_ENGINEERING)
+		if (sh_mmc_debug_mask && card &&
+			((card)->type == ((sh_mmc_debug_mask & 0xF)-1)))
+			pr_info("%u,%d,%d\n",
+				mrq->cmd->opcode,
+				((mrq->cmd->arg)/((mmc_card_blockaddr(card)) ?
+					1 : mrq->data->blksz)),
+				mrq->data->blocks );
+#endif /* CONFIG_SHARP_MMC && CONFIG_ANDROID_ENGINEERING */
 	}
+#if defined(CONFIG_SHARP_MMC) && defined(CONFIG_ANDROID_ENGINEERING)
+	else {
+		if (sh_mmc_debug_mask && card &&
+			((card)->type == ((sh_mmc_debug_mask & 0xF)-1)))
+			pr_info("%u,%d,%d\n",
+				mrq->cmd->opcode, mrq->cmd->arg, mrq->cmd->flags);
+	}
+#endif /* CONFIG_SHARP_MMC && CONFIG_ANDROID_ENGINEERING */
 
 	if (mrq->stop) {
 		pr_debug("%s:     CMD%u arg %08x flags %08x\n",
 			 mmc_hostname(host), mrq->stop->opcode,
 			 mrq->stop->arg, mrq->stop->flags);
+#if defined(CONFIG_SHARP_MMC) && defined(CONFIG_ANDROID_ENGINEERING)
+		if (sh_mmc_debug_mask && card &&
+			((card)->type == ((sh_mmc_debug_mask&0xF)-1)) &&
+			((sh_mmc_debug_mask&0xF0)==0x10))
+			pr_info("    stop %u arg %08x flags %08x\n",
+				 mrq->stop->opcode,
+				 mrq->stop->arg, mrq->stop->flags);
+#endif /* CONFIG_SHARP_MMC && CONFIG_ANDROID_ENGINEERING */
 	}
 
 	WARN_ON(!host->claimed);
@@ -1638,6 +1749,9 @@ static int mmc_wait_for_data_req_done(struct mmc_host *host,
 void mmc_wait_for_req_done(struct mmc_host *host, struct mmc_request *mrq)
 {
 	struct mmc_command *cmd;
+#if defined(CONFIG_SHARP_MMC) && defined(CONFIG_ANDROID_ENGINEERING)
+	struct mmc_card *card = host->card;
+#endif /* CONFIG_SHARP_MMC && CONFIG_ANDROID_ENGINEERING */
 
 	while (1) {
 		wait_for_completion_io(&mrq->completion);
@@ -1675,6 +1789,13 @@ void mmc_wait_for_req_done(struct mmc_host *host, struct mmc_request *mrq)
 
 		pr_debug("%s: req failed (CMD%u): %d, retrying...\n",
 			 mmc_hostname(host), cmd->opcode, cmd->error);
+#if defined(CONFIG_SHARP_MMC) && defined(CONFIG_ANDROID_ENGINEERING)
+		if (sh_mmc_debug_mask && card &&
+			((card)->type == ((sh_mmc_debug_mask&0xF)-1)) &&
+			((sh_mmc_debug_mask&0xF0)==0x10))
+			pr_info(" req failed %u: %d, retrying...%d\n",
+				cmd->opcode, cmd->error, cmd->retries);
+#endif /* CONFIG_SHARP_MMC && CONFIG_ANDROID_ENGINEERING */
 		cmd->retries--;
 		cmd->error = 0;
 		__mmc_start_request(host, mrq);
@@ -1872,6 +1993,10 @@ int mmc_cmdq_prepare_flush(struct mmc_command *cmd)
 }
 EXPORT_SYMBOL(mmc_cmdq_prepare_flush);
 
+#ifdef CONFIG_SHARP_MMC_SD_ECO_MODE
+int sh_mmc_sd_set_eco_mode(struct mmc_host *host);
+#endif /* CONFIG_SHARP_MMC_SD_ECO_MODE */
+
 /**
  *	mmc_start_req - start a non-blocking request
  *	@host: MMC host to start command
@@ -1929,6 +2054,12 @@ struct mmc_async_req *mmc_start_req(struct mmc_host *host,
 				mmc_pre_req(host, areq->mrq, !host->areq);
 		}
 	}
+
+#ifdef CONFIG_SHARP_MMC_SD_ECO_MODE
+	if (sh_mmc_sd_set_eco_mode(host))
+		pr_info("%s: %s switch eco / normal mode.\n",
+			mmc_hostname(host), __func__);
+#endif /* CONFIG_SHARP_MMC_SD_ECO_MODE */
 
 	if (!err && areq) {
 #ifdef CONFIG_BLOCK
@@ -2449,6 +2580,15 @@ void mmc_set_ios(struct mmc_host *host)
 		 mmc_hostname(host), ios->clock, ios->bus_mode,
 		 ios->power_mode, ios->chip_select, ios->vdd,
 		 1 << ios->bus_width, ios->timing);
+
+#if defined(CONFIG_SHARP_MMC) && defined(CONFIG_ANDROID_ENGINEERING)
+	if (sh_mmc_clk_debug_mask)
+		pr_info("%s: clock %uHz busmode %u powermode %u cs %u Vdd %u "
+			"width %u timing %u\n",
+			 mmc_hostname(host), ios->clock, ios->bus_mode,
+			ios->power_mode, ios->chip_select, ios->vdd,
+			1 << ios->bus_width, ios->timing);
+#endif /* CONFIG_SHARP_MMC && CONFIG_ANDROID_ENGINEERING */
 
 	if (ios->clock > 0)
 		mmc_set_ungated(host);

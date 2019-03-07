@@ -47,7 +47,27 @@ ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
 		sda845-v2.1-4k-panel-qrd-overlay.dtbo \
 		sda845-v2.1-cdp-sdxpoorwills-overlay.dtbo \
 		sda845-v2.1-mtp-sdxpoorwills-overlay.dtbo \
-		sda845-v2-mtp-sdxpoorwills-overlay.dtbo
+		sda845-v2-mtp-sdxpoorwills-overlay.dtbo \
+		sharp-sdm845-dio-v2-mtp-overlay.dtbo \
+		sharp-sdm845-dio-v2.1-mtp-overlay.dtbo \
+		sharp-sdm845-QD91-v2-mtp-overlay.dtbo \
+		sharp-sdm845-QD91-v2.1-mtp-overlay.dtbo \
+		sharp-sdm845-QE91-v2-mtp-overlay.dtbo \
+		sharp-sdm845-QE91-v2.1-mtp-overlay.dtbo \
+		sharp-sdm845-SK91-v2-mtp-overlay.dtbo \
+		sharp-sdm845-SK91-v2.1-mtp-overlay.dtbo \
+		sharp-sdm845-johnny-v2-mtp-overlay.dtbo \
+		sharp-sdm845-johnny-v2.1-mtp-overlay.dtbo \
+		sharp-sdm845-QE92-v2-mtp-overlay.dtbo \
+		sharp-sdm845-QE92-v2.1-mtp-overlay.dtbo \
+		sharp-sdm845-T892-v2-mtp-overlay.dtbo \
+		sharp-sdm845-T892-v2.1-mtp-overlay.dtbo \
+		sharp-sdm845-pucci-v2-mtp-overlay.dtbo \
+		sharp-sdm845-pucci-v2.1-mtp-overlay.dtbo \
+		sharp-sdm845-QE72-v2-mtp-overlay.dtbo \
+		sharp-sdm845-QE72-v2.1-mtp-overlay.dtbo \
+		sharp-sdm845-M72-v2-mtp-overlay.dtbo \
+		sharp-sdm845-M72-v2.1-mtp-overlay.dtbo \
 
 sdm845-cdp-overlay.dtbo-base := sdm845.dtb
 sdm845-mtp-overlay.dtbo-base := sdm845.dtb
@@ -93,6 +113,26 @@ sda845-v2.1-4k-panel-qrd-overlay.dtbo-base := sda845-v2.1.dtb
 sda845-v2.1-cdp-sdxpoorwills-overlay.dtbo-base := sda845-v2.1.dtb
 sda845-v2.1-mtp-sdxpoorwills-overlay.dtbo-base := sda845-v2.1.dtb
 sda845-v2-mtp-sdxpoorwills-overlay.dtbo-base := sda845-v2.dtb
+sharp-sdm845-dio-v2-mtp-overlay.dtbo-base := sdm845-v2.dtb
+sharp-sdm845-QD91-v2-mtp-overlay.dtbo-base := sdm845-v2.dtb
+sharp-sdm845-QE91-v2-mtp-overlay.dtbo-base := sdm845-v2.dtb
+sharp-sdm845-SK91-v2-mtp-overlay.dtbo-base := sdm845-v2.dtb
+sharp-sdm845-johnny-v2-mtp-overlay.dtbo-base := sdm845-v2.dtb
+sharp-sdm845-QE92-v2-mtp-overlay.dtbo-base := sdm845-v2.dtb
+sharp-sdm845-T892-v2-mtp-overlay.dtbo-base := sdm845-v2.dtb
+sharp-sdm845-pucci-v2-mtp-overlay.dtbo-base := sdm845-v2.dtb
+sharp-sdm845-QE72-v2-mtp-overlay.dtbo-base := sdm845-v2.dtb
+sharp-sdm845-M72-v2-mtp-overlay.dtbo-base := sdm845-v2.dtb
+sharp-sdm845-dio-v2.1-mtp-overlay.dtbo-base := sdm845-v2.1.dtb
+sharp-sdm845-QD91-v2.1-mtp-overlay.dtbo-base := sdm845-v2.1.dtb
+sharp-sdm845-QE91-v2.1-mtp-overlay.dtbo-base := sdm845-v2.1.dtb
+sharp-sdm845-SK91-v2.1-mtp-overlay.dtbo-base := sdm845-v2.1.dtb
+sharp-sdm845-johnny-v2.1-mtp-overlay.dtbo-base := sdm845-v2.1.dtb
+sharp-sdm845-QE92-v2.1-mtp-overlay.dtbo-base := sdm845-v2.1.dtb
+sharp-sdm845-T892-v2.1-mtp-overlay.dtbo-base := sdm845-v2.1.dtb
+sharp-sdm845-pucci-v2.1-mtp-overlay.dtbo-base := sdm845-v2.1.dtb
+sharp-sdm845-QE72-v2.1-mtp-overlay.dtbo-base := sdm845-v2.1.dtb
+sharp-sdm845-M72-v2.1-mtp-overlay.dtbo-base := sdm845-v2.1.dtb
 else
 dtb-$(CONFIG_ARCH_SDM845) += sdm845-sim.dtb \
 	sdm845-rumi.dtb \

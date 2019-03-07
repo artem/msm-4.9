@@ -86,15 +86,25 @@ TRACE_EVENT(timer_expire_entry,
 		__field( void *,	timer	)
 		__field( unsigned long,	now	)
 		__field( void *,	function)
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+		__field( unsigned int,	deferrable)
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
 	),
 
 	TP_fast_assign(
 		__entry->timer		= timer;
 		__entry->now		= jiffies;
 		__entry->function	= timer->function;
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+		__entry->deferrable	= timer->flags & TIMER_DEFERRABLE;
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
 	),
 
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+	TP_printk("timer=%p function=%pf now=%lu defer=%1d", __entry->timer, __entry->function,__entry->now,__entry->deferrable)
+#else /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
 	TP_printk("timer=%p function=%pf now=%lu", __entry->timer, __entry->function,__entry->now)
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
 );
 
 /**

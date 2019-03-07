@@ -66,6 +66,15 @@ int __blkdev_issue_discard(struct block_device *bdev, sector_t sector,
 		/* Make sure bi_size doesn't overflow */
 		req_sects = min_t(sector_t, nr_sects, UINT_MAX >> 9);
 
+#ifdef CONFIG_MMC_EMMC_CUST_SH
+		if (flags & BLKDEV_DISCARD_SECURE) {
+			if (req_sects == UINT_MAX >> 9) {
+				/* reduce max_discard_sectors 4G->1G for mmc timeout */
+				req_sects /= 4;
+			}
+		}
+#endif /* CONFIG_MMC_EMMC_CUST_SH */
+
 		/**
 		 * If splitting a request, and the next starting sector would be
 		 * misaligned, stop the discard at the previous aligned sector.

@@ -440,7 +440,11 @@ static void get_fcc_split(struct pl_data *chip, int total_ua,
 		*master_ua = max(0, total_ua - *slave_ua);
 }
 
+#ifdef CONFIG_BATTERY_SHARP
+#define MINIMUM_PARALLEL_FCC_UA		400000
+#else
 #define MINIMUM_PARALLEL_FCC_UA		500000
+#endif /* CONFIG_BATTERY_SHARP */
 #define PL_TAPER_WORK_DELAY_MS		500
 #define TAPER_RESIDUAL_PCT		90
 #define TAPER_REDUCTION_UA		200000

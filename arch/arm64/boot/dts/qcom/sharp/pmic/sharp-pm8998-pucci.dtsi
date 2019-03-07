@@ -1,0 +1,137 @@
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/*****************************************/
+/*  pm8998-gpios: qpnp-pin               */
+/*****************************************/
+&pm8998_gpios {
+	compatible = "qcom,spmi-gpio";
+	reg = <0xc000 0x1a00>;
+	interrupts = <0x0 0xc0 0 IRQ_TYPE_NONE>,
+			<0x0 0xc1 0 IRQ_TYPE_NONE>,
+			<0x0 0xc2 0 IRQ_TYPE_NONE>,
+			<0x0 0xc3 0 IRQ_TYPE_NONE>,
+			<0x0 0xc4 0 IRQ_TYPE_NONE>,
+			<0x0 0xc5 0 IRQ_TYPE_NONE>,
+			<0x0 0xc6 0 IRQ_TYPE_NONE>,
+			<0x0 0xc7 0 IRQ_TYPE_NONE>,
+			<0x0 0xc8 0 IRQ_TYPE_NONE>,
+			<0x0 0xc9 0 IRQ_TYPE_NONE>,
+			<0x0 0xca 0 IRQ_TYPE_NONE>,
+			<0x0 0xcb 0 IRQ_TYPE_NONE>,
+			<0x0 0xcc 0 IRQ_TYPE_NONE>,
+			<0x0 0xcd 0 IRQ_TYPE_NONE>,
+			<0x0 0xce 0 IRQ_TYPE_NONE>,
+			<0x0 0xcf 0 IRQ_TYPE_NONE>,
+			<0x0 0xd0 0 IRQ_TYPE_NONE>,
+			<0x0 0xd1 0 IRQ_TYPE_NONE>,
+			<0x0 0xd2 0 IRQ_TYPE_NONE>,
+			<0x0 0xd3 0 IRQ_TYPE_NONE>,
+			<0x0 0xd4 0 IRQ_TYPE_NONE>,
+			<0x0 0xd6 0 IRQ_TYPE_NONE>;
+	interrupt-names = "pm8998_gpio1", "pm8998_gpio2",
+			"pm8998_gpio3", "pm8998_gpio4",
+			"pm8998_gpio5", "pm8998_gpio6",
+			"pm8998_gpio7", "pm8998_gpio8",
+			"pm8998_gpio9", "pm8998_gpio10",
+			"pm8998_gpio11", "pm8998_gpio12",
+			"pm8998_gpio13", "pm8998_gpio14",
+			"pm8998_gpio15", "pm8998_gpio16",
+			"pm8998_gpio17", "pm8998_gpio18",
+			"pm8998_gpio19", "pm8998_gpio20",
+			"pm8998_gpio21", "pm8998_gpio23";
+	gpio-controller;
+	#gpio-cells = <2>;
+	qcom,gpios-disallowed = <22 24 25 26>;
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&pm8998_gpio1_dig_in_default
+				&pm8998_gpio2_dig_in_default
+				&pm8998_wlan_sw_ctrl_default
+				&pm8998_gpio5_dig_in_default
+				&pm8998_down_key_default
+				&pm8998_gpio7_dig_in_default
+				&pm8998_gpio8_dig_in_default
+				&pm8998_gpio9_dig_in_default
+				&pm8998_sd_pow_en_default
+				&pm8998_cam_therm_adc_default
+				&pm8998_gpio12_dig_in_default
+				&pm8998_lcd_clk_default
+				&pm8998_gpio14_dig_in_default
+				&pm8998_gpio15_dig_in_default
+				&pm8998_gpio16_dig_in_default
+				&pm8998_gpio17_dig_in_default
+				&pm8998_gpio18_dig_in_default
+				&pm8998_gpio19_dig_in_default
+				&pm8998_gpio20_dig_in_default
+				&pm8998_nfc_lnbbclk3_en_default>;
+
+	pm8998_sd_pow_en {
+		/* O/NP/0 */	/* SD_POW_EN */
+		pm8998_sd_pow_en_default: pm8998_sd_pow_en_default {
+			pins = "gpio10";		/* GPIO 10 */
+			function = "normal";	/* normal output */
+			bias-disable;			/* No Pull */
+			power-source = <0>;		/* VIN0 */
+			output-low;				/* digital output, no invert */
+			qcom,drive-strength = <1>;	/* Low strength */
+		};
+	};
+
+	pm8998_lcd_clk {
+		/* O/NP/0 */	/* LCD_CLK */
+		pm8998_lcd_clk_default: pm8998_lcd_clk_default {
+			pins = "gpio13";		/* GPIO 13 */
+			function = "func2";		/* Special Function 2 *//* DIV_CLK */
+			bias-disable;			/* No Pull */
+			power-source = <0>;		/* VIN0 */
+			output-low;				/* digital output, no invert */
+			qcom,drive-strength = <1>;	/* Low strength */
+		};
+	};
+
+	pm8998_gpio18_dig_in {
+		/* I/PD/L */	/* - */
+		pm8998_gpio18_dig_in_default: pm8998_gpio18_dig_in_default {
+			pins = "gpio18";		/* GPIO 18 */
+			function = "normal";	/* normal input */
+			bias-pull-down;			/* pull down */
+			power-source = <0>;		/* VIN0 */
+			input-enable;			/* digital input */
+		};
+	};
+};
+/*****************************************/
+/*  pm8998: rpm-regulator              */
+/*****************************************/
+&pm8998_l19 {	/* Proximity */
+	regulator-min-microvolt = <2952000>;
+	regulator-max-microvolt = <2952000>;
+	qcom,init-voltage = <2952000>;
+	qcom,init-mode = <RPMH_REGULATOR_MODE_LPM>;
+	qcom,init-enable = <1>;
+};
+/*****************************************/
+/*  qpnp-adc-voltage                     */
+/*****************************************/
+
+/*****************************************/
+/*  qpnp-vadc-tm                         */
+/*****************************************/
+
+/*****************************************/
+/*  thermal_zones                        */
+/*****************************************/
+
+/*****************************************/
+/*  SHARP Device Drivers                 */
+/*****************************************/

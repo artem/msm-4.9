@@ -803,7 +803,9 @@ static long acc_ioctl(struct file *fp, unsigned code, unsigned long value)
 
 static int acc_open(struct inode *ip, struct file *fp)
 {
+#ifdef CONFIG_USB_DEBUG_SHARP_LOG
 	printk(KERN_INFO "acc_open\n");
+#endif /* CONFIG_USB_DEBUG_SHARP_LOG */
 	if (atomic_xchg(&_acc_dev->open_excl, 1))
 		return -EBUSY;
 
@@ -814,7 +816,9 @@ static int acc_open(struct inode *ip, struct file *fp)
 
 static int acc_release(struct inode *ip, struct file *fp)
 {
+#ifdef CONFIG_USB_DEBUG_SHARP_LOG
 	printk(KERN_INFO "acc_release\n");
+#endif /* CONFIG_USB_DEBUG_SHARP_LOG */
 
 	WARN_ON(!atomic_xchg(&_acc_dev->open_excl, 0));
 	/* indicate that we are disconnected
@@ -1000,7 +1004,9 @@ __acc_function_bind(struct usb_configuration *c,
 	int			id;
 	int			ret;
 
+#ifdef CONFIG_USB_DEBUG_SHARP_LOG
 	DBG(cdev, "acc_function_bind dev: %pK\n", dev);
+#endif /* CONFIG_USB_DEBUG_SHARP_LOG */
 
 	if (configfs) {
 		if (acc_string_defs[INTERFACE_STRING_INDEX].id == 0) {

@@ -539,12 +539,29 @@ static int of_thermal_aggregate_trip_types(struct thermal_zone_device *tz,
 				if (th < temp && th > min)
 					min = th;
 			} else {
+#ifdef CONFIG_SHARP_PNP_THERMAL
+				tt = data->trips[trip].temperature;
+				th = tt + data->trips[trip].hysteresis;
+				if (!strncmp(zone->tzp->governor_name, "low_limits_floor",
+						sizeof("low_limits_floor") - 1)) {
+					if (tt + 1000 < temp && tt > min)
+						min = tt;
+					if (th - 1000 > temp && th < max)
+						max = th;
+				} else {
+					if (tt < temp && tt > min)
+						min = tt;
+					if (th > temp && th < max)
+						max = th;
+				}
+#else /* CONFIG_SHARP_PNP_THERMAL */
 				tt = data->trips[trip].temperature;
 				if (tt < temp && tt > min)
 					min = tt;
 				th = tt + data->trips[trip].hysteresis;
 				if (th > temp && th < max)
 					max = th;
+#endif /* CONFIG_SHARP_PNP_THERMAL */
 			}
 		}
 	}

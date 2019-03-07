@@ -27,6 +27,36 @@ config MMC_PERF_PROFILING
 	  If you say Y here, support will be added for collecting
 	  performance numbers at the MMC Queue and Host layers.
 
+config SHARP_MMC
+	bool "SHARP MMC driver customized"
+	depends on MMC
+	default n
+
+config SHARP_MMC_SD
+	bool "SHARP SD driver customized"
+	depends on SHARP_MMC
+	default n
+
+config SHARP_MMC_SD_ENABLE_ONLY_DDR50
+	bool "SHARP SD driver customized for enable DDR50 mode"
+	depends on SHARP_MMC_SD
+	default n
+
+config SHARP_MMC_SD_ECO_MODE
+	bool "SHARP SD driver customized for Reduce the noise interference between SD access and DTV"
+	depends on SHARP_MMC_SD
+	default n
+
+config SHARP_MMC_SD_BATTLOG
+	bool "SHARP SD driver customized for logging"
+	depends on SHARP_MMC_SD
+	default n
+
+config SHARP_MMC_SD_DISABLE_CLK_SCALE
+	bool "SHARP SD driver customized for disable Clock Scaling"
+	depends on SHARP_MMC_SD
+	default n
+
 if MMC
 
 source "drivers/mmc/core/Kconfig"

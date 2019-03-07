@@ -19,6 +19,11 @@
 #include <linux/of_graph.h>
 #include <linux/of_gpio.h>
 #include <linux/err.h>
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00030 */
+#ifdef CONFIG_SHARP_SHTERM
+#include <misc/shterm_k.h>
+#endif /* CONFIG_SHARP_SHTERM */
+#endif /* CONFIG_SHARP_DISPLAY */
 
 #include "msm_drv.h"
 #include "sde_connector.h"
@@ -31,6 +36,23 @@
 #include "dsi_clk.h"
 #include "dsi_pwr.h"
 #include "sde_dbg.h"
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00003 */
+#include "../sharp/drm_proc.h"
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00017 */
+#include "../sharp/drm_det.h"
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00020 */
+#include "../sharp/drm_notify.h"
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+extern int msm_atomic_update_mipiclk_resume(struct dsi_display *display,
+	struct dsi_display_mode *adj_mode);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00047 */
+static int dsi_host_alloc_cmd_tx_buffer(struct dsi_display *display);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 #define to_dsi_display(x) container_of(x, struct dsi_display, host)
 #define INT_BASE_10 10
@@ -58,6 +80,9 @@ static const struct of_device_id dsi_display_dt_match[] = {
 
 static struct dsi_display *primary_display;
 static struct dsi_display *secondary_display;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00035 */
+static u32 bl_tmp = 0;
+#endif /* CONFIG_SHARP_DISPLAY */
 
 static void dsi_display_mask_ctrl_error_interrupts(struct dsi_display *display,
 			u32 mask, bool enable)
@@ -143,17 +168,44 @@ int dsi_display_set_backlight(void *display, u32 bl_lvl)
 	u32 bl_scale, bl_scale_ad;
 	u64 bl_temp;
 	int rc = 0;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00009 */
+	struct msm_drm_private *priv = NULL;
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	if (dsi_display == NULL || dsi_display->panel == NULL)
 		return -EINVAL;
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00009 */
+	priv = dsi_display->drm_dev->dev_private;
+
+	if ((priv != NULL) && (priv->upper_unit_is_connected == DRM_UPPER_UNIT_IS_NOT_CONNECTED)) {
+		pr_debug("%s: upper unit is not connected\n", __func__);
+		return 0;
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00054 */
+	if (drm_det_is_retry_over() && bl_lvl != 0) {
+		pr_debug("%s: retry over flg is on\n", __func__);
+		return 0;
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
+
 	panel = dsi_display->panel;
 
 	mutex_lock(&panel->panel_lock);
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00035 */
+	if (!dsi_panel_initialized(panel)) {
+		pr_err("%s:-EINVAL\n",__func__);
+		bl_tmp = bl_lvl;
+		rc = -EINVAL;
+		goto error;
+	}
+#else
 	if (!dsi_panel_initialized(panel)) {
 		rc = -EINVAL;
 		goto error;
 	}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	panel->bl_config.bl_level = bl_lvl;
 
@@ -166,6 +218,15 @@ int dsi_display_set_backlight(void *display, u32 bl_lvl)
 
 	pr_debug("bl_scale = %u, bl_scale_ad = %u, bl_lvl = %u\n",
 		bl_scale, bl_scale_ad, (u32)bl_temp);
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00050 */
+#ifdef CONFIG_SHARP_DRM_HR_VID
+	mutex_lock(&priv->setswvsync_lock);
+	priv->fps_bl_param = bl_temp;
+	priv->setswvsync_pending = true;
+	mutex_unlock(&priv->setswvsync_lock);
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	rc = dsi_display_clk_ctrl(dsi_display->dsi_clk_handle,
 			DSI_CORE_CLK, DSI_CLK_ON);
@@ -189,6 +250,12 @@ int dsi_display_set_backlight(void *display, u32 bl_lvl)
 
 error:
 	mutex_unlock(&panel->panel_lock);
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00067 */
+	if (rc == 0)
+		rc = dsi_panel_backlight_mfr(panel, bl_lvl);
+#endif /* CONFIG_SHARP_DISPLAY */
+
 	return rc;
 }
 
@@ -205,6 +272,18 @@ static int dsi_display_cmd_engine_enable(struct dsi_display *display)
 		display->cmd_engine_refcount++;
 		goto done;
 	}
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00047 */
+	if (display->tx_cmd_buf == NULL) {
+		pr_debug("[%s] display->tx_cmd_buf Is NULL\n", __func__);
+
+		rc = dsi_host_alloc_cmd_tx_buffer(display);
+		if (rc) {
+			pr_err("[%s] failed to allocate cmd tx buffer memory, rc=%d\n",
+			       display->name, rc);
+		}
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	rc = dsi_ctrl_set_cmd_engine_state(m_ctrl->ctrl, DSI_CTRL_ENGINE_ON);
 	if (rc) {
@@ -505,6 +584,29 @@ error:
 	return rc;
 }
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00003 */ /* CUST_ID_00010 */ /* CUST_ID_00014 */
+int dsi_display_cmd_engine_ctrl(struct dsi_display *display, u8 onoff)
+{
+	int ret;
+
+	pr_debug("%s: %s cmd engine\n", __func__,
+				(onoff ? "enable" : "disable"));
+
+	if (onoff) {
+		ret = dsi_display_cmd_engine_enable(display);
+	} else {
+		ret = dsi_display_cmd_engine_disable(display);
+	}
+	if (ret) {
+		pr_err("%s : failed to %s cmd engine, rc = %d\n", __func__,
+				(onoff ? "enable" : "disable"), ret);
+		return ret;
+	}
+
+	return 0;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
+
 static bool dsi_display_validate_reg_read(struct dsi_panel *panel)
 {
 	int i, j = 0;
@@ -616,8 +718,26 @@ static int dsi_display_validate_status(struct dsi_display_ctrl *ctrl,
 		struct dsi_panel *panel)
 {
 	int rc = 0;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00066 */
+	u8 pageaddr = 0xFE;
+	u8 page2read = 0xE0;
+	u8 page2default = 0x00;
+	struct mipi_dsi_device *dsi = &primary_display->panel->mipi_device;
+
+	drm_pagechg_lock(true);
+
+	/* switch_panel_page */
+	mipi_dsi_dcs_write(dsi, pageaddr,
+				 &page2read, sizeof(page2read));
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	rc = dsi_display_read_status(ctrl, panel);
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00066 */
+	/* switch_panel_page */
+	mipi_dsi_dcs_write(dsi, pageaddr,
+				 &page2default, sizeof(page2default));
+	drm_pagechg_lock(false);
+#endif /* CONFIG_SHARP_DISPLAY */
 	if (rc <= 0) {
 		goto exit;
 	} else {
@@ -1697,7 +1817,9 @@ static int dsi_display_ctrl_setup(struct dsi_display *display)
 	int rc = 0;
 	int i = 0;
 	struct dsi_display_ctrl *ctrl, *m_ctrl;
-
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	struct msm_drm_private *priv = NULL;
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	if (!display) {
 		pr_err("Invalid params\n");
@@ -1705,7 +1827,16 @@ static int dsi_display_ctrl_setup(struct dsi_display *display)
 	}
 
 	m_ctrl = &display->ctrl[display->cmd_master_idx];
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	priv = display->drm_dev->dev_private;
+	if (priv) {
+		rc = dsi_ctrl_setup(m_ctrl->ctrl, priv->mipiclkchg_progress);
+	} else {
+		rc = dsi_ctrl_setup(m_ctrl->ctrl, false);
+	}
+#else
 	rc = dsi_ctrl_setup(m_ctrl->ctrl);
+#endif /* CONFIG_SHARP_DISPLAY */
 	if (rc) {
 		pr_err("DSI controller setup failed\n");
 		return rc;
@@ -1716,7 +1847,15 @@ static int dsi_display_ctrl_setup(struct dsi_display *display)
 		if (!ctrl->ctrl || (ctrl == m_ctrl))
 			continue;
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+		if (priv) {
+			rc = dsi_ctrl_setup(ctrl->ctrl, priv->mipiclkchg_progress);
+		} else {
+			rc = dsi_ctrl_setup(ctrl->ctrl, false);
+		}
+#else
 		rc = dsi_ctrl_setup(ctrl->ctrl);
+#endif /* CONFIG_SHARP_DISPLAY */
 		if (rc) {
 			pr_err("DSI controller setup failed\n");
 			return rc;
@@ -2140,7 +2279,11 @@ static bool validate_dsi_display_selection(void)
 struct device_node *dsi_display_get_boot_display(int index)
 {
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00036 */
+	pr_debug("index = %d\n", index);
+#else
 	pr_err("index = %d\n", index);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	if ((index == DSI_PRIMARY)
 			&& (primary_active_node))
@@ -3166,6 +3309,9 @@ int dsi_post_clkon_cb(void *priv,
 	int rc = 0;
 	struct dsi_display *display = priv;
 	bool mmss_clamp = false;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	struct msm_drm_private *drm_priv = display->drm_dev->dev_private;
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	if ((clk & DSI_LINK_CLK) && (l_type & DSI_LINK_LP_CLK)) {
 		mmss_clamp = display->clamp_enabled;
@@ -3180,8 +3326,18 @@ int dsi_post_clkon_cb(void *priv,
 		 * Phy setup is needed if coming out of idle
 		 * power collapse with clamps enabled.
 		 */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+		if (display->phy_idle_power_off || mmss_clamp) {
+			if (drm_priv && drm_priv->mipiclkchg_progress) {
+				dsi_display_phy_sw_reset(display);
+			}
+
+			dsi_display_phy_idle_on(display, mmss_clamp);
+		}
+#else
 		if (display->phy_idle_power_off || mmss_clamp)
 			dsi_display_phy_idle_on(display, mmss_clamp);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 		if (display->ulps_enabled && mmss_clamp) {
 			/*
@@ -3229,8 +3385,16 @@ int dsi_post_clkon_cb(void *priv,
 		 * Toggling resync FIFO during cont splash transition
 		 * can lead to blinks on the display.
 		 */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+		if (!display->is_cont_splash_enabled) {
+			if (drm_priv && !drm_priv->mipiclkchg_progress) {
+				dsi_display_toggle_resync_fifo(display);
+			}
+		}
+#else
 		if (!display->is_cont_splash_enabled)
 			dsi_display_toggle_resync_fifo(display);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 		if (display->ulps_enabled) {
 			rc = dsi_display_set_ulps(display, false);
@@ -4593,7 +4757,28 @@ static int dsi_display_bind(struct device *dev,
 		       display->name, rc);
 		goto error_ctrl_deinit;
 	}
-
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00003 */
+	rc = drm_proc_init();
+	if (rc) {
+		pr_err("%s: failed to drm_proc_init, rc=%d\n", __func__, rc);
+		rc = 0;
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00017 */
+	rc = drm_det_init(display);
+	if (rc) {
+		pr_err("%s: failed to drm_det_init, rc=%d\n", __func__, rc);
+		rc = 0;
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00037 */
+	rc = drm_notify_create_sysfs(&display->ctrl[0].ctrl->pdev->dev);
+	if (rc) {
+		pr_err("%s: failed to drm_notify_create_sysfs, rc=%d\n",
+								__func__, rc);
+		rc = 0;
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 	rc = dsi_panel_drv_init(display->panel, &display->host);
 	if (rc) {
 		if (rc != -EPROBE_DEFER)
@@ -4668,6 +4853,10 @@ static void dsi_display_unbind(struct device *dev,
 		pr_err("invalid display\n");
 		return;
 	}
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00037 */
+	drm_notify_remove_sysfs(&display->ctrl[0].ctrl->pdev->dev);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	mutex_lock(&display->display_lock);
 
@@ -5577,6 +5766,10 @@ int dsi_display_set_mode(struct dsi_display *display,
 	if (display->cached_clk_rate > 0)
 		adj_mode.priv_info->clk_rate_hz = display->cached_clk_rate;
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	msm_atomic_update_mipiclk_resume(display, &adj_mode);
+#endif /* CONFIG_SHARP_DISPLAY */
+
 	rc = dsi_display_validate_mode_set(display, &adj_mode, flags);
 	if (rc) {
 		pr_err("[%s] mode cannot be set\n", display->name);
@@ -5599,6 +5792,7 @@ int dsi_display_set_mode(struct dsi_display *display,
 	}
 
 	memcpy(display->panel->cur_mode, &adj_mode, sizeof(adj_mode));
+
 error:
 	mutex_unlock(&display->display_lock);
 	return rc;
@@ -6016,6 +6210,17 @@ int dsi_display_prepare(struct dsi_display *display)
 		goto error_host_engine_off;
 	}
 
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00011 */
+	if (display->is_cont_splash_enabled) {
+		rc = dsi_panel_set_ext_clk_state(display->panel, true);
+		if (rc) {
+			pr_err("[%s] failed to set ext_clk state, rc=%d\n",
+					display->panel->name, rc);
+		}
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
+
 	if (!display->is_cont_splash_enabled) {
 		/*
 		 * For continuous splash usecase, skip panel prepare and
@@ -6164,7 +6369,11 @@ static int dsi_display_set_roi(struct dsi_display *display,
 		}
 
 		/* re-program the ctrl with the timing based on the new roi */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+		rc = dsi_ctrl_setup(ctrl->ctrl, false);
+#else
 		rc = dsi_ctrl_setup(ctrl->ctrl);
+#endif /* CONFIG_SHARP_DISPLAY */
 		if (rc) {
 			pr_err("dsi_ctrl_setup failed rc %d\n", rc);
 			return rc;
@@ -6317,8 +6526,19 @@ int dsi_display_enable(struct dsi_display *display)
 			       display->name, rc);
 			goto error;
 		}
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00017 */
+		if (display->config.panel_mode != DSI_OP_CMD_MODE) {
+			pr_debug("%s: disponchk in video mode\n", __func__);
+			rc = drm_det_disponchk(display);
+			if (rc) {
+				pr_err("%s: failed to drm_det_disponchk, rc=%d\n", __func__, rc);
+				rc = 0;
+			}
+		}
+#endif /* CONFIG_SHARP_DISPLAY */
 	}
 
+#ifndef CONFIG_SHARP_DISPLAY /* CUST_ID_00016 */
 	if (mode->priv_info && mode->priv_info->dsc_enabled) {
 		mode->priv_info->dsc.pic_width *= display->ctrl_count;
 		rc = dsi_panel_update_pps(display->panel);
@@ -6328,6 +6548,7 @@ int dsi_display_enable(struct dsi_display *display)
 			goto error;
 		}
 	}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	if (mode->dsi_mode_flags & DSI_MODE_FLAG_DMS) {
 		rc = dsi_panel_switch(display->panel);
@@ -6390,6 +6611,44 @@ int dsi_display_post_enable(struct dsi_display *display)
 			DSI_ALL_CLKS, DSI_CLK_OFF);
 
 	mutex_unlock(&display->display_lock);
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00017 */
+	if (display->config.panel_mode == DSI_OP_CMD_MODE) {
+		pr_debug("%s: disponchk in cmd mode\n", __func__);
+		rc = drm_det_disponchk(display);
+		if (rc) {
+			pr_err("%s: failed to drm_det_disponchk, rc=%d\n", __func__, rc);
+			rc = 0;
+		}
+	}
+	rc = drm_det_chk_panel_on();
+	if (rc) {
+		pr_err("%s: failed to drm_det_chk_panel_on, rc=%d\n", __func__, rc);
+		rc = 0;
+	}
+	drm_det_post_panel_on();
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00037 */
+	drm_sysfs_notifier(&display->ctrl[0].ctrl->pdev->dev, 1);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00030 */
+#ifdef CONFIG_SHARP_SHTERM
+	{
+		int shterm_ret = shterm_k_set_info(SHTERM_INFO_LCDPOW, true);
+		pr_debug("%s[%d] LCDPOW on.", __func__, __LINE__);
+		if (shterm_ret != SHTERM_SUCCESS) {
+			pr_err("%s[%d] shterm_k_set_info() error.",
+							__func__, __LINE__);
+		}
+	}
+#endif /* CONFIG_SHARP_SHTERM */
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00035 */
+		if (bl_tmp) {
+			dsi_display_set_backlight(display, bl_tmp);
+			bl_tmp = 0;
+		}
+#endif /* CONFIG_SHARP_DISPLAY */
 	return rc;
 }
 
@@ -6401,6 +6660,17 @@ int dsi_display_pre_disable(struct dsi_display *display)
 		pr_err("Invalid params\n");
 		return -EINVAL;
 	}
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00037 */
+	drm_sysfs_notifier(&display->ctrl[0].ctrl->pdev->dev, 0);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00017 */
+	rc = drm_det_pre_panel_off();
+	if (rc) {
+		pr_err("%s: failed to drm_det_pre_panel_off, rc=%d\n", __func__, rc);
+		rc = 0;
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	mutex_lock(&display->display_lock);
 
@@ -6415,6 +6685,18 @@ int dsi_display_pre_disable(struct dsi_display *display)
 		       display->name, rc);
 
 	mutex_unlock(&display->display_lock);
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00030 */
+#ifdef CONFIG_SHARP_SHTERM
+	{
+		int shterm_ret = shterm_k_set_info(SHTERM_INFO_LCDPOW, false);
+		pr_debug("%s[%d] LCDPOW off.", __func__, __LINE__);
+		if (shterm_ret != SHTERM_SUCCESS) {
+			pr_err("%s[%d] shterm_k_set_info() error.",
+							__func__, __LINE__);
+		}
+	}
+#endif /* CONFIG_SHARP_SHTERM */
+#endif /* CONFIG_SHARP_DISPLAY */
 	return rc;
 }
 
@@ -6544,6 +6826,17 @@ int dsi_display_unprepare(struct dsi_display *display)
 	return rc;
 }
 
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+void dsi_display_vid_engine_ctrl(struct dsi_display *display, bool enable)
+{
+	if (enable) {
+		dsi_display_vid_engine_enable(display);
+	} else {
+		dsi_display_vid_engine_disable(display);
+	}
+}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+
 static int __init dsi_display_register(void)
 {
 	dsi_phy_drv_register();
@@ -6557,6 +6850,7 @@ static void __exit dsi_display_unregister(void)
 	dsi_ctrl_drv_unregister();
 	dsi_phy_drv_unregister();
 }
+
 module_param_string(dsi_display0, dsi_display_primary, MAX_CMDLINE_PARAM_LEN,
 								0600);
 MODULE_PARM_DESC(dsi_display0,
@@ -6567,3 +6861,12 @@ MODULE_PARM_DESC(dsi_display1,
 	"msm_drm.dsi_display1=<display node>:<configX> where <display node> is 'secondary dsi display node name' and <configX> where x represents index in the topology list");
 module_init(dsi_display_register);
 module_exit(dsi_display_unregister);
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+int dsi_display_set_mode_sub_wrap(struct dsi_display *display,
+				    struct dsi_display_mode *mode,
+				    u32 flags)
+{
+	return  dsi_display_set_mode_sub(display,mode,flags);
+}
+#endif /* CONFIG_SHARP_DISPLAY */

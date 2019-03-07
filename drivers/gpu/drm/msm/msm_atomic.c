@@ -24,6 +24,17 @@
 #include "msm_gem.h"
 #include "msm_fence.h"
 #include "sde_trace.h"
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+#include <linux/moduleparam.h>
+#include <linux/delay.h>
+#include <video/mipi_display.h>
+#include "sde/sde_encoder_phys.h"
+#include "sharp/drm_cmn.h"
+#include "sharp/drm_det.h"
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+#include "sharp/drm_mfr.h"
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 #define MULTIPLE_CONN_DETECTED(x) (x > 1)
 
@@ -36,6 +47,14 @@ struct msm_commit {
 };
 
 static BLOCKING_NOTIFIER_HEAD(msm_drm_notifier_list);
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+static int msm_atomic_update_mipiclk(struct drm_atomic_state *state);
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+static int mipiclkcng_cnt = 3;
+module_param(mipiclkcng_cnt, int, 0600);
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+#endif /* CONFIG_SHARP_DISPLAY */
 
 /**
  * msm_drm_register_client - register a client notifier
@@ -50,6 +69,9 @@ int msm_drm_register_client(struct notifier_block *nb)
 	return blocking_notifier_chain_register(&msm_drm_notifier_list,
 						nb);
 }
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00020 */
+EXPORT_SYMBOL(msm_drm_register_client);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 /**
  * msm_drm_unregister_client - unregister a client notifier
@@ -63,6 +85,9 @@ int msm_drm_unregister_client(struct notifier_block *nb)
 	return blocking_notifier_chain_unregister(&msm_drm_notifier_list,
 						  nb);
 }
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00020 */
+EXPORT_SYMBOL(msm_drm_unregister_client);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 /**
  * msm_drm_notifier_call_chain - notify clients of drm_events
@@ -536,6 +561,13 @@ static void complete_commit(struct msm_commit *c)
 
 	drm_atomic_helper_wait_for_fences(dev, state, false);
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00009 */
+	if ((priv != NULL) && (priv->upper_unit_is_connected == DRM_UPPER_UNIT_IS_NOT_CONNECTED)) {
+		pr_debug("%s: upper unit is not connected\n", __func__);
+		goto exit;
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
+
 	kms->funcs->prepare_commit(kms, state);
 
 	msm_atomic_helper_commit_modeset_disables(dev, state);
@@ -559,9 +591,17 @@ static void complete_commit(struct msm_commit *c)
 
 	msm_atomic_wait_for_commit_done(dev, state);
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	msm_atomic_update_mipiclk(state);
+#endif /* CONFIG_SHARP_DISPLAY */
+
 	drm_atomic_helper_cleanup_planes(dev, state);
 
 	kms->funcs->complete_commit(kms, state);
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00009 */
+exit:
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	drm_atomic_state_free(state);
 
@@ -772,3 +812,664 @@ error:
 	SDE_ATRACE_END("atomic_commit");
 	return ret;
 }
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+static int msm_atomic_update_panel_timing(struct dsi_display *display,
+	struct mdp_mipi_clkchg_param *clkchg_param)
+{
+	int rc = 0;
+	int cmd_cnt;
+	struct dsi_cmd_desc *cmds;
+
+	unsigned char addr_value[29][6] = {
+		{0xFF,0x10               },	// Switch to Command 1
+		{0xBE,0x00,0x0E,0x00,0x14},	// MIPI_VBP_HF/MIPI_VFP_HF
+		{0xFF,0x24               },	// Switch to Command 2 page 4
+		{0x14,0x00               },	// VBP_NORM_HF
+		{0x15,0x0E               },	// VBP_NORM_HF
+		{0x16,0x00               },	// VFP_NORM_HF
+		{0x17,0x14               },	// VFP_NORM_HF
+		{0x08,0x00               },	// RTN_V_HF
+		{0x09,0x67               },
+		{0x12,0x00               },	// RTN_HF
+		{0x13,0x67               },
+		{0xFF,0x25               },	// Switch to Command 2 page 5
+		{0x92,0x01               },	// STV_DELAY_HF
+		{0x93,0x25               },	// STV_ADV_HF
+		{0x96,0x01               },	// GCK_DELAY_HF
+		{0x97,0x35               },	// GCK_ADV_HF
+		{0xFF,0x24               },	// Switch to Command 2 page 4
+		{0x38,0x01               },	// SOEHT_HF/SDT_REG_HF
+		{0x7D,0x01               },	// MUXS_HF
+		{0x7E,0x62               },	// MUXW_HF
+		{0x80,0x01               },	// MUXS_V_HF
+		{0x81,0x62               },	// MUXW_V_HF
+		{0xFF,0xF0               },	// Switch to Command 3 page F0
+		{0x33,0x13               },	// OSCSET1
+		{0x34,0x37               },	// OSCSET2
+		{0xFF,0xE0               },	// Switch to Command 3 page E0
+		{0x82,0x11               },	// OSCSCOPE
+		{0x81,0x65               },	// OSC_FINE_TRIM
+		{0xFF,0x10               }	// Switch to Command 1
+	};
+	struct dsi_cmd_desc paneltiming_cmd[] = {
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[ 0], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 5, addr_value[ 1], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[ 2], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[ 3], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[ 4], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[ 5], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[ 6], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[ 7], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[ 8], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[ 9], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[10], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[11], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[12], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[13], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[14], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[15], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[16], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[17], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[18], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[19], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[20], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[21], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[22], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[23], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[24], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[25], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[26], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[27], 0, 0}, 0, 0},
+		{{0, MIPI_DSI_DCS_LONG_WRITE, 0, 0, 0, 2, addr_value[28], 0, 0}, 1, 0}
+	};
+
+	pr_debug("%s\n", __func__);
+
+	addr_value[ 1][1] = clkchg_param->panel.mipi_vbp_hf[0];
+	addr_value[ 1][2] = clkchg_param->panel.mipi_vbp_hf[1];
+	addr_value[ 1][3] = clkchg_param->panel.mipi_vfp_hf[0];
+	addr_value[ 1][4] = clkchg_param->panel.mipi_vfp_hf[1];
+
+	addr_value[ 3][1] = clkchg_param->panel.vbp_norm_hf[0];
+	addr_value[ 4][1] = clkchg_param->panel.vbp_norm_hf[1];
+	addr_value[ 5][1] = clkchg_param->panel.vfp_norm_hf[0];
+	addr_value[ 6][1] = clkchg_param->panel.vfp_norm_hf[1];
+	addr_value[ 7][1] = clkchg_param->panel.rtn_v_hf[0];
+	addr_value[ 8][1] = clkchg_param->panel.rtn_v_hf[1];
+	addr_value[ 9][1] = clkchg_param->panel.rtn_hf[0];
+	addr_value[10][1] = clkchg_param->panel.rtn_hf[1];
+
+	addr_value[12][1] = clkchg_param->panel.stv_delay_hf;
+	addr_value[13][1] = clkchg_param->panel.stv_adv_hf;
+	addr_value[14][1] = clkchg_param->panel.gck_delay_hf;
+	addr_value[15][1] = clkchg_param->panel.gck_adv_hf;
+
+	addr_value[17][1] = clkchg_param->panel.soeht_hf;
+	addr_value[18][1] = clkchg_param->panel.muxs_hf;
+	addr_value[19][1] = clkchg_param->panel.muxw_hf;
+	addr_value[20][1] = clkchg_param->panel.muxs_v_hf;
+	addr_value[21][1] = clkchg_param->panel.muxw_v_hf;
+
+	addr_value[23][1] = clkchg_param->panel.oscset1;
+	addr_value[24][1] = clkchg_param->panel.oscset2;
+
+	addr_value[26][1] = clkchg_param->panel.oscscope;
+
+	addr_value[27][1] = clkchg_param->panel.osc_fine_trim;
+
+	cmd_cnt = ARRAY_SIZE(paneltiming_cmd);
+	cmds = paneltiming_cmd;
+
+	rc = drm_cmn_panel_cmds_transfer(display, cmds, cmd_cnt);
+	if (rc) {
+		pr_err("%s:failed to set cmds, rc=%d\n", __func__, rc);
+	}
+
+	return rc;
+}
+
+static int msm_atomic_dsi_ctrl_update_vid_engine_state(struct dsi_display *display, bool on)
+{
+	int rc = 0;
+	int i;
+	struct dsi_ctrl *dsi_ctrl;
+
+	pr_debug("%s\n", __func__);
+
+	for (i = 0; i < display->ctrl_count; i++) {
+		dsi_ctrl = display->ctrl[i].ctrl;
+		if (!dsi_ctrl) {
+			pr_err("%s: no dsi_ctrl\n", __func__);
+			return -EINVAL;
+		}
+		dsi_ctrl_update_vid_engine_state(dsi_ctrl, on);
+	}
+
+	return rc;
+}
+
+static void msm_atomic_set_phys_cached_mode(struct dsi_display *display,
+	struct dsi_display_mode *adj_mode)
+{
+	struct drm_display_mode drm_mode;
+#ifdef CONFIG_ARCH_DIO
+	struct sde_encoder_phys_vid *vid_enc = NULL;
+#else
+	struct sde_encoder_phys_cmd *cmd_enc = NULL;
+#endif /* CONFIG_ARCH_DIO */
+	struct sde_encoder_phys *phys_enc = NULL;
+	int ctrl_count;
+	int i = 0;
+
+	pr_debug("%s\n", __func__);
+
+	memset(&drm_mode, 0x00, sizeof(struct drm_display_mode));
+	ctrl_count = display->ctrl_count;
+
+	drm_mode.hdisplay = adj_mode->timing.h_active * ctrl_count;
+	drm_mode.hsync_start = drm_mode.hdisplay +
+				adj_mode->timing.h_front_porch * ctrl_count;
+	drm_mode.hsync_end = drm_mode.hsync_start +
+				adj_mode->timing.h_sync_width * ctrl_count;
+	drm_mode.htotal = drm_mode.hsync_end +
+				adj_mode->timing.h_back_porch * ctrl_count;
+	drm_mode.hskew = adj_mode->timing.h_skew * ctrl_count;
+
+	drm_mode.vdisplay = adj_mode->timing.v_active;
+	drm_mode.vsync_start = drm_mode.vdisplay +
+				adj_mode->timing.v_front_porch;
+	drm_mode.vsync_end = drm_mode.vsync_start +
+				adj_mode->timing.v_sync_width;
+	drm_mode.vtotal = drm_mode.vsync_end +
+				adj_mode->timing.v_back_porch;
+
+	drm_mode.vrefresh = adj_mode->timing.refresh_rate;
+	drm_mode.clock = adj_mode->pixel_clk_khz * ctrl_count;
+
+	drm_mode.private = (int *)adj_mode->priv_info;
+
+	for (i = 0; i < ctrl_count; i++) {
+#ifdef CONFIG_ARCH_DIO
+		vid_enc = get_sde_encoder_phys_vid(i);
+		if (vid_enc) {
+			phys_enc = &vid_enc->base;
+
+			phys_enc->cached_mode = drm_mode;
+		}
+#else
+		cmd_enc = get_sde_encoder_phys_cmd(i);
+		if (cmd_enc) {
+			phys_enc = &cmd_enc->base;
+
+			phys_enc->cached_mode = drm_mode;
+		}
+#endif /* CONFIG_ARCH_DIO */
+	}
+}
+
+static void msm_atomic_mipiclk_adjusted_mode(struct dsi_display *display,
+	struct dsi_display_mode *adj_mode,
+	struct mdp_mipi_clkchg_param *clkchg_param)
+{
+	struct dsi_display_mode_priv_info *priv_info = NULL;
+	int i;
+
+	pr_debug("%s\n", __func__);
+
+	display->panel->host_config.t_clk_post =
+				clkchg_param->host.t_clk_post;
+	display->panel->host_config.t_clk_pre  =
+				clkchg_param->host.t_clk_pre;
+
+	adj_mode->timing.h_active      =
+		clkchg_param->host.display_width;
+	adj_mode->timing.v_active      =
+		clkchg_param->host.display_height;
+	adj_mode->timing.h_sync_width  =
+		clkchg_param->host.hsync_pulse_width;
+	adj_mode->timing.h_back_porch  =
+		clkchg_param->host.h_back_porch;
+	adj_mode->timing.h_front_porch =
+		clkchg_param->host.h_front_porch;
+	adj_mode->timing.v_sync_width  =
+		clkchg_param->host.vsync_pulse_width;
+	adj_mode->timing.v_back_porch  =
+		clkchg_param->host.v_back_porch;
+	adj_mode->timing.v_front_porch =
+		clkchg_param->host.v_front_porch;
+	adj_mode->timing.refresh_rate  =
+		clkchg_param->host.frame_rate;
+
+	if (display->ctrl_count > 1) {
+		adj_mode->timing.h_active /= display->ctrl_count;
+	}
+
+	adj_mode->pixel_clk_khz = (DSI_H_TOTAL(&adj_mode->timing) *
+			DSI_V_TOTAL(&adj_mode->timing) *
+			adj_mode->timing.refresh_rate) / 1000;
+
+	priv_info = (struct dsi_display_mode_priv_info*)adj_mode->priv_info;
+	for (i = 0;i < priv_info->phy_timing_len;i++) {
+		priv_info->phy_timing_val[i] =
+			clkchg_param->host.timing_ctrl[i];
+	}
+	priv_info->clk_rate_hz = clkchg_param->host.clock_rate;
+}
+
+static int msm_atomic_setup_timing_engine(struct drm_crtc *crtc,
+	struct dsi_display *display)
+{
+	struct drm_display_mode *adjusted_mode;
+	struct dsi_display_mode *dsi_mode;
+	struct sde_encoder_phys_vid *vid_enc = NULL;
+	struct sde_encoder_phys *phys_enc = NULL;
+	int i;
+	int rc = 0;
+	int ctrl_count;
+
+	pr_debug("%s\n", __func__);
+
+	dsi_mode = display->panel->cur_mode;
+	adjusted_mode = &crtc->state->adjusted_mode;
+	if (!adjusted_mode) {
+		pr_err("[%s]adjusted_mode is null\n", __func__);
+		return -EINVAL;
+	}
+	ctrl_count = display->ctrl_count;
+
+	adjusted_mode->hdisplay = dsi_mode->timing.h_active * ctrl_count;
+	adjusted_mode->hsync_start = adjusted_mode->hdisplay +
+				dsi_mode->timing.h_front_porch * ctrl_count;
+	adjusted_mode->hsync_end = adjusted_mode->hsync_start +
+				dsi_mode->timing.h_sync_width * ctrl_count;
+	adjusted_mode->htotal = adjusted_mode->hsync_end +
+				dsi_mode->timing.h_back_porch * ctrl_count;
+	adjusted_mode->hskew = dsi_mode->timing.h_skew * ctrl_count;
+
+	adjusted_mode->vdisplay = dsi_mode->timing.v_active;
+	adjusted_mode->vsync_start = adjusted_mode->vdisplay +
+				dsi_mode->timing.v_front_porch;
+	adjusted_mode->vsync_end = adjusted_mode->vsync_start +
+				dsi_mode->timing.v_sync_width;
+	adjusted_mode->vtotal = adjusted_mode->vsync_end +
+				dsi_mode->timing.v_back_porch;
+
+	adjusted_mode->vrefresh = dsi_mode->timing.refresh_rate;
+	adjusted_mode->clock = dsi_mode->pixel_clk_khz * ctrl_count;
+
+	adjusted_mode->private = (int *)dsi_mode->priv_info;
+
+	for (i = 0; i < display->ctrl_count; i++) {
+		vid_enc = get_sde_encoder_phys_vid(i);
+		if (vid_enc) {
+			phys_enc = &vid_enc->base;
+
+			sde_encoder_phys_vid_setup_timing_engine_wrap(phys_enc);
+		}
+	}
+
+	return rc;
+}
+
+static int msm_atomic_mipiclk_config_dsi(struct dsi_display *display,
+	struct drm_crtc *crtc, struct mdp_mipi_clkchg_param *clkchg_param)
+{
+	struct dsi_display_mode *adj_mode;
+	int rc = 0;
+
+	pr_debug("%s\n", __func__);
+
+	if (!display->panel->cur_mode) {
+		pr_err("[%s]failed to display->panel->cur_mode is null\n",
+			__func__);
+		return -EINVAL;
+	}
+
+	mutex_lock(&display->display_lock);
+	mutex_lock(&display->panel->panel_lock);
+
+	adj_mode = display->panel->cur_mode;
+
+	msm_atomic_mipiclk_adjusted_mode(display, adj_mode, clkchg_param);
+
+	adj_mode->timing.dsc_enabled = display->config.video_timing.dsc_enabled;
+	adj_mode->timing.dsc         = display->config.video_timing.dsc;
+
+	msm_atomic_set_phys_cached_mode(display, adj_mode);
+
+	mutex_unlock(&display->panel->panel_lock);
+
+	rc = dsi_display_set_mode_sub_wrap(display, adj_mode, 0x00);
+	if (rc) {
+		pr_err("[%s]failed to dsi_display_set_mode, rc=%d\n",
+			__func__, rc);
+	}
+
+	mutex_unlock(&display->display_lock);
+
+	return rc;
+}
+
+static void msm_atomic_update_mipiclk_chg_log(
+	struct mdp_mipi_clkchg_param *clkchg_param)
+{
+	int i;
+
+	pr_debug("[%s]param->host.frame_rate         = %10d", __func__  , clkchg_param->host.frame_rate          );
+	pr_debug("[%s]param->host.clock_rate         = %10d", __func__  , clkchg_param->host.clock_rate          );
+	pr_debug("[%s]param->host.display_width      = %10d", __func__  , clkchg_param->host.display_width       );
+	pr_debug("[%s]param->host.display_height     = %10d", __func__  , clkchg_param->host.display_height      );
+	pr_debug("[%s]param->host.hsync_pulse_width  = %10d", __func__  , clkchg_param->host.hsync_pulse_width   );
+	pr_debug("[%s]param->host.h_back_porch       = %10d", __func__  , clkchg_param->host.h_back_porch        );
+	pr_debug("[%s]param->host.h_front_porch      = %10d", __func__  , clkchg_param->host.h_front_porch       );
+	pr_debug("[%s]param->host.vsync_pulse_width  = %10d", __func__  , clkchg_param->host.vsync_pulse_width   );
+	pr_debug("[%s]param->host.v_back_porch       = %10d", __func__  , clkchg_param->host.v_back_porch        );
+	pr_debug("[%s]param->host.v_front_porch      = %10d", __func__  , clkchg_param->host.v_front_porch       );
+	pr_debug("[%s]param->host.t_clk_post         = 0x%02X", __func__, clkchg_param->host.t_clk_post          );
+	pr_debug("[%s]param->host.t_clk_pre          = 0x%02X", __func__, clkchg_param->host.t_clk_pre           );
+	for (i = 0; i < 12; i++) {
+		pr_debug("[%s]param->host.timing_ctrl[%02d]    = 0x%02X", __func__, i, clkchg_param->host.timing_ctrl[i]);
+	}
+	pr_debug("[%s]param->panel.mipi_vbp_hf[0]    = 0x%02X",__func__, clkchg_param->panel.mipi_vbp_hf[0]     );
+	pr_debug("[%s]param->panel.mipi_vbp_hf[1]    = 0x%02X",__func__, clkchg_param->panel.mipi_vbp_hf[1]     );
+	pr_debug("[%s]param->panel.mipi_vfp_hf[0]    = 0x%02X",__func__, clkchg_param->panel.mipi_vfp_hf[0]     );
+	pr_debug("[%s]param->panel.mipi_vfp_hf[1]    = 0x%02X",__func__, clkchg_param->panel.mipi_vfp_hf[1]     );
+	pr_debug("[%s]param->panel.vbp_norm_hf[0]    = 0x%02X",__func__, clkchg_param->panel.vbp_norm_hf[0]     );
+	pr_debug("[%s]param->panel.vbp_norm_hf[1]    = 0x%02X",__func__, clkchg_param->panel.vbp_norm_hf[1]     );
+	pr_debug("[%s]param->panel.vfp_norm_hf[0]    = 0x%02X",__func__, clkchg_param->panel.vfp_norm_hf[0]     );
+	pr_debug("[%s]param->panel.vfp_norm_hf[1]    = 0x%02X",__func__, clkchg_param->panel.vfp_norm_hf[1]     );
+	pr_debug("[%s]param->panel.rtn_v_hf[0]       = 0x%02X",__func__, clkchg_param->panel.rtn_v_hf[0]        );
+	pr_debug("[%s]param->panel.rtn_v_hf[1]       = 0x%02X",__func__, clkchg_param->panel.rtn_v_hf[1]        );
+	pr_debug("[%s]param->panel.rtn_hf[0]         = 0x%02X",__func__, clkchg_param->panel.rtn_hf[0]          );
+	pr_debug("[%s]param->panel.rtn_hf[1]         = 0x%02X",__func__, clkchg_param->panel.rtn_hf[1]          );
+	pr_debug("[%s]param->panel.stv_delay_hf      = 0x%02X",__func__, clkchg_param->panel.stv_delay_hf       );
+	pr_debug("[%s]param->panel.stv_adv_hf        = 0x%02X",__func__, clkchg_param->panel.stv_adv_hf         );
+	pr_debug("[%s]param->panel.gck_delay_hf      = 0x%02X",__func__, clkchg_param->panel.gck_delay_hf       );
+	pr_debug("[%s]param->panel.gck_adv_hf        = 0x%02X",__func__, clkchg_param->panel.gck_adv_hf         );
+	pr_debug("[%s]param->panel.soeht_hf          = 0x%02X",__func__, clkchg_param->panel.soeht_hf           );
+	pr_debug("[%s]param->panel.muxs_hf           = 0x%02X",__func__, clkchg_param->panel.muxs_hf            );
+	pr_debug("[%s]param->panel.muxw_hf           = 0x%02X",__func__, clkchg_param->panel.muxw_hf            );
+	pr_debug("[%s]param->panel.muxs_v_hf         = 0x%02X",__func__, clkchg_param->panel.muxs_v_hf          );
+	pr_debug("[%s]param->panel.muxw_v_hf         = 0x%02X",__func__, clkchg_param->panel.muxw_v_hf          );
+	pr_debug("[%s]param->panel.oscset1           = 0x%02X",__func__, clkchg_param->panel.oscset1            );
+	pr_debug("[%s]param->panel.oscset2           = 0x%02X",__func__, clkchg_param->panel.oscset2            );
+	pr_debug("[%s]param->panel.oscscope          = 0x%02X",__func__, clkchg_param->panel.oscscope           );
+	pr_debug("[%s]param->panel.osc_fine_trim     = 0x%02X",__func__, clkchg_param->panel.osc_fine_trim      );
+}
+
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+static int msm_atomic_update_mipiclk_chg(struct dsi_display *display,
+	struct msm_drm_private *priv, struct drm_crtc *crtc,
+	struct mdp_mipi_clkchg_param *clkchg_param, int* cnt)
+#else
+static int msm_atomic_update_mipiclk_chg(struct dsi_display *display,
+	struct msm_drm_private *priv, struct drm_crtc *crtc,
+	struct mdp_mipi_clkchg_param *clkchg_param)
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+{
+	int rc = 0;
+	int new_vtotal = 0;
+	int old_vtotal = 0;
+	bool timing_engine_setup = false;
+	int i = 0;
+	struct dsi_ctrl *dsi_ctrl= display->ctrl[0].ctrl;
+
+	pr_debug("[%s] in\n", __func__);
+
+	drm_det_pre_panel_off();
+
+	msm_atomic_update_mipiclk_chg_log(clkchg_param);
+
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	drm_mfr_suspend_ctrl(true);
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+
+	rc = drm_cmn_stop_video();
+	if (rc) {
+		pr_err("[%s]failed to video transfer off, rc=%d\n",
+			__func__, rc);
+		return rc;
+	}
+
+	msm_atomic_update_panel_timing(display, clkchg_param);
+
+	if (dsi_ctrl) {
+		if (dsi_ctrl->hw.ops.mask_error_intr) {
+			dsi_ctrl->hw.ops.mask_error_intr(&dsi_ctrl->hw,
+				BIT(DSI_FIFO_OVERFLOW), true);
+			dsi_ctrl->hw.ops.mask_error_intr(&dsi_ctrl->hw,
+				BIT(DSI_FIFO_UNDERFLOW), true);
+		}
+	}
+
+	for (i = 0; i < display->ctrl_count; i++) {
+		struct msm_dsi_phy *phy = display->ctrl[i].phy;
+
+		if (!phy)
+			continue;
+
+		phy->allow_phy_power_off = true;
+	}
+
+	rc = dsi_display_clk_ctrl(display->mdp_clk_handle
+					, DSI_ALL_CLKS, DSI_CLK_OFF);
+	if (rc) {
+		pr_err("[%s]failed to disable MDP clocks, rc=%d\n",
+			__func__, rc);
+		return rc;
+	}
+
+	rc = dsi_display_clk_ctrl(display->dsi_clk_handle
+					, DSI_ALL_CLKS, DSI_CLK_OFF);
+	if (rc) {
+		pr_err("[%s]failed to disable DSI clocks, rc=%d\n",
+			__func__, rc);
+		return rc;
+	}
+
+	old_vtotal = DSI_V_TOTAL(&display->config.video_timing);
+
+	rc = msm_atomic_mipiclk_config_dsi(display, crtc, clkchg_param);
+	if (rc) {
+		pr_err("[%s]failed to update DSI clocks, rc=%d\n",
+			__func__, rc);
+		return rc;
+	}
+
+	new_vtotal = DSI_V_TOTAL(&display->config.video_timing);
+
+	pr_debug("[%s]new = %d, old = %d\n", __func__, new_vtotal, old_vtotal);
+
+	if (old_vtotal <= new_vtotal) {
+		rc = msm_atomic_setup_timing_engine(crtc, display);
+		if (rc) {
+			pr_err("[%s]failed to msm_atomic_setup_timing_engine, rc=%d\n",
+				__func__, rc);
+			return rc;
+		}
+		timing_engine_setup = true;
+
+	} else {
+		rc = msm_atomic_dsi_ctrl_update_vid_engine_state(display, true);
+		if (rc) {
+			pr_err("[%s]failed to update_vid_engine_state, rc=%d\n",
+				__func__, rc);
+			return rc;
+		}
+	}
+
+	priv->mipiclkchg_progress = true;
+
+	rc = dsi_display_clk_ctrl(display->dsi_clk_handle
+					, DSI_ALL_CLKS, DSI_CLK_ON);
+	if (rc) {
+		pr_err("[%s]failed to enable DSI clocks, rc=%d\n",
+			__func__, rc);
+		return rc;
+	}
+
+	rc = dsi_display_clk_ctrl(display->mdp_clk_handle
+					, DSI_ALL_CLKS, DSI_CLK_ON);
+	if (rc) {
+		pr_err("[%s]failed to enable MDP clocks, rc=%d\n",
+			__func__, rc);
+		return rc;
+	}
+
+	priv->mipiclkchg_progress = false;
+
+	for (i = 0; i < display->ctrl_count; i++) {
+		struct msm_dsi_phy *phy = display->ctrl[i].phy;
+
+		if (!phy)
+			continue;
+
+		phy->allow_phy_power_off = false;
+	}
+
+	rc = drm_cmn_start_video();
+	if (rc) {
+		pr_err("[%s]failed to video transfer on, rc=%d\n",
+			__func__, rc);
+		return rc;
+	}
+
+	if (!timing_engine_setup) {
+		rc = msm_atomic_setup_timing_engine(crtc, display);
+		if (rc) {
+			pr_err("[%s]failed to msm_atomic_setup_timing_engine, rc=%d\n",
+				__func__, rc);
+			return rc;
+		}
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+		*cnt = mipiclkcng_cnt;
+		pr_debug("%s B to A. mipiclkcng_cnt=%d\n",__func__, mipiclkcng_cnt);
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+	}
+
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	drm_mfr_suspend_ctrl(false);
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+
+	pr_debug("[%s] out\n", __func__);
+
+	return rc;
+}
+
+int msm_atomic_update_mipiclk_resume(struct dsi_display *display,
+	struct dsi_display_mode *adj_mode)
+{
+	struct msm_drm_private *priv;
+	struct mdp_mipi_clkchg_param *clkchg_param = NULL;
+
+	pr_debug("%s\n", __func__);
+
+	priv = display->drm_dev->dev_private;
+
+	if (priv) {
+		mutex_lock(&priv->mipiclk_lock);
+		clkchg_param = &priv->usr_clkchg_param;
+
+		if (clkchg_param->host.clock_rate) {
+			msm_atomic_mipiclk_adjusted_mode(display, adj_mode, clkchg_param);
+
+			msm_atomic_set_phys_cached_mode(display, adj_mode);
+
+			priv->mipiclk_pending = false;
+		}
+		mutex_unlock(&priv->mipiclk_lock);
+	}
+
+	return 0;
+}
+
+static int msm_atomic_update_mipiclk(struct drm_atomic_state *state)
+{
+	struct drm_crtc *crtc;
+	struct drm_crtc_state *crtc_state = NULL;
+	struct msm_drm_private *priv = NULL;
+	struct dsi_display *display = NULL;
+	struct mdp_mipi_clkchg_param clkchg_param;
+	int i, rc = 0;
+
+	display = msm_drm_get_dsi_displey();
+	if (!display) {
+		pr_err("[%s]Invalid dsi_display\n", __func__);
+		return -EINVAL;
+	}
+
+	priv = display->drm_dev->dev_private;
+	if (!priv) {
+		pr_err("[%s]Invalid dev_private\n", __func__);
+		return -EINVAL;
+	}
+
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	if (priv->mipiclk_pending && priv->mipiclk_cnt < 2) {
+#else
+	if (priv->mipiclk_pending) {
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+		for_each_crtc_in_state(state, crtc, crtc_state, i) {
+			if (crtc && crtc_state && drm_crtc_index(crtc) == 0) {
+				pr_debug("[%s]crtc_state->active=%d\n", __func__, crtc_state->active);
+
+				if(!crtc_state->active)
+					continue;
+
+				mutex_lock(&priv->mipiclk_lock);
+				memcpy(&clkchg_param, &priv->usr_clkchg_param,
+						sizeof(clkchg_param));
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+				rc = msm_atomic_update_mipiclk_chg(display, priv, crtc,
+						&clkchg_param, &priv->mipiclk_cnt);
+#else
+				rc = msm_atomic_update_mipiclk_chg(display, priv, crtc,
+						&clkchg_param);
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+				priv->mipiclk_pending = false;
+				mutex_unlock(&priv->mipiclk_lock);
+				break;
+			}
+		}
+	}
+
+	return rc;
+}
+
+int msm_atomic_update_panel_timing_resume(struct dsi_display *display)
+{
+	int rc = 0;
+	int clk_rate_hz, default_clk_rate_hz;
+	struct msm_drm_private *priv = NULL;
+
+	pr_debug("%s\n", __func__);
+
+	if (!display) {
+		pr_err("[%s]Invalid dsi_display\n", __func__);
+		return -EINVAL;
+	}
+
+	priv = display->drm_dev->dev_private;
+	if (!priv) {
+		pr_err("[%s]Invalid dev_private\n", __func__);
+		return -EINVAL;
+	}
+
+	default_clk_rate_hz = drm_cmn_get_default_clk_rate_hz();
+	clk_rate_hz = priv->usr_clkchg_param.host.clock_rate;
+
+	pr_debug("[%s]default_clk_rate_hz = %d, clk_rate_hz = %d\n",
+			__func__, default_clk_rate_hz, clk_rate_hz);
+
+	if (default_clk_rate_hz && clk_rate_hz) {
+		if (default_clk_rate_hz != clk_rate_hz) {
+			priv = display->drm_dev->dev_private;
+			rc = msm_atomic_update_panel_timing(display,
+				&priv->usr_clkchg_param);
+		}
+	}
+
+	return rc;
+}
+#endif /* CONFIG_SHARP_DISPLAY */

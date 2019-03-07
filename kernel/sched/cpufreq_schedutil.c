@@ -18,6 +18,11 @@
 #include <linux/sched/sysctl.h>
 #include "sched.h"
 #include "tune.h"
+#ifdef CONFIG_SHARP_PNP_CLOCK
+#include <linux/moduleparam.h>
+#include <linux/msm_drm_notify.h>
+#include <drm/drm_sharp.h>
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 #define SUGOV_KTHREAD_PRIORITY	50
 
@@ -84,6 +89,60 @@ static DEFINE_PER_CPU(struct sugov_cpu, sugov_cpu);
 static unsigned int stale_ns;
 static DEFINE_PER_CPU(struct sugov_tunables *, cached_tunables);
 
+#ifdef CONFIG_SHARP_PNP_CLOCK
+static unsigned int sh_limit_freq_silver = UINT_MAX;
+module_param_named(
+	sh_limit_freq_silver, sh_limit_freq_silver, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+
+static unsigned int sh_limit_freq_gold = 2246400;
+module_param_named(
+	sh_limit_freq_gold, sh_limit_freq_gold, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+
+static unsigned int sh_load_sum_mode = 2;
+module_param_named(
+	sh_load_sum_mode, sh_load_sum_mode, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+
+static unsigned int sh_release_limit_enter_load = 75;
+module_param_named(
+	sh_release_limit_enter_load, sh_release_limit_enter_load, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+
+static unsigned int sh_release_limit_enter_time = 150000;
+module_param_named(
+	sh_release_limit_enter_time, sh_release_limit_enter_time, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+
+static unsigned int sh_release_limit_exit_load = 75;
+module_param_named(
+	sh_release_limit_exit_load, sh_release_limit_exit_load, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+
+static unsigned int sh_release_limit_exit_time = 50000;
+module_param_named(
+	sh_release_limit_exit_time, sh_release_limit_exit_time, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+
+static unsigned int sh_limit_fps_freq_silver = UINT_MAX;
+module_param_named(
+	sh_limit_fps_freq_silver, sh_limit_fps_freq_silver, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+
+static unsigned int sh_limit_fps_freq_gold = 2246400;
+module_param_named(
+	sh_limit_fps_freq_gold, sh_limit_fps_freq_gold, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+
+static DEFINE_PER_CPU(unsigned int, sh_load_limit_freq) = UINT_MAX;
+static DEFINE_PER_CPU(unsigned int, sh_fps_limit_freq) = 0;
+static DEFINE_PER_CPU(unsigned int, sh_cpu_util) = 0;
+static DEFINE_PER_CPU(u64, sh_release_limit_enter_base) = 0;
+static DEFINE_PER_CPU(u64, sh_release_limit_exit_base) = 0;
+static bool sh_disp_on = true;
+#endif /* CONFIG_SHARP_PNP_CLOCK */
+
 /************************ Governor internals ***********************/
 
 static bool sugov_should_update_freq(struct sugov_policy *sg_policy, u64 time)
@@ -109,7 +168,12 @@ static void sugov_update_commit(struct sugov_policy *sg_policy, u64 time,
 {
 	struct cpufreq_policy *policy = sg_policy->policy;
 
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	if (sg_policy->next_freq == next_freq &&
+		max(per_cpu(sh_load_limit_freq, policy->cpu), per_cpu(sh_fps_limit_freq, policy->cpu)) >= next_freq)
+#else /* CONFIG_SHARP_PNP_CLOCK */
 	if (sg_policy->next_freq == next_freq)
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 		return;
 
 	sg_policy->next_freq = next_freq;
@@ -365,6 +429,119 @@ static void sugov_update_single(struct update_util_data *hook, u64 time,
 	raw_spin_unlock(&sg_policy->update_lock);
 }
 
+#ifdef CONFIG_SHARP_PNP_CLOCK
+void sh_set_release_limit_freq(struct cpufreq_policy *policy)
+{
+	unsigned int release_limit_freq = max(per_cpu(sh_load_limit_freq, policy->cpu), per_cpu(sh_fps_limit_freq, policy->cpu));
+	sh_cpufreq_frequency_table_target(policy, &release_limit_freq, CPUFREQ_RELATION_L);
+	sh_set_max_freq(policy, release_limit_freq);
+
+	if (policy->min > release_limit_freq)
+		policy->min = release_limit_freq;
+}
+
+extern unsigned long arch_scale_freq_power(struct sched_domain *sd, int cpu);
+static void sh_release_limit(unsigned int curr_cpu)
+{
+	int cpu, scale_cpu;
+	struct cpufreq_policy *policy;
+	u64 total_cpu_util = 0, cpu_util = 0;
+	u64 release_limit_enter_base = 0, release_limit_exit_base = 0;
+	u64 elapsed_time_enter, elapsed_time_exit;
+	u64 now;
+
+	for_each_possible_cpu(cpu) {
+		release_limit_enter_base = max(release_limit_enter_base, per_cpu(sh_release_limit_enter_base, cpu));
+		release_limit_exit_base = max(release_limit_exit_base, per_cpu(sh_release_limit_exit_base, cpu));
+	}
+	now = ktime_to_us(ktime_get());
+
+	for_each_online_cpu(cpu) {
+		if (sh_load_sum_mode == 0)
+			total_cpu_util = total_cpu_util + per_cpu(sh_cpu_util, cpu);
+		if (sh_load_sum_mode == 1) {
+			if (cpu >= 4)
+				total_cpu_util = total_cpu_util + per_cpu(sh_cpu_util, cpu);
+		}
+		if (sh_load_sum_mode == 2)
+			total_cpu_util = max((unsigned int)total_cpu_util, per_cpu(sh_cpu_util, cpu));
+	}
+	scale_cpu = 4;
+	policy = sh_cpufreq_cpu_get_raw(scale_cpu);
+	if (policy) {
+		cpu_util = mult_frac(total_cpu_util, policy->cpuinfo.max_freq, sh_limit_freq_gold) * 100;
+		cpu_util = cpu_util / arch_scale_freq_power(NULL, scale_cpu);
+	}
+
+	if (cpu_util < sh_release_limit_enter_load || release_limit_enter_base == 0)
+		per_cpu(sh_release_limit_enter_base, curr_cpu) = release_limit_enter_base = now;
+
+	elapsed_time_enter = now - release_limit_enter_base;
+	if (elapsed_time_enter >= sh_release_limit_enter_time) {
+		for_each_possible_cpu(cpu)
+			per_cpu(sh_load_limit_freq, cpu) = UINT_MAX;
+	}
+
+	if (cpu_util >= sh_release_limit_exit_load || release_limit_exit_base == 0)
+		per_cpu(sh_release_limit_exit_base, curr_cpu) = release_limit_exit_base = now;
+
+	elapsed_time_exit = now - release_limit_exit_base;
+	if (elapsed_time_exit >= sh_release_limit_exit_time) {
+		for_each_possible_cpu(cpu) {
+			if (cpu <= 3)
+				per_cpu(sh_load_limit_freq, cpu) = sh_limit_freq_silver;
+			if (cpu >= 4)
+				per_cpu(sh_load_limit_freq, cpu) = sh_limit_freq_gold;
+		}
+	}
+
+	if (sh_disp_on && drm_base_fps_low_mode() > 60) {
+		for_each_possible_cpu(cpu) {
+			if (cpu <= 3)
+				per_cpu(sh_fps_limit_freq, cpu) = sh_limit_fps_freq_silver;
+			if (cpu >= 4)
+				per_cpu(sh_fps_limit_freq, cpu) = sh_limit_fps_freq_gold;
+		}
+	} else {
+		for_each_possible_cpu(cpu)
+			per_cpu(sh_fps_limit_freq, cpu) = 0;
+	}
+}
+
+static int drm_notifier_callback(struct notifier_block *self, unsigned long event, void *data)
+{
+	int blank;
+	struct msm_drm_notifier *evdata = data;
+	if (data) {
+		if (evdata->id == MSM_DRM_PRIMARY_DISPLAY) {
+			blank = *(int *)(evdata->data);
+			switch (event) {
+			case MSM_DRM_EVENT_BLANK:
+				if (blank == MSM_DRM_BLANK_POWERDOWN)
+					sh_disp_on = false;
+				break;
+			case MSM_DRM_EARLY_EVENT_BLANK:
+				if (blank == MSM_DRM_BLANK_UNBLANK)
+					sh_disp_on = true;
+				break;
+			default:
+				break;
+			}
+		}
+	}
+	return 0;
+}
+
+static struct notifier_block drm_notif = {
+	.notifier_call = drm_notifier_callback,
+};
+
+unsigned int sh_get_sh_limit_freq_gold(void)
+{
+	return sh_limit_freq_gold;
+}
+#endif /* CONFIG_SHARP_PNP_CLOCK */
+
 static unsigned int sugov_next_freq_shared(struct sugov_cpu *sg_cpu, u64 time)
 {
 	struct sugov_policy *sg_policy = sg_cpu->sg_policy;
@@ -419,6 +596,11 @@ static void sugov_update_shared(struct update_util_data *hook, u64 time,
 
 	sugov_get_util(&util, &max, sg_cpu->cpu);
 
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	per_cpu(sh_cpu_util, sg_cpu->cpu) = util;
+	sh_release_limit(sg_cpu->cpu);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
+
 	flags &= ~SCHED_CPUFREQ_RT_DL;
 
 	raw_spin_lock(&sg_policy->update_lock);
@@ -467,6 +649,9 @@ static void sugov_work(struct kthread_work *work)
 	sugov_track_cycles(sg_policy, sg_policy->policy->cur,
 			   sched_ktime_clock());
 	raw_spin_unlock_irqrestore(&sg_policy->update_lock, flags);
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	sh_cpufreq_update_policy_try();
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 	__cpufreq_driver_target(sg_policy->policy, sg_policy->next_freq,
 				CPUFREQ_RELATION_L);
 	mutex_unlock(&sg_policy->work_lock);
@@ -946,6 +1131,10 @@ struct cpufreq_governor *cpufreq_default_governor(void)
 
 static int __init sugov_register(void)
 {
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	msm_drm_register_client(&drm_notif);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
+
 	return cpufreq_register_governor(&schedutil_gov);
 }
 fs_initcall(sugov_register);

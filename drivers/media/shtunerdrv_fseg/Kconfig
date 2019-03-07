@@ -1,0 +1,9 @@
+# drivers/media/shtunerdrv_fseg/Kconfig
+
+menu "SHARP DTV Tuner Configuration(Fseg)"
+
+config SHARP_DTV_TUNERDEV_FSEG
+	tristate "set SHARP DTV tuner dev.(Fseg)"
+	default n
+
+endmenu

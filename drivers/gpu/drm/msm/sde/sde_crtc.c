@@ -38,6 +38,21 @@
 #include "sde_power_handle.h"
 #include "sde_core_perf.h"
 #include "sde_trace.h"
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00020 */
+#include "../sharp/drm_notify.h"
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+#include "../sharp/drm_cmn.h"
+#include "../sharp/drm_det.h"
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+#include "../sharp/drm_mfr.h"
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00040 */
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+#include "../msm_drv.h"
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+#endif /* CONFIG_SHARP_DISPLAY */
 
 #define SDE_PSTATES_MAX (SDE_STAGE_MAX * 4)
 #define SDE_MULTIRECT_PLANE_MAX (SDE_STAGE_MAX * 2)
@@ -84,6 +99,10 @@ static struct sde_crtc_custom_events custom_events[] = {
  * Default value is set to 1 sec.
  */
 #define CRTC_TIME_PERIOD_CALC_FPS_US	1000000
+
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+static u32 sde_crtc_drm_mfr_last_sbuf_prefill_line = -1;
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 static inline struct sde_kms *_sde_crtc_get_kms(struct drm_crtc *crtc)
 {
@@ -1513,6 +1532,23 @@ uint64_t sde_crtc_get_sbuf_clk(struct drm_crtc_state *state)
 	return max_t(u64, cstate->sbuf_clk_rate[1], tmp);
 }
 
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+static void sde_crtc_mfr_restart_vid_ifstop(void)
+{
+	const struct drm_mfr_callbacks * mfr_cb = NULL;
+	mfr_cb = drm_mfr_get_mfr_callbacks();
+
+	if (mfr_cb) {
+		int restart_vid = 1;
+		//int cont_commit_frame = 1;
+		mfr_cb->notify_prepare_commit(
+			mfr_cb->ctx, restart_vid/*,
+				cont_commit_frame */);
+	}
+	return;
+}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+
 static void _sde_crtc_blend_setup_mixer(struct drm_crtc *crtc,
 		struct drm_crtc_state *old_state, struct sde_crtc *sde_crtc,
 		struct sde_crtc_mixer *mixer)
@@ -1631,6 +1667,22 @@ static void _sde_crtc_blend_setup_mixer(struct drm_crtc *crtc,
 					mixer, &cstate->dim_layer[i]);
 	}
 
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	if (drm_crtc_index(crtc) == 0) {
+		SDE_DEBUG("%s: crtc_id = %d, num_mixers = %d, "
+			"new sbuf_prefill_line = %d, "
+			"old sbuf_prefill_line = %d, ",
+			__func__, drm_crtc_index(crtc),
+			sde_crtc->num_mixers,
+			cstate->sbuf_prefill_line,
+			sde_crtc_drm_mfr_last_sbuf_prefill_line);
+		if (sde_crtc_drm_mfr_last_sbuf_prefill_line !=
+				cstate->sbuf_prefill_line) {
+			sde_crtc_mfr_restart_vid_ifstop();
+		}
+		sde_crtc_drm_mfr_last_sbuf_prefill_line = cstate->sbuf_prefill_line;
+	}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 	_sde_crtc_program_lm_output_roi(crtc);
 }
 
@@ -1711,6 +1763,14 @@ static void _sde_crtc_blend_setup(struct drm_crtc *crtc,
 	struct sde_crtc_mixer *mixer;
 	struct sde_hw_ctl *ctl;
 	struct sde_hw_mixer *lm;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	struct msm_drm_private *priv = NULL;
+	struct dsi_display *display = NULL;
+	u32 bl_param=0;
+	bool setswvsync_pending=false;
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	int i;
 
@@ -1752,6 +1812,63 @@ static void _sde_crtc_blend_setup(struct drm_crtc *crtc,
 
 	if (add_planes)
 		_sde_crtc_blend_setup_mixer(crtc, old_state, sde_crtc, mixer);
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */ /* CUST_ID_00040 */
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	display = msm_drm_get_dsi_displey();
+	if (display) {
+		priv = display->drm_dev->dev_private;
+		if (priv) {
+			if (drm_crtc_index(crtc) == 0) {
+				mutex_lock(&priv->mipiclk_lock);
+				if (priv->mipiclk_cnt > 0) {
+					sde_crtc_mfr_restart_vid_ifstop();
+					priv->mipiclk_cnt--;
+
+					if (!priv->mipiclk_cnt) {
+						struct dsi_ctrl *dsi_ctrl= display->ctrl[0].ctrl;
+
+						drm_cmn_video_transfer_ctrl(false);
+
+						drm_det_mipierr_clear(display);
+
+						drm_det_post_panel_on();
+
+						if (dsi_ctrl) {
+							if (dsi_ctrl->hw.ops.mask_error_intr) {
+								dsi_ctrl->hw.ops.mask_error_intr(&dsi_ctrl->hw,
+									BIT(DSI_FIFO_OVERFLOW), false);
+								dsi_ctrl->hw.ops.mask_error_intr(&dsi_ctrl->hw,
+									BIT(DSI_FIFO_UNDERFLOW), false);
+							}
+							dsi_ctrl->hw.ops.reset_cmd_fifo(&dsi_ctrl->hw);
+						}
+
+						drm_mfr_chg_maxmfr_if_default_clkrate(
+						false, priv->usr_clkchg_param.host.clock_rate);
+
+						drm_cmn_video_transfer_ctrl(true);
+					}
+				}
+
+				if (!priv->mipiclk_cnt) {
+					mutex_lock(&priv->setswvsync_lock);
+					setswvsync_pending = priv->setswvsync_pending;
+					priv->setswvsync_pending = false;
+					bl_param = priv->fps_bl_param;
+					mutex_unlock(&priv->setswvsync_lock);
+					if (setswvsync_pending) {
+						msm_set_fps_low_base(priv->fpslow_param);
+						priv->fpslow_base = (priv->fpslow_param == 0) ? DRM_BASE_FPS_DEFAULT: priv->fpslow_param;
+						drm_mfr_set_swvsync_rate(priv->fpslow_base, bl_param);
+					}
+				}
+				mutex_unlock(&priv->mipiclk_lock);
+			}
+		}
+	}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	for (i = 0; i < sde_crtc->num_mixers; i++) {
 		const struct sde_rect *lm_roi = &sde_crtc_state->lm_roi[i];
@@ -2513,8 +2630,13 @@ static void _sde_crtc_clear_dim_layers_v1(struct sde_crtc_state *cstate)
  * @cstate:      Pointer to sde crtc state
  * @user_ptr:    User ptr for sde_drm_dim_layer_v1 struct
  */
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+static void _sde_crtc_set_dim_layer_v1(struct sde_crtc_state *cstate,
+		void __user *usr_ptr, struct drm_crtc *crtc)
+#else
 static void _sde_crtc_set_dim_layer_v1(struct sde_crtc_state *cstate,
 		void __user *usr_ptr)
+#endif /* CONFIG_SHARP_DISPLAY */
 {
 	struct sde_drm_dim_layer_v1 dim_layer_v1;
 	struct sde_drm_dim_layer_cfg *user_cfg;
@@ -2554,6 +2676,11 @@ static void _sde_crtc_set_dim_layer_v1(struct sde_crtc_state *cstate,
 		dim_layer[i].stage = user_cfg->stage + SDE_STAGE_0;
 
 		dim_layer[i].rect.x = user_cfg->rect.x1;
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+		if (drm_crtc_index(crtc) == 0) {
+			dim_layer[i].rect.x += DRM_C2_X_OFFSET;
+		}
+#endif /* CONFIG_SHARP_DISPLAY */
 		dim_layer[i].rect.y = user_cfg->rect.y1;
 		dim_layer[i].rect.w = user_cfg->rect.x2 - user_cfg->rect.x1;
 		dim_layer[i].rect.h = user_cfg->rect.y2 - user_cfg->rect.y1;
@@ -3862,7 +3989,16 @@ static int _sde_crtc_vblank_enable_no_lock(
 		_sde_crtc_power_enable(sde_crtc, false);
 		mutex_lock(&sde_crtc->crtc_lock);
 	}
-
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	if (drm_crtc_index(crtc) == 0) {
+		const struct drm_mfr_callbacks * mfr_cb
+				= drm_mfr_get_mfr_callbacks();
+		if (mfr_cb) {
+			mfr_cb->notify_request_vblank_by_user(
+					mfr_cb->ctx, enable);
+		}
+	}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 	return 0;
 }
 
@@ -4131,8 +4267,13 @@ static void sde_crtc_handle_power_event(u32 event_type, void *arg)
 		event.type = DRM_EVENT_SDE_POWER;
 		event.length = sizeof(power_on);
 		power_on = 0;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00017 */
+		msm_mode_object_event_notify(&crtc->base, crtc->dev, &event,
+				(u8 *)&power_on, false);
+#else /* CONFIG_SHARP_DISPLAY */
 		msm_mode_object_event_notify(&crtc->base, crtc->dev, &event,
 				(u8 *)&power_on);
+#endif /* CONFIG_SHARP_DISPLAY */
 		break;
 	default:
 		SDE_DEBUG("event:%d not handled\n", event_type);
@@ -4189,8 +4330,13 @@ static void sde_crtc_disable(struct drm_crtc *crtc)
 	sde_cp_crtc_suspend(crtc);
 	sde_cp_update_ad_vsync_count(crtc, 0);
 	power_on = 0;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00017 */
+	msm_mode_object_event_notify(&crtc->base, crtc->dev, &event,
+			(u8 *)&power_on, false);
+#else /* CONFIG_SHARP_DISPLAY */
 	msm_mode_object_event_notify(&crtc->base, crtc->dev, &event,
 			(u8 *)&power_on);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	/* destination scaler if enabled should be reconfigured on resume */
 	if (cstate->num_ds_enabled)
@@ -4275,6 +4421,12 @@ static void sde_crtc_disable(struct drm_crtc *crtc)
 	cstate->bw_split_vote = false;
 
 	mutex_unlock(&sde_crtc->crtc_lock);
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	if (drm_crtc_index(crtc) == 0) {
+		SDE_DEBUG("%s: disable primary-crtc-state\n", __func__);
+		sde_crtc_drm_mfr_last_sbuf_prefill_line = -1;
+	}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 }
 
 static void sde_crtc_enable(struct drm_crtc *crtc)
@@ -4342,8 +4494,13 @@ static void sde_crtc_enable(struct drm_crtc *crtc)
 	event.length = sizeof(u32);
 	sde_cp_crtc_resume(crtc);
 	power_on = 1;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00017 */
+	msm_mode_object_event_notify(&crtc->base, crtc->dev, &event,
+			(u8 *)&power_on, false);
+#else /* CONFIG_SHARP_DISPLAY */
 	msm_mode_object_event_notify(&crtc->base, crtc->dev, &event,
 			(u8 *)&power_on);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	mutex_unlock(&sde_crtc->crtc_lock);
 
@@ -4826,6 +4983,15 @@ static int sde_crtc_atomic_check(struct drm_crtc *crtc,
 			prv_pstate->drm_pstate->crtc_y,
 			prv_pstate->drm_pstate->crtc_w,
 			prv_pstate->drm_pstate->crtc_h, false);
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00024 */
+		if (prv_pstate->drm_pstate->crtc_w == 1440) {
+			left_rect.w = prv_pstate->sde_pstate->base.crtc_w
+					= prv_pstate->drm_pstate->crtc_w / 2;
+			prv_pstate->sde_pstate->base.src_w
+					= prv_pstate->drm_pstate->src_w / 2;
+			SDE_DEBUG("width 1440->720 left_pid=%d\n", left_pid);
+		}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 		right_pid = cur_pstate->sde_pstate->base.plane->base.id;
 		POPULATE_RECT(&right_rect, cur_pstate->drm_pstate->crtc_x,
@@ -5296,8 +5462,12 @@ static int sde_crtc_atomic_set_property(struct drm_crtc *crtc,
 		_sde_crtc_set_input_fence_timeout(cstate);
 		break;
 	case CRTC_PROP_DIM_LAYER_V1:
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+		_sde_crtc_set_dim_layer_v1(cstate, (void __user *)(uintptr_t)val, crtc);
+#else
 		_sde_crtc_set_dim_layer_v1(cstate,
 					(void __user *)(uintptr_t)val);
+#endif /* CONFIG_SHARP_DISPLAY */
 		break;
 	case CRTC_PROP_ROI_V1:
 		ret = _sde_crtc_set_roi_v1(state,
@@ -6061,8 +6231,13 @@ static void __sde_crtc_idle_notify_work(struct kthread_work *work)
 		crtc = &sde_crtc->base;
 		event.type = DRM_EVENT_IDLE_NOTIFY;
 		event.length = sizeof(u32);
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00017 */
+		msm_mode_object_event_notify(&crtc->base, crtc->dev,
+				&event, (u8 *)&ret, false);
+#else /* CONFIG_SHARP_DISPLAY */
 		msm_mode_object_event_notify(&crtc->base, crtc->dev,
 				&event, (u8 *)&ret);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 		SDE_DEBUG("crtc[%d]: idle timeout notified\n", crtc->base.id);
 	}

@@ -2707,6 +2707,46 @@ void sdhci_msm_dump_pwr_ctrl_regs(struct sdhci_host *host)
 			msm_host_offset->CORE_PWRCTL_CTL), irq_flags);
 }
 
+#ifdef CONFIG_SHARP_MMC_SD
+static void
+sdhci_msm_set_enpwr_gpio(struct sdhci_msm_host *msm_host, bool enable)
+{
+	int rc;
+	int sdpwr_en = 0;
+	struct device_node *np = msm_host->pdev->dev.of_node;
+
+	sdpwr_en = of_get_named_gpio(np, "sdpwr-gpio", 0);
+	if (!gpio_is_valid(sdpwr_en)) {
+		pr_debug("sdpwr-gpio resource error\n");
+		return;
+	}
+
+	if (enable) {
+		if(mmc_gpio_get_cd(msm_host->mmc) == 1) {
+			rc = gpio_request(sdpwr_en, "sdpwr_en_gpio");
+			if (rc) {
+				pr_err("request for sdpwr_en_gpio failed, rc=%d\n", rc);
+			} else {
+				gpio_set_value_cansleep(sdpwr_en, enable);
+				gpio_free(sdpwr_en);
+			}
+		}
+	} else {
+		rc = gpio_request(sdpwr_en, "sdpwr_en_gpio");
+		if (rc) {
+			pr_err("request for sdpwr_en_gpio failed, rc=%d\n", rc);
+		} else {
+			gpio_set_value_cansleep(sdpwr_en, enable);
+			gpio_free(sdpwr_en);
+		}
+		msleep(20);
+	}
+
+	pr_debug("%s: set sd vdd power(%d)\n",
+			mmc_hostname(msm_host->mmc), enable);
+}
+#endif /* CONFIG_SHARP_MMC_SD */
+
 static int sdhci_msm_clear_pwrctl_status(struct sdhci_host *host, u8 value)
 {
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
@@ -2776,6 +2816,9 @@ static irqreturn_t sdhci_msm_pwr_irq(int irq, void *data)
 
 	/* Handle BUS ON/OFF*/
 	if (irq_status & CORE_PWRCTL_BUS_ON) {
+#ifdef CONFIG_SHARP_MMC_SD
+		sdhci_msm_set_enpwr_gpio(msm_host, true);
+#endif /* CONFIG_SHARP_MMC_SD */
 		ret = sdhci_msm_setup_vreg(msm_host->pdata, true, false);
 		if (!ret) {
 			ret = sdhci_msm_setup_pins(msm_host->pdata, true);
@@ -2795,6 +2838,10 @@ static irqreturn_t sdhci_msm_pwr_irq(int irq, void *data)
 			ret = sdhci_msm_setup_vreg(msm_host->pdata,
 					false, false);
 		if (!ret) {
+#ifdef CONFIG_SHARP_MMC_SD
+			if (msm_host->pltfm_init_done)
+				sdhci_msm_set_enpwr_gpio(msm_host, false);
+#endif /* CONFIG_SHARP_MMC_SD */
 			ret = sdhci_msm_setup_pins(msm_host->pdata, false);
 			ret |= sdhci_msm_set_vdd_io_vol(msm_host->pdata,
 					VDD_IO_LOW, 0);
@@ -5052,6 +5099,10 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 	msm_host->mmc->caps2 |= MMC_CAP2_BOOTPART_NOACC;
 	msm_host->mmc->caps2 |= MMC_CAP2_HS400_POST_TUNING;
 	msm_host->mmc->caps2 |= MMC_CAP2_CLK_SCALE;
+#ifdef CONFIG_SHARP_MMC_SD_DISABLE_CLK_SCALE
+	if (!strncmp(mmc_hostname(host->mmc), HOST_MMC_SD, sizeof(HOST_MMC_SD)))
+		msm_host->mmc->caps2 &= ~MMC_CAP2_CLK_SCALE;
+#endif /* CONFIG_SHARP_MMC_SD_DISABLE_CLK_SCALE */
 	msm_host->mmc->caps2 |= MMC_CAP2_SANITIZE;
 	msm_host->mmc->caps2 |= MMC_CAP2_MAX_DISCARD_SIZE;
 	msm_host->mmc->caps2 |= MMC_CAP2_SLEEP_AWAKE;
@@ -5192,6 +5243,90 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 		mmc_flush_detect_work(host->mmc);
 
 	/* Successful initialization */
+#if defined(CONFIG_SHARP_MMC) &&  defined(CONFIG_ANDROID_ENGINEERING)
+	{
+		pr_info("%s: Qualcomm MSM SDHC-core device irq=%d\n",
+				mmc_hostname(host->mmc), host->irq);
+		pr_info("%s: SDHCI version: 0x%.8x flags: 0x%.8x\n",
+				mmc_hostname(host->mmc), host->version, host->flags);
+		pr_info("%s: host caps: 0x%.8x\n",
+				mmc_hostname(host->mmc), host->caps);
+		pr_info("%s: quirks: 0x%.8x quirks2: 0x%.8x\n",
+				mmc_hostname(host->mmc), host->quirks, host->quirks2);
+		pr_info("%s: mmc caps: 0x%.8x caps2:0x%.8x\n",
+				mmc_hostname(host->mmc), msm_host->mmc->caps,
+				msm_host->mmc->caps2);
+		pr_info("%s: 8 bit data mode %s\n", mmc_hostname(host->mmc),
+			(msm_host->mmc->caps & MMC_CAP_8_BIT_DATA ?
+			 "enabled" : "disabled"));
+		pr_info("%s: 4 bit data mode %s\n", mmc_hostname(host->mmc),
+			(msm_host->mmc->caps & MMC_CAP_4_BIT_DATA ?
+			 "enabled" : "disabled"));
+		pr_info("%s: polling status mode %s\n", mmc_hostname(host->mmc),
+			(msm_host->mmc->caps & MMC_CAP_NEEDS_POLL ?
+			 "enabled" : "disabled"));
+		pr_info("%s: MMC clock %u -> %u Hz\n",
+		       mmc_hostname(host->mmc), sdhci_msm_get_min_clock(host),
+			sdhci_msm_get_max_clock(host));
+
+		if (msm_host->pdata != NULL) {
+			pr_info("%s: HS200 1.8V mode %s\n", mmc_hostname(host->mmc),
+				(msm_host->pdata->caps2 & MMC_CAP2_HS200_1_8V_SDR ?
+				 "enabled" : "disabled"));
+			pr_info("%s: HS200 1.2V mode %s\n", mmc_hostname(host->mmc),
+				(msm_host->pdata->caps2 & MMC_CAP2_HS200_1_2V_SDR ?
+				 "enabled" : "disabled"));
+			pr_info("%s: DDR 1.8V mode %s\n", mmc_hostname(host->mmc),
+				(msm_host->pdata->caps & MMC_CAP_1_8V_DDR ?
+				 "enabled" : "disabled"));
+			pr_info("%s: DDR 1.2V mode %s\n", mmc_hostname(host->mmc),
+				(msm_host->pdata->caps & MMC_CAP_1_2V_DDR ?
+				 "enabled" : "disabled"));
+			pr_info("%s: HS400 1.8V mode %s\n", mmc_hostname(host->mmc),
+				(msm_host->pdata->caps2 & MMC_CAP2_HS400_1_8V ?
+				 "enabled" : "disabled"));
+			pr_info("%s: HS400 1.2V mode %s\n", mmc_hostname(host->mmc),
+				(msm_host->pdata->caps2 & MMC_CAP2_HS400_1_2V ?
+				 "enabled" : "disabled"));
+			pr_info("%s: UHS(SDR104) mode %s\n", mmc_hostname(host->mmc),
+				(msm_host->pdata->caps & MMC_CAP_UHS_SDR104 ?
+				 "enabled" : "disabled"));
+			pr_info("%s: UHS(DDR50) mode %s\n", mmc_hostname(host->mmc),
+				(msm_host->pdata->caps & MMC_CAP_UHS_DDR50 ?
+				 "enabled" : "disabled"));
+		}
+
+		if ((msm_host->pdata != NULL) && (msm_host->pdata->vreg_data != NULL)
+			 && (msm_host->pdata->vreg_data->vdd_data != NULL))
+			pr_info("%s: %s, always_on=%d, lpm_sup=%d, vol=[%d %d]uV,"
+					" curr[%d %d]uA\n",
+				mmc_hostname(host->mmc),
+				msm_host->pdata->vreg_data->vdd_data->name,
+				msm_host->pdata->vreg_data->vdd_data->is_always_on,
+				msm_host->pdata->vreg_data->vdd_data->lpm_sup,
+				msm_host->pdata->vreg_data->vdd_data->low_vol_level,
+				msm_host->pdata->vreg_data->vdd_data->high_vol_level,
+				msm_host->pdata->vreg_data->vdd_data->lpm_uA,
+				msm_host->pdata->vreg_data->vdd_data->hpm_uA);
+		else
+			pr_info( "%s: <no vdd data>\n", mmc_hostname(host->mmc));
+
+		if ((msm_host->pdata != NULL) && (msm_host->pdata->vreg_data != NULL)
+			 && (msm_host->pdata->vreg_data->vdd_io_data != NULL))
+			pr_info("%s: %s, always_on=%d, lpm_sup=%d, vol=[%d %d]uV,"
+					" curr[%d %d]uA\n",
+				mmc_hostname(host->mmc),
+				msm_host->pdata->vreg_data->vdd_io_data->name,
+				msm_host->pdata->vreg_data->vdd_io_data->is_always_on,
+				msm_host->pdata->vreg_data->vdd_io_data->lpm_sup,
+				msm_host->pdata->vreg_data->vdd_io_data->low_vol_level,
+				msm_host->pdata->vreg_data->vdd_io_data->high_vol_level,
+				msm_host->pdata->vreg_data->vdd_io_data->lpm_uA,
+				msm_host->pdata->vreg_data->vdd_io_data->hpm_uA );
+		else
+			pr_info( "%s: <no vdd-io data>\n", mmc_hostname(host->mmc));
+	}
+#endif /* CONFIG_SHARP_MMC && CONFIG_ANDROID_ENGINEERING */
 	goto out;
 
 remove_max_bus_bw_file:

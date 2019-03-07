@@ -34,4 +34,5 @@ obj-y += rc/
 
 obj-y += common/ platform/ pci/ usb/ mmc/ firewire/ spi/
 obj-$(CONFIG_VIDEO_DEV) += radio/
+obj-$(CONFIG_SHARP_DTV_TUNERDEV_FSEG)	+= shtunerdrv_fseg/
 

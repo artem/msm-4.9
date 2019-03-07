@@ -1933,6 +1933,10 @@ extern void usb_led_activity(enum usb_led_event ev);
 static inline void usb_led_activity(enum usb_led_event ev) {}
 #endif
 
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+extern int dwc3_otg_is_usb_host_running(bool);
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
+
 #endif  /* __KERNEL__ */
 
 #endif

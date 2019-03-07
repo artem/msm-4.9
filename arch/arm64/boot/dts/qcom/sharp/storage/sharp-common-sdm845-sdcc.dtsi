@@ -1,0 +1,45 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&sdhc_2 {
+	vdd-supply = <&pm8998_l21>;
+	qcom,vdd-voltage-level = <2950000 2960000>;
+	qcom,vdd-current-level = <200 800000>;
+
+	vdd-io-supply = <&pm8998_l13>;
+	qcom,vdd-io-voltage-level = <1808000 2960000>;
+	qcom,vdd-io-current-level = <200 22000>;
+
+	pinctrl-names = "active", "sleep";
+	pinctrl-0 = <&sdc2_clk_on  &sdc2_cmd_on &sdc2_data_on &storage_cd>;
+	pinctrl-1 = <&sdc2_clk_off &sdc2_cmd_off &sdc2_data_off &storage_cd>;
+
+	cd-gpios = <&tlmm 126 GPIO_ACTIVE_LOW>;
+
+	status = "ok";
+};
+
+&sdhc_2 {
+	vdd-supply = <>;
+	qcom,vdd-voltage-level = <>;
+	qcom,vdd-current-level = <>;
+	cd-gpios = <&tlmm 126 GPIO_ACTIVE_HIGH>;
+	sdpwr-gpio = <&pm8998_gpios 10 0x0>;
+};
+
+/*
+  Clock rates
+ */
+&sdhc_2 {
+	qcom,clk-rates = <400000 20000000 25000000 48000000 50000000 100000000 201500000>;
+	qcom,bus-bw-vectors-bps = <0 400000 20000000 25000000 48000000 50000000 100750000 200000000 4294967295>;
+};

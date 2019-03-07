@@ -26,6 +26,21 @@
 #include <linux/workqueue.h>
 #include <linux/freezer.h>
 
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+#include <linux/module.h>
+enum {
+   SH_DEBUG_ALARM_TRIGGERED = 1U << 0,
+};
+static int sh_debug_mask = 0;
+module_param_named(
+   sh_debug_mask, sh_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
+
+#ifdef CONFIG_SHARP_PNP_SLEEP_SLEEPLOG
+#include <soc/qcom/sharp/sh_sleeplog.h>
+#endif /* CONFIG_SHARP_PNP_SLEEP_SLEEPLOG */
+
 /**
  * struct alarm_base - Alarm timer bases
  * @lock:		Lock for syncrhonized access to the base
@@ -208,8 +223,28 @@ static enum hrtimer_restart alarmtimer_fired(struct hrtimer *timer)
 	alarmtimer_dequeue(base, alarm);
 	spin_unlock_irqrestore(&base->lock, flags);
 
+#if (defined(CONFIG_SHARP_PNP_SLEEP_DEBUG)||defined(CONFIG_SHARP_PNP_SLEEP_SLEEPLOG))
+	if (alarm->function){
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+		if(sh_debug_mask == SH_DEBUG_ALARM_TRIGGERED){
+			pr_info("call alarm, type %d, func %pF \n",
+				alarm->type, alarm->function);
+		}
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
+#ifdef CONFIG_SHARP_PNP_SLEEP_SLEEPLOG
+#ifdef CONFIG_ARM64
+		sh_count_mark_alarm(alarm->type, (int64_t)alarm->function);
+#endif /* CONFIG_ARM64 */
+#ifdef CONFIG_ARM
+		sh_count_mark_alarm(alarm->type, (int)alarm->function);
+#endif /* CONFIG_ARM */
+#endif /* CONFIG_SHARP_PNP_SLEEP_SLEEPLOG */
+		restart = alarm->function(alarm, base->gettime());
+	}
+#else /* CONFIG_SHARP_PNP_SLEEP_DEBUG || CONFIG_SHARP_PNP_SLEEP_SLEEPLOG */
 	if (alarm->function)
 		restart = alarm->function(alarm, base->gettime());
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG || CONFIG_SHARP_PNP_SLEEP_SLEEPLOG */
 
 	spin_lock_irqsave(&base->lock, flags);
 	if (restart != ALARMTIMER_NORESTART) {

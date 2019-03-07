@@ -37,7 +37,11 @@
 	 SSUSB_GADGET_VBUS_DRAW : CONFIG_USB_GADGET_VBUS_DRAW)
 
 /* disable LPM by default */
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+static bool disable_l1_for_hs = 1;
+#else /* CONFIG_USB_ANDROID_SHARP_CUST */
 static bool disable_l1_for_hs;
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 module_param(disable_l1_for_hs, bool, 0644);
 MODULE_PARM_DESC(disable_l1_for_hs,
 	"Disable support for L1 LPM for HS devices");
@@ -70,6 +74,16 @@ static struct usb_gadget_strings **get_containers_gs(
 {
 	return (struct usb_gadget_strings **)uc->stash;
 }
+
+#ifdef CONFIG_USB_ANDROID_SHARP_MTP
+#define USB_MS_OS_DESCRIPTOR_ID			(0xEE)
+#endif /* CONFIG_USB_ANDROID_SHARP_MTP */
+
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+#define D_USB_CHARGE_MAX_POWER			(500)
+#define D_USB_DISCHARGE_MAX_POWER_DRAW		(0)
+#define D_USB_DISCHARGE_MAX_POWER_DESC		(100/2)
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 
 /**
  * function_descriptors() - get function descriptors for speed
@@ -568,7 +582,11 @@ EXPORT_SYMBOL(usb_func_ep_queue);
 static u8 encode_bMaxPower(enum usb_device_speed speed,
 		struct usb_configuration *c)
 {
+#ifndef CONFIG_USB_ANDROID_SHARP_CUST
 	unsigned int val = CONFIG_USB_GADGET_VBUS_DRAW;
+#else /* CONFIG_USB_ANDROID_SHARP_CUST */
+	unsigned int val = D_USB_DISCHARGE_MAX_POWER_DESC;
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 
 	switch (speed) {
 	case USB_SPEED_SUPER:
@@ -642,6 +660,9 @@ static int config_desc(struct usb_composite_dev *cdev, unsigned w_value)
 	struct list_head		*pos;
 	u8				type = w_value >> 8;
 	enum usb_device_speed		speed = USB_SPEED_UNKNOWN;
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+	int selfpowered = 1;
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 
 	if (gadget->speed >= USB_SPEED_SUPER)
 		speed = gadget->speed;
@@ -656,6 +677,9 @@ static int config_desc(struct usb_composite_dev *cdev, unsigned w_value)
 
 	}
 
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+	selfpowered = usb_gadget_is_selfpowered(gadget);
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 	/* This is a lookup by config *INDEX* */
 	w_value &= 0xff;
 
@@ -691,8 +715,23 @@ check_config:
 				continue;
 		}
 
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+		if (w_value == 0) {
+			if (selfpowered == 0) {
+				c->bmAttributes &= ~USB_CONFIG_ATT_SELFPOWER;
+				c->MaxPower = D_USB_CHARGE_MAX_POWER;
+			}
+			else {
+				c->bmAttributes |= USB_CONFIG_ATT_SELFPOWER;
+				c->MaxPower = D_USB_DISCHARGE_MAX_POWER_DRAW;
+			}
+
+			return config_buf(c, speed, cdev->req->buf, type);
+		}
+#else /* CONFIG_USB_ANDROID_SHARP_CUST */
 		if (w_value == 0)
 			return config_buf(c, speed, cdev->req->buf, type);
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 		w_value--;
 	}
 	return -EINVAL;
@@ -928,9 +967,11 @@ static int set_config(struct usb_composite_dev *cdev,
 		result = 0;
 	}
 
+#ifdef CONFIG_USB_DEBUG_SHARP_LOG
 	INFO(cdev, "%s config #%d: %s\n",
 	     usb_speed_string(gadget->speed),
 	     number, c ? c->label : "unconfigured");
+#endif /* CONFIG_USB_DEBUG_SHARP_LOG */
 
 	if (!c)
 		goto done;
@@ -1331,6 +1372,11 @@ int usb_string_id(struct usb_composite_dev *cdev)
 		 * supported languages */
 		/* 255 reserved as well? -- mina86 */
 		cdev->next_string_id++;
+#ifdef CONFIG_USB_ANDROID_SHARP_MTP
+		/* it is reserved too */
+		if (cdev->next_string_id == USB_MS_OS_DESCRIPTOR_ID)
+			cdev->next_string_id++;
+#endif /* CONFIG_USB_ANDROID_SHARP_MTP */
 		return cdev->next_string_id;
 	}
 	return -ENODEV;

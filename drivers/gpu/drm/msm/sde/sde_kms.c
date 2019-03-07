@@ -51,6 +51,9 @@
 
 #define CREATE_TRACE_POINTS
 #include "sde_trace.h"
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+#include "../sharp/drm_mfr.h"
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 /* defines for secure channel call */
 #define SEC_SID_CNT               2
@@ -983,8 +986,18 @@ static void _sde_kms_release_splash_resource(struct sde_kms *sde_kms,
 	bool primary_crtc_active = false;
 	struct msm_drm_private *priv;
 	int i, rc = 0;
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	static bool splash_next = false;
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 	priv = sde_kms->dev->dev_private;
+
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	if (splash_next) {
+		drm_mfr_set_mfr(40);
+		splash_next = false;
+	}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 	if (!sde_kms->splash_data.resource_handoff_pending)
 		return;
@@ -1006,6 +1019,9 @@ static void _sde_kms_release_splash_resource(struct sde_kms *sde_kms,
 	if (sde_kms->splash_data.cont_splash_en) {
 		SDE_DEBUG("disabling cont_splash feature\n");
 		sde_kms->splash_data.cont_splash_en = false;
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+		splash_next = true;
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 		for (i = 0; i < SDE_POWER_HANDLE_DBUS_ID_MAX; i++)
 			sde_power_data_bus_set_quota(&priv->phandle,
@@ -3319,6 +3335,8 @@ static int sde_kms_hw_init(struct msm_kms *kms)
 		goto power_error;
 	}
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00073 */
+#ifndef CONFIG_ARCH_DIO
 	sde_kms->splash_data.resource_handoff_pending = true;
 
 	rc = _sde_kms_mmu_init(sde_kms);
@@ -3334,6 +3352,24 @@ static int sde_kms_hw_init(struct msm_kms *kms)
 		SDE_ERROR("failed: reg dma init failed\n");
 		goto power_error;
 	}
+#endif /* CONFIG_ARCH_DIO */
+#else /* CONFIG_SHARP_DISPLAY */
+	sde_kms->splash_data.resource_handoff_pending = true;
+
+	rc = _sde_kms_mmu_init(sde_kms);
+	if (rc) {
+		SDE_ERROR("sde_kms_mmu_init failed: %d\n", rc);
+		goto power_error;
+	}
+
+	/* Initialize reg dma block which is a singleton */
+	rc = sde_reg_dma_init(sde_kms->reg_dma, sde_kms->catalog,
+			sde_kms->dev);
+	if (rc) {
+		SDE_ERROR("failed: reg dma init failed\n");
+		goto power_error;
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	sde_dbg_init_dbg_buses(sde_kms->core_rev);
 
@@ -3364,6 +3400,25 @@ static int sde_kms_hw_init(struct msm_kms *kms)
 					&sde_kms->splash_data,
 					sde_kms->catalog);
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00073 */
+#ifdef CONFIG_ARCH_DIO
+	sde_kms->splash_data.resource_handoff_pending = true;
+
+	/* Initialize reg dma block which is a singleton */
+	rc = sde_reg_dma_init(sde_kms->reg_dma, sde_kms->catalog,
+			sde_kms->dev);
+	if (rc) {
+		SDE_ERROR("failed: reg dma init failed\n");
+		goto power_error;
+	}
+
+	rc = _sde_kms_mmu_init(sde_kms);
+	if (rc) {
+		SDE_ERROR("sde_kms_mmu_init failed: %d\n", rc);
+		goto power_error;
+	}
+#endif /* CONFIG_ARCH_DIO */
+#endif /* CONFIG_SHARP_DISPLAY */
 	sde_kms->hw_mdp = sde_rm_get_mdp(&sde_kms->rm);
 	if (IS_ERR_OR_NULL(sde_kms->hw_mdp)) {
 		rc = PTR_ERR(sde_kms->hw_mdp);

@@ -299,7 +299,13 @@ static int __cam_node_handle_release_dev(struct cam_node *node,
 		node->name, ctx->ctx_id,
 		atomic_read(&(ctx->refcount.refcount)));
 
+/* SHLOCAL_CAMERA_DRIVERS-> *//* for SIGSEGV with longshot */
+#if 0
 	cam_context_putref(ctx);
+#else
+	cam_node_put_ctxt_to_free_list(&ctx->refcount);
+#endif
+/* SHLOCAL_CAMERA_DRIVERS<- */
 	return rc;
 }
 

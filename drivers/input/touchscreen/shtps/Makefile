@@ -1,0 +1,1 @@
+obj-$(CONFIG_SHARP_TPS_SY3X00_DEV)	+= sy3000/

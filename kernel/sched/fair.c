@@ -90,6 +90,18 @@ unsigned int sysctl_sched_sync_hint_enable = 1;
 unsigned int sysctl_sched_cstate_aware = 1;
 DEFINE_PER_CPU_READ_MOSTLY(int, sched_load_boost);
 
+#ifdef CONFIG_SHARP_PNP_CLOCK
+int sh_sched_load_boost_gold = -16;
+module_param_named(
+	sh_sched_load_boost_gold, sh_sched_load_boost_gold, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+
+unsigned int sh_sched_load_boost_freq_gold = 1996800;
+module_param_named(
+	sh_sched_load_boost_freq_gold, sh_sched_load_boost_freq_gold, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
+
 #ifdef CONFIG_SCHED_WALT
 unsigned int sysctl_sched_use_walt_cpu_util = 1;
 unsigned int sysctl_sched_use_walt_task_util = 1;

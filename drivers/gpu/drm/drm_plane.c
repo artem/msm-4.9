@@ -25,6 +25,10 @@
 
 #include "drm_crtc_internal.h"
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00019 */
+static struct drm_mode_crtc_page_flip_target bak_page_flip;
+#endif /* CONFIG_SHARP_DISPLAY */
+
 /**
  * DOC: overview
  *
@@ -752,6 +756,16 @@ int drm_mode_cursor2_ioctl(struct drm_device *dev,
 	return drm_mode_cursor_common(dev, req, file_priv);
 }
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00019 */
+int drm_mode_page_flip_diag(struct drm_device *dev,
+				struct drm_file *file_priv)
+{
+	int ret = 0;
+	ret = drm_mode_page_flip_ioctl(dev, (void*)&bak_page_flip, file_priv);
+	return ret;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
+
 int drm_mode_page_flip_ioctl(struct drm_device *dev,
 			     void *data, struct drm_file *file_priv)
 {
@@ -833,6 +847,10 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev,
 		goto out;
 	}
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00019 */
+	memcpy(&bak_page_flip, page_flip,
+			sizeof(struct drm_mode_crtc_page_flip_target));
+#endif /* CONFIG_SHARP_DISPLAY */
 	fb = drm_framebuffer_lookup(dev, page_flip->fb_id);
 	if (!fb) {
 		ret = -ENOENT;

@@ -932,3 +932,9 @@ config BIG_CLUSTER_MIN_FREQ_ADJUST
 	  This driver is used to set the floor of the min frequency of big cluster
 	  to the user specified value when the cluster is not power collapsed. When
 	  the cluster is power collpsed it resets the value to physical limits.
+
+source "drivers/soc/qcom/sharp/Kconfig"
+
+config SHARP_SMEM_CUST
+       bool "SHARP SYSTEM CUSTOMIZE"
+       default n

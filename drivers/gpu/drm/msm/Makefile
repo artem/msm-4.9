@@ -42,6 +42,13 @@ msm_drm-y := \
 	sde_edid_parser.o \
 	sde_hdcp_1x.o
 
+msm_drm-$(CONFIG_SHARP_DISPLAY) += sharp/drm_proc.o \
+	sharp/drm_diag.o \
+	sharp/drm_cmn.o \
+	sharp/drm_det.o \
+	sharp/drm_notify.o \
+	sharp/drm_fps_debugfs.o \
+
 msm_drm-$(CONFIG_DRM_MSM_HDMI) += hdmi/hdmi.o \
 	hdmi/hdmi_audio.o \
 	hdmi/hdmi_bridge.o \
@@ -187,3 +194,13 @@ msm_drm-$(CONFIG_DRM_MSM) += \
 	msm_debugfs.o
 
 obj-$(CONFIG_DRM_MSM)	+= msm_drm.o
+
+msm_drm-$(CONFIG_SHARP_DRM_HR_VID) += \
+	sharp/drm_mfr.o \
+	sharp/drm_mfr_pwrsave.o
+
+ifeq ($(CONFIG_SHARP_DISPLAY),y)
+ifeq ($(CONFIG_LEDS_QPNP_WLED),y)
+msm_drm-y += sharp/drm_flbl.o
+endif
+endif

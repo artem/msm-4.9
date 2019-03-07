@@ -51,6 +51,20 @@
 #include <linux/export.h>
 #include <trace/events/power.h>
 
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+#include <linux/module.h>
+#include <soc/qcom/pm.h>
+extern int get_latency_value(void);
+enum {
+	SH_DEBUG_QOS_REQUEST           = 1U << 0,
+};
+static int sh_debug_mask = 0;
+module_param_named(
+	sh_debug_mask, sh_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+static void sh_qos_debug(struct pm_qos_request *req, s32 new_value, bool timeout, s32 timeout_us);
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
+
 /*
  * locking rule: all changes to constraints or notifiers lists
  * or pm_qos_object list and pm_qos_objects need to happen with pm_qos_lock
@@ -583,6 +597,10 @@ void pm_qos_add_request(struct pm_qos_request *req,
 		WARN(1, KERN_ERR "pm_qos_add_request() called for already added request\n");
 		return;
 	}
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+	if(sh_debug_mask != 0)
+		sh_qos_debug(req, value, false, 0);
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
 
 	switch (req->type) {
 	case PM_QOS_REQ_AFFINE_CORES:
@@ -672,6 +690,11 @@ void pm_qos_update_request(struct pm_qos_request *req,
 		return;
 	}
 
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+	if(sh_debug_mask != 0)
+		sh_qos_debug(req, new_value, false, 0);
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
+
 	/*
 	 * This function may be called very early during boot, for example,
 	 * from of_clk_init(), where irq needs to stay disabled.
@@ -679,8 +702,16 @@ void pm_qos_update_request(struct pm_qos_request *req,
 	 * invocation and re-enables it on return.  Avoid calling it until
 	 * workqueue is initialized.
 	 */
+#ifdef CONFIG_SHARP_PNP_SLEEP
+	if (keventd_up()) {
+		if (delayed_work_pending(&req->work)) {
+			cancel_delayed_work_sync(&req->work);
+		}
+	}
+#else /* CONFIG_SHARP_PNP_SLEEP */
 	if (keventd_up())
 		cancel_delayed_work_sync(&req->work);
+#endif /* CONFIG_SHARP_PNP_SLEEP */
 
 	__pm_qos_update_request(req, new_value);
 }
@@ -703,7 +734,17 @@ void pm_qos_update_request_timeout(struct pm_qos_request *req, s32 new_value,
 		 "%s called for unknown object.", __func__))
 		return;
 
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+	if(sh_debug_mask != 0)
+		sh_qos_debug(req, new_value, true, timeout_us);
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
+
+#ifdef CONFIG_SHARP_PNP_SLEEP
+	if (delayed_work_pending(&req->work))
+		cancel_delayed_work_sync(&req->work);
+#else /* CONFIG_SHARP_PNP_SLEEP */
 	cancel_delayed_work_sync(&req->work);
+#endif /* CONFIG_SHARP_PNP_SLEEP */
 
 	trace_pm_qos_update_request_timeout(req->pm_qos_class,
 					    new_value, timeout_us);
@@ -734,7 +775,17 @@ void pm_qos_remove_request(struct pm_qos_request *req)
 		return;
 	}
 
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+	if(sh_debug_mask != 0)
+		sh_qos_debug(req, PM_QOS_DEFAULT_VALUE, false, 0);
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
+
+#ifdef CONFIG_SHARP_PNP_SLEEP
+	if (delayed_work_pending(&req->work))
+		cancel_delayed_work_sync(&req->work);
+#else /* CONFIG_SHARP_PNP_SLEEP */
 	cancel_delayed_work_sync(&req->work);
+#endif /* CONFIG_SHARP_PNP_SLEEP */
 
 #ifdef CONFIG_SMP
 	if (req->type == PM_QOS_REQ_AFFINE_IRQ) {
@@ -920,3 +971,25 @@ static int __init pm_qos_power_init(void)
 }
 
 late_initcall(pm_qos_power_init);
+
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+static void sh_qos_debug(struct pm_qos_request *req, s32 new_value,
+	bool timeout, s32 timeout_us)
+{
+	int class = req->pm_qos_class;
+
+	if (sh_debug_mask & SH_DEBUG_QOS_REQUEST) {
+		if(new_value == PM_QOS_DEFAULT_VALUE) {
+			pr_info("QoS: [Release] req %pS, class %d\n", req, class);
+		} else {
+			if (timeout) {
+				pr_info("QoS: [Update] req %pS, class %d, value %dus, timeout(us) %d\n",
+					req, class, new_value, timeout_us);
+			} else {
+				pr_info("QoS: [Update] req %pS, class %d, value %dus\n",
+					req, class, new_value);
+			}
+		}
+	}
+}
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */

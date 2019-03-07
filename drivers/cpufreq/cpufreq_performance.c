@@ -18,6 +18,10 @@
 
 static void cpufreq_gov_performance_limits(struct cpufreq_policy *policy)
 {
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	if (policy->cpu >= 4)
+		policy->max = sh_get_sh_limit_freq_gold();
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 	pr_debug("setting to %u kHz\n", policy->max);
 	__cpufreq_driver_target(policy, policy->max, CPUFREQ_RELATION_H);
 }

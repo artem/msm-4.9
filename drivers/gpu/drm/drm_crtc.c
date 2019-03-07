@@ -636,6 +636,9 @@ int drm_mode_getcrtc(struct drm_device *dev,
 {
 	struct drm_mode_crtc *crtc_resp = data;
 	struct drm_crtc *crtc;
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+	bool main_display = false;
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	if (!drm_core_check_feature(dev, DRIVER_MODESET))
 		return -EINVAL;
@@ -655,7 +658,14 @@ int drm_mode_getcrtc(struct drm_device *dev,
 		crtc_resp->x = crtc->primary->state->src_x >> 16;
 		crtc_resp->y = crtc->primary->state->src_y >> 16;
 		if (crtc->state->enable) {
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+			if (drm_crtc_index(crtc) == 0)
+				main_display = true;
+			drm_mode_convert_to_umode(&crtc_resp->mode, &crtc->state->mode,
+									main_display);
+#else /* CONFIG_SHARP_DISPLAY */
 			drm_mode_convert_to_umode(&crtc_resp->mode, &crtc->state->mode);
+#endif /* CONFIG_SHARP_DISPLAY */
 			crtc_resp->mode_valid = 1;
 
 		} else {
@@ -665,7 +675,14 @@ int drm_mode_getcrtc(struct drm_device *dev,
 		crtc_resp->x = crtc->x;
 		crtc_resp->y = crtc->y;
 		if (crtc->enabled) {
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+			if (drm_crtc_index(crtc) == 0)
+				main_display = true;
+			drm_mode_convert_to_umode(&crtc_resp->mode, &crtc->mode,
+								main_display);
+#else /* CONFIG_SHARP_DISPLAY */
 			drm_mode_convert_to_umode(&crtc_resp->mode, &crtc->mode);
+#endif /* CONFIG_SHARP_DISPLAY */
 			crtc_resp->mode_valid = 1;
 
 		} else {
@@ -731,14 +748,33 @@ EXPORT_SYMBOL(drm_mode_set_config_internal);
  * The vdisplay value will be doubled if the specified mode is a stereo mode of
  * the appropriate layout.
  */
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+void drm_crtc_get_hv_timing(const struct drm_display_mode *mode,
+			    int *hdisplay, int *vdisplay, bool main_display)
+#else /* CONFIG_SHARP_DISPLAY */
 void drm_crtc_get_hv_timing(const struct drm_display_mode *mode,
 			    int *hdisplay, int *vdisplay)
+#endif /* CONFIG_SHARP_DISPLAY */
 {
 	struct drm_display_mode adjusted;
 
 	drm_mode_copy(&adjusted, mode);
 	drm_mode_set_crtcinfo(&adjusted, CRTC_STEREO_DOUBLE_ONLY);
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+	if (main_display) {
+		if (adjusted.crtc_hdisplay == 720) {
+			*hdisplay = 540;
+		} else if (adjusted.crtc_hdisplay == 1440) {
+			*hdisplay = 1080;
+		} else {
+			*hdisplay = adjusted.crtc_hdisplay;
+		}
+	} else {
+		*hdisplay = adjusted.crtc_hdisplay;
+	}
+#else /* CONFIG_SHARP_DISPLAY */
 	*hdisplay = adjusted.crtc_hdisplay;
+#endif /* CONFIG_SHARP_DISPLAY */
 	*vdisplay = adjusted.crtc_vdisplay;
 }
 EXPORT_SYMBOL(drm_crtc_get_hv_timing);
@@ -759,8 +795,15 @@ int drm_crtc_check_viewport(const struct drm_crtc *crtc,
 
 {
 	int hdisplay, vdisplay;
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+	bool main_display = false;
 
+	if (drm_crtc_index(crtc) == 0)
+		main_display = true;
+	drm_crtc_get_hv_timing(mode, &hdisplay, &vdisplay, main_display);
+#else
 	drm_crtc_get_hv_timing(mode, &hdisplay, &vdisplay);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	if (crtc->state &&
 	    crtc->primary->state->rotation & (DRM_ROTATE_90 |
@@ -799,6 +842,9 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data,
 	uint32_t __user *set_connectors_ptr;
 	int ret;
 	int i;
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+	bool main_display = false;
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	if (!drm_core_check_feature(dev, DRIVER_MODESET))
 		return -EINVAL;
@@ -847,7 +893,13 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data,
 			goto out;
 		}
 
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+		if (drm_crtc_index(crtc) == 0)
+			main_display = true;
+		ret = drm_mode_convert_umode(mode, &crtc_req->mode, main_display);
+#else /* CONFIG_SHARP_DISPLAY */
 		ret = drm_mode_convert_umode(mode, &crtc_req->mode);
+#endif /* CONFIG_SHARP_DISPLAY */
 		if (ret) {
 			DRM_DEBUG_KMS("Invalid mode\n");
 			goto out;

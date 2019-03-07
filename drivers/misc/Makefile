@@ -31,6 +31,7 @@ obj-$(CONFIG_ISL29020)		+= isl29020.o
 obj-$(CONFIG_SENSORS_TSL2550)	+= tsl2550.o
 obj-$(CONFIG_DS1682)		+= ds1682.o
 obj-$(CONFIG_TI_DAC7512)	+= ti_dac7512.o
+obj-$(CONFIG_SHARP_PNP_SLEEP_SLEEPLOG)	+= uid_stat.o
 obj-$(CONFIG_C2PORT)		+= c2port/
 obj-$(CONFIG_HMC6352)		+= hmc6352.o
 obj-y				+= eeprom/
@@ -62,6 +63,13 @@ obj-$(CONFIG_MEMORY_STATE_TIME)	+= memory_state_time.o
 
 obj-$(CONFIG_UID_SYS_STATS)	+= uid_sys_stats.o
 obj-$(CONFIG_MEMORY_STATE_TIME)	+= memory_state_time.o
+
+obj-$(CONFIG_SHARP_SYSTIME_CUST) += sh_systime.o
+obj-$(CONFIG_SHARP_SHTERM)		+= shterm/
+obj-$(CONFIG_SHUB_ML630Q790)	+= shsensor_hub/ml630q790/
+obj-$(CONFIG_SHARP_FLIP)	+= shflip/
+obj-$(CONFIG_SHARP_HALL)	+= shhall/
+obj-$(CONFIG_BATTERY_SHARP)	+= shbatt/
 
 lkdtm-$(CONFIG_LKDTM)		+= lkdtm_core.o
 lkdtm-$(CONFIG_LKDTM)		+= lkdtm_bugs.o

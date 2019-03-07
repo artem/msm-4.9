@@ -34,6 +34,10 @@
 
 #include "drm_crtc_internal.h"
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00024 */
+extern struct drm_plane * drm_plane_from_index(struct drm_device *dev, int idx);
+#endif /* CONFIG_SHARP_DISPLAY */
+
 /**
  * DOC: overview
  *
@@ -2371,6 +2375,14 @@ int __drm_atomic_helper_set_config(struct drm_mode_set *set,
 	struct drm_crtc *crtc = set->crtc;
 	int hdisplay, vdisplay;
 	int ret;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00024 */
+	struct drm_plane *plane2;
+	struct drm_plane_state *plane_state2;
+	int ret_plane2;
+#endif /* CONFIG_SHARP_DISPLAY */
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+	bool main_display = false;
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	crtc_state = drm_atomic_get_crtc_state(state, crtc);
 	if (IS_ERR(crtc_state))
@@ -2395,6 +2407,25 @@ int __drm_atomic_helper_set_config(struct drm_mode_set *set,
 			return ret;
 
 		drm_atomic_set_fb_for_plane(primary_state, NULL);
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00024 */
+		plane2 = drm_plane_from_index(crtc->primary->dev, 1);
+		if (!plane2) {
+			DRM_ERROR("no plane2\n");
+			goto fail_release_plane2;
+		}
+		DRM_DEBUG_ATOMIC("%s:2:plane index=0x%02x id=0x%02x\n",
+				__func__, plane2->index, plane2->base.id);
+		plane_state2 = drm_atomic_get_plane_state(state, plane2);
+		if (IS_ERR(plane_state2)) {
+			goto fail_release_plane2;
+		}
+		ret_plane2 = drm_atomic_set_crtc_for_plane(plane_state2, NULL);
+		if (ret_plane2 != 0)
+			goto fail_release_plane2;
+
+		drm_atomic_set_fb_for_plane(plane_state2, NULL);
+fail_release_plane2:
+#endif /* CONFIG_SHARP_DISPLAY */
 
 		goto commit;
 	}
@@ -2412,11 +2443,75 @@ int __drm_atomic_helper_set_config(struct drm_mode_set *set,
 	if (ret != 0)
 		return ret;
 
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+	if (drm_crtc_index(crtc) == 0)
+		main_display = true;
+	drm_crtc_get_hv_timing(set->mode, &hdisplay, &vdisplay, main_display);
+#else
 	drm_crtc_get_hv_timing(set->mode, &hdisplay, &vdisplay);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	drm_atomic_set_fb_for_plane(primary_state, set->fb);
 	primary_state->crtc_x = 0;
 	primary_state->crtc_y = 0;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00038 */
+	primary_state->crtc_w = hdisplay/2;
+	primary_state->crtc_h = vdisplay;
+	if (primary_state->rotation & (DRM_ROTATE_90)) {
+		primary_state->src_x = set->x << 16;
+		primary_state->src_y = set->y << 16;
+		primary_state->src_w = vdisplay << 16;
+		primary_state->src_h = hdisplay << (16-1);
+	} else if (primary_state->rotation & DRM_ROTATE_270) {
+		primary_state->src_x = set->x << 16;
+		primary_state->src_y = (set->y << 16) + (hdisplay << (16-1));
+		primary_state->src_w = vdisplay << 16;
+		primary_state->src_h = hdisplay << (16-1);
+	} else {
+		primary_state->src_x = set->x << 16;
+		primary_state->src_y = set->y << 16;
+		primary_state->src_w = hdisplay << (16-1);
+		primary_state->src_h = vdisplay << 16;
+	}
+
+	plane2 = drm_plane_from_index(crtc->primary->dev, 1);
+	if (!plane2) {
+		DRM_ERROR("no plane2\n");
+		goto commit;
+	}
+	DRM_DEBUG_ATOMIC("%s:2:plane2 index=0x%02x id=0x%02x\n",
+			__func__, plane2->index, plane2->base.id);
+	plane_state2 = drm_atomic_get_plane_state(state, plane2);
+	if (IS_ERR(plane_state2)) {
+		goto commit;
+	}
+	ret_plane2 = drm_atomic_set_crtc_for_plane(plane_state2, crtc);
+	if (ret_plane2 != 0) {
+		goto commit;
+	}
+	drm_atomic_set_fb_for_plane(plane_state2, set->fb);
+
+	plane_state2->crtc_x = hdisplay/2;
+	plane_state2->crtc_y = 0;
+	plane_state2->crtc_w = hdisplay/2;
+	plane_state2->crtc_h = vdisplay;
+	if (plane_state2->rotation & DRM_ROTATE_90) {
+		plane_state2->src_x = set->x << 16;
+		plane_state2->src_y = (set->y << 16) + (hdisplay << (16-1));
+		plane_state2->src_w = vdisplay << 16;
+		plane_state2->src_h = hdisplay << (16-1);
+	} else if (plane_state2->rotation & DRM_ROTATE_270) {
+		plane_state2->src_x = set->x << 16;
+		plane_state2->src_y = set->y << 16;
+		plane_state2->src_w = vdisplay << 16;
+		plane_state2->src_h = hdisplay << (16-1);
+	} else {
+		plane_state2->src_x = (set->x << 16) + (hdisplay << (16-1));
+		plane_state2->src_y = set->y << 16;
+		plane_state2->src_w = hdisplay << (16-1);
+		plane_state2->src_h = vdisplay << 16;
+	}
+#else /* CONFIG_SHARP_DISPLAY */
 	primary_state->crtc_w = hdisplay;
 	primary_state->crtc_h = vdisplay;
 	primary_state->src_x = set->x << 16;
@@ -2428,6 +2523,7 @@ int __drm_atomic_helper_set_config(struct drm_mode_set *set,
 		primary_state->src_w = hdisplay << 16;
 		primary_state->src_h = vdisplay << 16;
 	}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 commit:
 	ret = update_output_state(state, set);
@@ -2798,6 +2894,16 @@ int drm_atomic_helper_page_flip(struct drm_crtc *crtc,
 	struct drm_plane_state *plane_state;
 	struct drm_crtc_state *crtc_state;
 	int ret = 0;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00024 */
+	struct drm_plane *plane2;
+	struct drm_plane_state *plane_state2;
+
+	if (!plane) {
+		DRM_ERROR("no plane\n");
+		return -EINVAL;
+	}
+	DRM_DEBUG_ATOMIC("%s:plane index=0x%02x id=0x%02x\n",__func__, plane->index, plane->base.id);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	if (flags & DRM_MODE_PAGE_FLIP_ASYNC)
 		return -EINVAL;
@@ -2820,12 +2926,40 @@ retry:
 		ret = PTR_ERR(plane_state);
 		goto fail;
 	}
-
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00024 */
+	DRM_DEBUG_ATOMIC("%s:src_x=0x%02x, src_y=0x%02x\n",__func__, plane_state->src_x, plane_state->src_y);
+	DRM_DEBUG_ATOMIC("%s:src_w=0x%02x, src_h=0x%02x\n",__func__, plane_state->src_w, plane_state->src_h);
+	DRM_DEBUG_ATOMIC("%s:crtc_x=0x%02x, crtc_y=0x%02x\n",__func__, plane_state->crtc_x, plane_state->crtc_y);
+	DRM_DEBUG_ATOMIC("%s:crtc_w=0x%02x, crtc_h=0x%02x\n",__func__, plane_state->crtc_w, plane_state->crtc_h);
+#endif /* CONFIG_SHARP_DISPLAY */
 	ret = drm_atomic_set_crtc_for_plane(plane_state, crtc);
 	if (ret != 0)
 		goto fail;
 	drm_atomic_set_fb_for_plane(plane_state, fb);
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00024 */
+	plane2 = drm_plane_from_index(plane->dev, 1);
+	if (!plane2) {
+		DRM_ERROR("no plane2\n");
+		ret = -EINVAL;
+		goto fail;
+	}
+	DRM_DEBUG_ATOMIC("%s:2:plane index=0x%02x id=0x%02x\n",__func__, plane2->index, plane2->base.id);
+	plane_state2 = drm_atomic_get_plane_state(state, plane2);
+	if (IS_ERR(plane_state2)) {
+		ret = PTR_ERR(plane_state2);
+		goto fail;
+	}
+	DRM_DEBUG_ATOMIC("%s:2:src_x=0x%02x, src_y=0x%02x\n",__func__, plane_state2->src_x, plane_state2->src_y);
+	DRM_DEBUG_ATOMIC("%s:2:src_w=0x%02x, src_h=0x%02x\n",__func__, plane_state2->src_w, plane_state2->src_h);
+	DRM_DEBUG_ATOMIC("%s:2:crtc_x=0x%02x, crtc_y=0x%02x\n",__func__, plane_state2->crtc_x, plane_state2->crtc_y);
+	DRM_DEBUG_ATOMIC("%s:2:crtc_w=0x%02x, crtc_h=0x%02x\n",__func__, plane_state2->crtc_w, plane_state2->crtc_h);
+
+	ret = drm_atomic_set_crtc_for_plane(plane_state2, crtc);
+	if (ret != 0)
+		goto fail;
+	drm_atomic_set_fb_for_plane(plane_state2, fb);
+#endif /* CONFIG_SHARP_DISPLAY */
 	/* Make sure we don't accidentally do a full modeset. */
 	state->allow_modeset = false;
 	if (!crtc_state->active) {

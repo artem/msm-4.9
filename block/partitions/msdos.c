@@ -57,7 +57,8 @@ static inline int is_extended_partition(struct partition *p)
 static inline int
 msdos_magic_present(unsigned char *p)
 {
-	return (p[0] == MSDOS_LABEL_MAGIC1 && p[1] == MSDOS_LABEL_MAGIC2);
+	return (p[0] == MSDOS_LABEL_MAGIC1 && p[1] == MSDOS_LABEL_MAGIC2) ||
+		(p[0] == MSDOS_LABEL_MAGIC2 && p[1] == MSDOS_LABEL_MAGIC1);
 }
 
 /* Value is EBCDIC 'IBMA' */

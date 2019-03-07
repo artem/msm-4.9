@@ -1374,8 +1374,10 @@ struct eth_dev *gether_setup_name(struct usb_gadget *g,
 		free_netdev(net);
 		dev = ERR_PTR(status);
 	} else {
+#ifdef CONFIG_USB_DEBUG_SHARP_LOG
 		INFO(dev, "MAC %pM\n", net->dev_addr);
 		INFO(dev, "HOST MAC %pM\n", dev->host_mac);
+#endif /* CONFIG_USB_DEBUG_SHARP_LOG */
 
 		/*
 		 * two kinds of host-initiated state changes:

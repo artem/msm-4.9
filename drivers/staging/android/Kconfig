@@ -46,6 +46,10 @@ source "drivers/staging/android/ion/Kconfig"
 
 source "drivers/staging/android/fiq_debugger/Kconfig"
 
+config ANDROID_ENGINEERING
+	bool "Android for Engineering"
+	default n
+
 endif # if ANDROID
 
 endmenu

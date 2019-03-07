@@ -47,6 +47,9 @@
 #include <drm/drm_gem.h>
 
 #include "sde_power_handle.h"
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00009 */
+#include "sharp/msm_drm_context.h"
+#endif /* CONFIG_SHARP_DISPLAY */
 
 #define GET_MAJOR_REV(rev)		((rev) >> 28)
 #define GET_MINOR_REV(rev)		(((rev) >> 16) & 0xFFF)
@@ -634,6 +637,35 @@ struct msm_drm_private {
 
 	/* update the flag when msm driver receives shutdown notification */
 	bool shutdown_in_progress;
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00009 */
+	int upper_unit_is_connected;
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	bool mipiclk_pending;
+	bool mipiclkchg_progress;
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	int mipiclk_cnt;
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+	struct mdp_mipi_clkchg_param usr_clkchg_param;
+	struct mutex mipiclk_lock;
+	int default_clk_rate_hz;
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00040 */
+	int fpslow_base;
+	int fpslow_count;
+	struct mutex setswvsync_lock;
+	bool setswvsync_pending;
+	int fpslow_param;
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00050 */
+	u32 fps_bl_param;
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00066 */
+	struct mutex pagechg_lock;
+#endif /* CONFIG_SHARP_DISPLAY */
 };
 
 /* get struct msm_kms * from drm_device * */
@@ -804,6 +836,13 @@ struct drm_framebuffer *msm_framebuffer_create(struct drm_device *dev,
 struct drm_fb_helper *msm_fbdev_init(struct drm_device *dev);
 void msm_fbdev_free(struct drm_device *dev);
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00015 */
+struct dsi_display *msm_drm_get_dsi_displey(void);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00066 */
+int drm_pagechg_lock(bool lock);
+#endif /* CONFIG_SHARP_DISPLAY */
+
 struct hdmi;
 #ifdef CONFIG_DRM_MSM_HDMI
 int msm_hdmi_modeset_init(struct hdmi *hdmi, struct drm_device *dev,
@@ -841,6 +880,18 @@ enum msm_dsi_encoder_id {
 	MSM_DSI_ENCODER_NUM = 2
 };
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00017 */
+/* *
+ * msm_mode_object_event_notify - notify user-space clients of drm object
+ *                                events.
+ * @obj: mode object (crtc/connector) that is generating the event.
+ * @event: event that needs to be notified.
+ * @payload: payload for the event.
+ * @force_notify: forced event notification flag.
+ */
+void msm_mode_object_event_notify(struct drm_mode_object *obj,
+		struct drm_device *dev, struct drm_event *event, u8 *payload, bool force_notify);
+#else /* CONFIG_SHARP_DISPLAY */
 /* *
  * msm_mode_object_event_notify - notify user-space clients of drm object
  *                                events.
@@ -850,6 +901,16 @@ enum msm_dsi_encoder_id {
  */
 void msm_mode_object_event_notify(struct drm_mode_object *obj,
 		struct drm_device *dev, struct drm_event *event, u8 *payload);
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00040 */
+/* *
+ * msm_set_fps_low_base - set temporarily recorded fps as fps.
+ * @fpslow_param: temporarily recorded fps.
+ */
+void msm_set_fps_low_base(int fpslow_param);
+#endif /* CONFIG_SHARP_DISPLAY */
+
 #ifdef CONFIG_DRM_MSM_DSI
 void __init msm_dsi_register(void);
 void __exit msm_dsi_unregister(void);

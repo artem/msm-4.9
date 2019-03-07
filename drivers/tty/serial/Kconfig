@@ -1700,6 +1700,10 @@ config SERIAL_MSM_SMD
 	  usersapce clients to read and write to some streaming SMD ports
 	  via tty device interface for MSM chipset.
 
+config SHARP_SERIAL_EXPAND_DEBUG_FUNCTION
+	bool "SERIAL customize expand debug function"
+	default y
+
 endmenu
 
 config SERIAL_MCTRL_GPIO

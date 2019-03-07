@@ -665,4 +665,13 @@ int dsi_display_cont_splash_config(void *display);
 int dsi_display_get_panel_vfp(void *display,
 	int h_active, int v_active);
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00003 */ /* CUST_ID_00010 */ /* CUST_ID_00014 */
+int dsi_display_cmd_engine_ctrl(struct dsi_display *display, u8 onoff);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+int dsi_display_set_mode_sub_wrap(struct dsi_display *display,
+			 struct dsi_display_mode *mode,
+			 u32 flags);
+#endif /* CONFIG_SHARP_DISPLAY */
+
 #endif /* _DSI_DISPLAY_H_ */

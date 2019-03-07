@@ -1,0 +1,88 @@
+/* Copyright (c) 2016, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+qcom,sharp-845-3rd {
+	qcom, = <24>;
+	qcom,max-voltage-uv = <4350000>;
+	qcom,fg-cc-cv-threshold-mv = <4340>;
+	qcom,fastchg-current-ma = <1750>;
+	qcom,nom-batt-capacity-mah = <2500>;
+	qcom,batt-id-kohm = <100>;
+	qcom,battery-beta = <3380>;
+	qcom,battery-type = "sharp";
+	qcom,checksum = <0x6D55>;
+//	qcom,step-chg-ranges = <3100000 4150000 2200000 4151000 4400000 1500000>;
+//	qcom,step-chg-hysteresis = <50000>;
+	/delete-property/ qcom,step-chg-ranges;
+	/delete-property/ qcom,step-chg-hysteresis;
+	qcom,jeita-fcc-ranges = <0 160 750000 161 550 1750000>;
+	qcom,jeita-fv-ranges = <0 439 4350000 440 550 4200000>;
+	qcom,gui-version = "PMI8998GUI - 2.0.0.58";
+	qcom,fg-profile-data = [
+		 67 20 C1 04
+		 F8 0A DD 05
+		 F3 1C 2F FB
+		 E6 04 7E 03
+		 A8 18 D0 22
+		 B5 45 92 52
+		 89 00 00 00
+		 13 00 00 00
+		 00 00 78 C5
+		 C3 CD B7 C3
+		 35 00 08 00
+		 E4 E2 DD ED
+		 9A 05 07 FB
+		 F5 FC 2B 12
+		 3B E5 36 23
+		 30 06 09 20
+		 27 00 14 00
+		 0F 20 46 05
+		 9F 0A 24 06
+		 D6 1C 9C 02
+		 BC 0C 67 0B
+		 AA 18 81 23
+		 6B 44 89 5A
+		 74 00 00 00
+		 0F 00 00 00
+		 00 00 27 D5
+		 30 BD C9 D2
+		 26 00 00 00
+		 D7 EA DD ED
+		 09 FD F9 F2
+		 74 E2 55 0A
+		 0F 00 1F 1B
+		 B6 33 CC FF
+		 07 10 00 00
+		 A2 09 99 45
+		 26 00 40 00
+		 AF 01 0A FA
+		 FF 00 00 00
+		 00 00 00 00
+		 00 00 00 00
+		 00 00 00 00
+		 00 00 00 00
+		 00 00 00 00
+		 00 00 00 00
+		 00 00 00 00
+		 00 00 00 00
+		 00 00 00 00
+		 00 00 00 00
+		 00 00 00 00
+		 00 00 00 00
+		 00 00 00 00
+		 00 00 00 00
+		 00 00 00 00
+		 00 00 00 00
+		 00 00 00 00
+		 00 00 00 00
+	];
+};

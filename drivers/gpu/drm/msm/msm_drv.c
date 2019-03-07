@@ -46,7 +46,36 @@
 #include "msm_kms.h"
 #include "sde_wb.h"
 #include "dsi_display.h"
-
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00009 */
+#include <soc/qcom/sh_smem.h>
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00010 */ /* CUST_ID_00014 */
+#include "sharp/drm_diag.h"
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+#include "video/mipi_display.h"
+#include "sde/sde_hw_intf.h"
+#include "sde/sde_encoder_phys.h"
+#include "sharp/drm_mfr.h"
+#include "sharp/drm_mfr_pwrsave.h"
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00023 */
+#include "sharp/drm_flbl.h"
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00022 */
+#include "sharp/msm_drm_context.h"
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00052 */
+#ifdef CONFIG_DEBUG_FS
+#include "sharp/drm_fps_debugfs.h"
+#endif /* CONFIG_DEBUG_FS */
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+#include "sharp/drm_cmn.h"
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00060 */
+#include "drm_sharp.h"
+#endif /* CONFIG_SHARP_DISPLAY */
 /*
  * MSM driver version:
  * - 1.0.0 - initial interface
@@ -56,6 +85,41 @@
 #define MSM_VERSION_MAJOR	1
 #define MSM_VERSION_MINOR	2
 #define MSM_VERSION_PATCHLEVEL	0
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00009 */
+int msm_drm_check_upper_unit(struct msm_drm_private *priv);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+static int msm_ioctl_mipi_dsi_clkchg(struct drm_device *dev, void *data,
+		struct drm_file *file);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00010 */
+static int msm_ioctl_set_flicker_param(struct drm_device *dev, void *data,
+		struct drm_file *file);
+static int msm_ioctl_get_flicker_param(struct drm_device *dev, void *data,
+		struct drm_file *file);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00014 */
+static int msm_ioctl_set_gmmtable_and_voltage(struct drm_device *dev,
+		void *data, struct drm_file *file);
+static int msm_ioctl_get_gmmtable_and_voltage(struct drm_device *dev,
+		void *data, struct drm_file *file);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00019 */
+static void msm_mdp_mipi_mipichk_param_log(struct mdp_mipi_check_param *mipi_check_param);
+static int msm_ioctl_mipi_dsi_mipichk(struct drm_device *dev, void *data,
+		struct drm_file *file);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00022 */
+static int msm_ioctl_get_panel_otp_info(struct drm_device *dev, void *data,
+		struct drm_file *file);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00040 */
+static int msm_drm_change_base_fps_low(struct drm_device *dev, void *data,
+		struct drm_file *file);
+
+static int msm_drv_fpslow_base = DRM_BASE_FPS_DEFAULT;
+#endif /* CONFIG_SHARP_DISPLAY */
 
 static void msm_fb_output_poll_changed(struct drm_device *dev)
 {
@@ -513,6 +577,30 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 	ddev->dev_private = priv;
 	priv->dev = ddev;
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00009 */
+	msm_drm_check_upper_unit(priv);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00010 */ /* CUST_ID_00014 */
+	drm_diag_init();
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	mutex_init(&priv->mipiclk_lock);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00040 */
+	mutex_init(&priv->setswvsync_lock);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00066 */
+	mutex_init(&priv->pagechg_lock);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00023 */
+	drm_flbl_init(dev);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00052 */
+#ifdef CONFIG_DEBUG_FS
+	drm_fps_create_debugfs(priv);
+#endif /* CONFIG_DEBUG_FS */
+#endif /* CONFIG_SHARP_DISPLAY */
+
 	ret = msm_mdss_init(ddev);
 	if (ret)
 		goto mdss_init_fail;
@@ -755,6 +843,10 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 	}
 
 	drm_kms_helper_poll_init(ddev);
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	drm_cmn_set_default_clk_rate_hz();
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	return 0;
 
@@ -1383,8 +1475,13 @@ static int msm_ioctl_deregister_event(struct drm_device *dev, void *data,
 	return ret;
 }
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00017 */
+void msm_mode_object_event_notify(struct drm_mode_object *obj,
+		struct drm_device *dev, struct drm_event *event, u8 *payload, bool force_notify)
+#else /* CONFIG_SHARP_DISPLAY */
 void msm_mode_object_event_notify(struct drm_mode_object *obj,
 		struct drm_device *dev, struct drm_event *event, u8 *payload)
+#endif /* CONFIG_SHARP_DISPLAY */
 {
 	struct msm_drm_private *priv = NULL;
 	unsigned long flags;
@@ -1405,9 +1502,24 @@ void msm_mode_object_event_notify(struct drm_mode_object *obj,
 
 	spin_lock_irqsave(&dev->event_lock, flags);
 	list_for_each_entry(node, &priv->client_event_list, base.link) {
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00017 */
+		if (force_notify) {
+			if(node->event.type != event->type ||
+			   event->type != DRM_EVENT_PANEL_DEAD) {
+				if (event->type != DRM_EVENT_PANEL_OFF) {
+					continue;
+				}
+			}
+		} else {
+			if (node->event.type != event->type ||
+				obj->id != node->info.object_id)
+				continue;
+		}
+#else /* CONFIG_SHARP_DISPLAY */
 		if (node->event.type != event->type ||
 			obj->id != node->info.object_id)
 			continue;
+#endif /* CONFIG_SHARP_DISPLAY */
 		len = event->length + sizeof(struct msm_drm_event);
 		if (node->base.file_priv->event_space < len) {
 			DRM_ERROR("Insufficient space %d for event %x len %d\n",
@@ -1421,7 +1533,15 @@ void msm_mode_object_event_notify(struct drm_mode_object *obj,
 		notify->base.file_priv = node->base.file_priv;
 		notify->base.event = &notify->event;
 		notify->base.pid = node->base.pid;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00054 */
+		if (event->type == DRM_EVENT_PANEL_OFF) {
+			notify->event.type = event->type;
+		} else {
+			notify->event.type = node->event.type;
+		}
+#else /* CONFIG_SHARP_DISPLAY */
 		notify->event.type = node->event.type;
+#endif /* CONFIG_SHARP_DISPLAY */
 		notify->event.length = event->length +
 					sizeof(struct drm_msm_event_resp);
 		memcpy(&notify->info, &node->info, sizeof(notify->info));
@@ -1542,6 +1662,33 @@ static const struct drm_ioctl_desc msm_ioctls[] = {
 			  DRM_UNLOCKED|DRM_CONTROL_ALLOW),
 	DRM_IOCTL_DEF_DRV(MSM_RMFB2, msm_ioctl_rmfb2,
 			  DRM_CONTROL_ALLOW|DRM_UNLOCKED),
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	DRM_IOCTL_DEF_DRV(MIPI_DSI_CLKCHG,  msm_ioctl_mipi_dsi_clkchg,DRM_CONTROL_ALLOW|DRM_UNLOCKED),
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00010 */
+	DRM_IOCTL_DEF_DRV(SET_FLICKER_PARAM, msm_ioctl_set_flicker_param,
+			  DRM_CONTROL_ALLOW|DRM_UNLOCKED),
+	DRM_IOCTL_DEF_DRV(GET_FLICKER_PARAM, msm_ioctl_get_flicker_param,
+			  DRM_CONTROL_ALLOW|DRM_UNLOCKED),
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00014 */
+	DRM_IOCTL_DEF_DRV(SET_GMMTABLE_AND_VOLTAGE, msm_ioctl_set_gmmtable_and_voltage,
+			  DRM_CONTROL_ALLOW|DRM_UNLOCKED),
+	DRM_IOCTL_DEF_DRV(GET_GMMTABLE_AND_VOLTAGE, msm_ioctl_get_gmmtable_and_voltage,
+			  DRM_CONTROL_ALLOW|DRM_UNLOCKED),
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00019 */
+	DRM_IOCTL_DEF_DRV(MIPI_DSI_CHECK, msm_ioctl_mipi_dsi_mipichk,
+			  DRM_CONTROL_ALLOW|DRM_UNLOCKED),
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00022 */
+	DRM_IOCTL_DEF_DRV(GET_PANEL_OTP_INFO, msm_ioctl_get_panel_otp_info,
+			  DRM_CONTROL_ALLOW|DRM_UNLOCKED),
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00040 */
+	DRM_IOCTL_DEF_DRV(CHANGE_BASE_FPS_LOW, msm_drm_change_base_fps_low,
+			  DRM_CONTROL_ALLOW|DRM_UNLOCKED),
+#endif /* CONFIG_SHARP_DISPLAY */
 };
 
 static const struct vm_operations_struct vm_ops = {
@@ -1872,6 +2019,31 @@ msm_gem_smmu_address_space_get(struct drm_device *dev,
 	return funcs->get_address_space(priv->kms, domain);
 }
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00009 */
+int msm_drm_check_upper_unit(struct msm_drm_private *priv)
+{
+	sharp_smem_common_type *sh_smem = NULL;
+	unsigned char val;
+
+	priv->upper_unit_is_connected = DRM_UPPER_UNIT_IS_CONNECTED;
+
+	sh_smem = (sharp_smem_common_type *)sh_smem_get_common_address();
+	if (sh_smem == NULL) {
+		pr_err("get smem address is NULL\n");
+		priv->upper_unit_is_connected = DRM_UPPER_UNIT_IS_NOT_CONNECTED;
+		return -EINVAL;
+	}
+
+	val = sh_smem->shdiag_upperunit;
+
+	if (!val) {
+		priv->upper_unit_is_connected = DRM_UPPER_UNIT_IS_NOT_CONNECTED;
+	}
+	pr_debug("check_upper_unit connected=%d\n", priv->upper_unit_is_connected);
+	return 0;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
+
 /*
  * We don't know what's the best binding to link the gpu with the drm device.
  * Fow now, we just hunt for all the possible gpus that we support, and add them
@@ -2008,15 +2180,527 @@ void __exit adreno_unregister(void)
 }
 #endif
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00015 */
+static struct dsi_display *msm_drm_primary_display = NULL;
+struct dsi_display *msm_drm_get_dsi_displey(void)
+{
+	struct device_node *node = NULL;
+	const char *name = NULL;
+	struct dsi_display *display = msm_drm_primary_display;
+	if (msm_drm_primary_display) {
+		return msm_drm_primary_display;
+	}
+
+	node = dsi_display_get_boot_display(DSI_PRIMARY);
+
+	if (node == NULL) {
+		pr_err("%s: node is NULL.\n", __func__);
+		return NULL;
+	} else {
+		name = of_get_property(node, "label", NULL);
+	}
+
+	if (name == NULL) {
+		pr_err("%s: name is NULL.\n", __func__);
+		return NULL;
+	} else {
+		display = dsi_display_get_display_by_name(name);
+	}
+	msm_drm_primary_display = display;
+	return display;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+static struct drm_mfr_callbacks mfr_cb;
+
+int drm_register_mfr_callback(struct drm_mfr_callbacks *cb)
+{
+	memcpy(&mfr_cb, cb, sizeof(*cb));
+	return 0;
+}
+
+int drm_unregister_mfr_callback(void)
+{
+	memset(&mfr_cb, 0, sizeof(mfr_cb));
+	return 0;
+}
+
+const struct drm_mfr_callbacks *drm_mfr_get_mfr_callbacks(void)
+{
+	if (mfr_cb.ctx != NULL) {
+		return &mfr_cb;
+	}
+	return NULL;
+}
+
+struct vid_dsi {
+	struct sde_hw_intf *sde_hw_intf;
+	struct dsi_ctrl *dsi_ctrl;
+	struct sde_encoder_phys_vid *sde_encoder_phys_vid;
+};
+
+struct mfr_ctrl_priv_data {
+	bool dualmode;
+	struct vid_dsi master_ctrl;
+	struct vid_dsi slave_ctrl;
+};
+
+
+static struct mfr_ctrl_priv_data mfr_priv_data;
+static struct drm_mfr_controller mfr_ctrl;
+
+static int drm_mfr_msm_vblank_callback(struct mfr_ctrl_priv_data *priv)
+{
+	struct sde_encoder_phys_vid *master_phys_vid;
+	struct sde_encoder_phys *phys_enc = NULL;
+
+	pr_debug("%s: do vblank_callback\n", __func__);
+
+	if (!priv || !priv->master_ctrl.sde_encoder_phys_vid) {
+		pr_err("%s: Invalid input\n", __func__);
+		return -EINVAL;
+	}
+
+	master_phys_vid = priv->master_ctrl.sde_encoder_phys_vid;
+	pr_debug("%s: master_phys_vid=%p\n", __func__, master_phys_vid);
+
+	phys_enc = &master_phys_vid->base;
+
+	if (!phys_enc->parent_ops.handle_vblank_virt) {
+		pr_err("%s: no handle_vblank_virt\n", __func__);
+		return -EINVAL;
+	}
+	// use master only.
+	phys_enc->parent_ops.handle_vblank_virt(phys_enc->parent, phys_enc);
+
+	return 0;
+}
+
+static int drm_mfr_msm_enable_output_vid(struct mfr_ctrl_priv_data *priv, int en)
+{
+	struct sde_hw_intf *master_intf;
+	struct sde_hw_intf *slave_intf;
+	bool dualmode = priv->dualmode;
+	pr_debug("%s: %s timing generator\n", __func__,
+						(en ? "start" : "stop"));
+
+	if (!priv) {
+		pr_err("%s: no priv\n", __func__);
+		return -EINVAL;
+	}
+
+	if (!priv->master_ctrl.sde_hw_intf) {
+		pr_err("%s: no sde_hw_intf(master)\n", __func__);
+		return -EINVAL;
+	}
+
+	if (dualmode) {
+		if (!priv->slave_ctrl.sde_hw_intf) {
+			pr_err("%s: no sde_hw_intf(slave)\n", __func__);
+			return -EINVAL;
+		}
+	}
+
+	master_intf = priv->master_ctrl.sde_hw_intf;
+	slave_intf = priv->slave_ctrl.sde_hw_intf;
+	pr_debug("%s: master_intf=%p, slave_intf=%p\n", __func__,
+						master_intf, slave_intf);
+
+	master_intf->ops.enable_timing(master_intf, en);
+	if (dualmode)
+		slave_intf->ops.enable_timing(slave_intf, en);
+	wmb();
+
+	return 0;
+}
+
+static int drm_mfr_msm_prepare_restart_vid(struct mfr_ctrl_priv_data *priv)
+{
+	struct dsi_ctrl *master_dsi_ctrl;
+	struct dsi_ctrl *slave_dsi_ctrl;
+	bool dualmode = priv->dualmode;
+
+	pr_debug("%s: do soft reset\n", __func__);
+
+	if (!priv || !priv->master_ctrl.dsi_ctrl) {
+		pr_err("%s: Invalid input\n", __func__);
+		return -EINVAL;
+	}
+
+	if (dualmode) {
+		if (!priv->slave_ctrl.dsi_ctrl) {
+			pr_err("%s: Invalid input(slave)\n", __func__);
+			return -EINVAL;
+		}
+	}
+
+	master_dsi_ctrl = priv->master_ctrl.dsi_ctrl;
+	slave_dsi_ctrl = priv->slave_ctrl.dsi_ctrl;
+	pr_debug("%s: master_dsi_ctrl=%p, slave_dsi_ctrl=%p\n", __func__,
+					master_dsi_ctrl, slave_dsi_ctrl);
+
+	master_dsi_ctrl->hw.ops.soft_reset(&master_dsi_ctrl->hw);
+	if (dualmode)
+		slave_dsi_ctrl->hw.ops.soft_reset(&slave_dsi_ctrl->hw);
+	return 0;
+}
+
+extern int sde_encoder_is_stopped_video_mfr(struct drm_encoder *drm_enc,
+							bool wait_ifstopsoon);
+extern int sde_encoder_can_stopped_video_mfr(struct drm_encoder *drm_enc);
+
+static int drm_mfr_msm_can_stop_video(struct mfr_ctrl_priv_data *priv)
+{
+	int can = 1;
+	struct dsi_display *display;
+	struct drm_device *dev;
+	struct drm_encoder *encoder;
+
+	pr_debug("%s is called\n", __func__);
+
+	if (!priv) {
+		pr_err("%s: Invalid input\n", __func__);
+		return -EINVAL;
+	}
+
+	/* get dsi-control-interface */
+	display = msm_drm_get_dsi_displey();
+	if (!display) {
+		pr_err("%s: no dsi_display\n", __func__);
+		return -EINVAL;
+	}
+
+	dev = display->drm_dev;
+	if (!dev) {
+		pr_err("%s: no drm_dev\n", __func__);
+		return -EINVAL;
+	}
+
+	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
+		if (!encoder || !encoder->dev || !encoder->dev->dev_private ||
+				(encoder->encoder_type != DRM_MODE_ENCODER_DSI) ||
+				!encoder->crtc) {
+			continue;
+		}
+		if (sde_encoder_get_intf_mode(encoder) == INTF_MODE_VIDEO) {
+			can = sde_encoder_can_stopped_video_mfr(encoder);
+			break;
+		}
+	}
+	return can;
+}
+
+static int drm_mfr_msm_is_video_stopped(struct mfr_ctrl_priv_data *priv,
+						bool wait_ifstopsoon)
+{
+	int stopped = 1;
+	struct dsi_display *display;
+	struct drm_device *dev;
+	struct drm_encoder *encoder;
+
+	pr_debug("%s is called\n", __func__);
+
+	if (!priv) {
+		pr_err("%s: Invalid input\n", __func__);
+		return -EINVAL;
+	}
+
+	/* get dsi-control-interface */
+	display = msm_drm_get_dsi_displey();
+	if (!display) {
+		pr_err("%s: no dsi_display\n", __func__);
+		return -EINVAL;
+	}
+
+	dev = display->drm_dev;
+	if (!dev) {
+		pr_err("%s: no drm_dev\n", __func__);
+		return -EINVAL;
+	}
+
+	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
+		if (!encoder || !encoder->dev || !encoder->dev->dev_private ||
+				(encoder->encoder_type != DRM_MODE_ENCODER_DSI) ||
+				!encoder->crtc) {
+			continue;
+		}
+		if (sde_encoder_get_intf_mode(encoder) == INTF_MODE_VIDEO) {
+			stopped =
+				sde_encoder_is_stopped_video_mfr(encoder,
+							    wait_ifstopsoon);
+			break;
+		}
+	}
+	return stopped;
+}
+
+extern int sde_encoder_set_vsync_irq_control(
+				struct drm_encoder *drm_enc, bool enable);
+extern int sde_encoder_set_underrun_irq_control(
+				struct drm_encoder *drm_enc, bool enable);
+extern void sde_encoder_resource_control_helper_mfr(
+			struct drm_encoder *drm_enc, bool enable);
+
+static int drm_mfr_msm_enable_vsync_intr(struct mfr_ctrl_priv_data *priv, int en)
+{
+	int ret = 0;
+	struct dsi_display *display;
+	struct drm_device *dev;
+	struct drm_encoder *encoder;
+
+	pr_debug("%s: %s vsync\n", __func__,
+						(en ? "enable" : "disable"));
+
+	if (!priv) {
+		pr_err("%s: Invalid input\n", __func__);
+		return -EINVAL;
+	}
+
+	/* get dsi-control-interface */
+	display = msm_drm_get_dsi_displey();
+	if (!display) {
+		pr_err("%s: no dsi_display\n", __func__);
+		return -EINVAL;
+	}
+
+	dev = display->drm_dev;
+	if (!dev) {
+		pr_err("%s: no drm_dev\n", __func__);
+		return -EINVAL;
+	}
+
+	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
+		if (!encoder || !encoder->dev || !encoder->dev->dev_private ||
+				(encoder->encoder_type != DRM_MODE_ENCODER_DSI) ||
+				!encoder->crtc) {
+			continue;
+		}
+		ret = sde_encoder_set_vsync_irq_control(encoder, en);
+		if (ret < 0) {
+			pr_err("%s: set_vsync_irq_control error\n", __func__);
+			break;
+		}
+	}
+
+	return ret;
+}
+
+static int drm_mfr_msm_enable_underrun_intr(struct mfr_ctrl_priv_data *priv, int en)
+{
+	int ret = 0;
+	struct dsi_display *display;
+	struct drm_device *dev;
+	struct drm_encoder *encoder;
+
+	pr_debug("%s: %s underrun\n", __func__,
+						(en ? "enable" : "disable"));
+
+	if (!priv) {
+		pr_err("%s: Invalid input\n", __func__);
+		return -EINVAL;
+	}
+
+	/* get dsi-control-interface */
+	display = msm_drm_get_dsi_displey();
+	if (!display) {
+		pr_err("%s: no dsi_display\n", __func__);
+		return -EINVAL;
+	}
+
+	dev = display->drm_dev;
+	if (!dev) {
+		pr_err("%s: no drm_dev\n", __func__);
+		return -EINVAL;
+	}
+
+	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
+		if (!encoder || !encoder->dev || !encoder->dev->dev_private ||
+				(encoder->encoder_type != DRM_MODE_ENCODER_DSI) ||
+				!encoder->crtc) {
+			continue;
+		}
+		ret = sde_encoder_set_underrun_irq_control(encoder, en);
+		if (ret < 0) {
+			pr_err("%s: set_underrun_irq_control error\n", __func__);
+			break;
+		}
+	}
+
+	return ret;
+}
+
+extern void dsi_display_vid_engine_ctrl(struct dsi_display *display,
+							bool enable);
+static int drm_mfr_msm_enable_clocks(struct mfr_ctrl_priv_data *priv, int en)
+{
+	int ret = 0;
+	struct dsi_display *display;
+	struct drm_device *dev;
+	struct drm_encoder *encoder;
+
+	pr_debug("%s: %s clocks\n", __func__,
+						(en ? "enable" : "disable"));
+
+	if (!priv) {
+		pr_err("%s: Invalid input\n", __func__);
+		return -EINVAL;
+	}
+
+	/* get dsi-control-interface */
+	display = msm_drm_get_dsi_displey();
+	if (!display) {
+		pr_err("%s: no dsi_display\n", __func__);
+		return -EINVAL;
+	}
+
+	dev = display->drm_dev;
+	if (!dev) {
+		pr_err("%s: no drm_dev\n", __func__);
+		return -EINVAL;
+	}
+
+	if (!en) {
+		dsi_display_vid_engine_ctrl(display, false);
+	}
+	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
+		if (!encoder || !encoder->dev || !encoder->dev->dev_private ||
+				(encoder->encoder_type != DRM_MODE_ENCODER_DSI) ||
+				!encoder->crtc) {
+			continue;
+		}
+		sde_encoder_resource_control_helper_mfr(encoder, en);
+	}
+	if (en) {
+		dsi_display_vid_engine_ctrl(display, true);
+	}
+
+	return ret;
+}
+
+static void init_mfr_controller(void)
+{
+	struct vid_dsi* master_ctrl;
+	struct vid_dsi* slave_ctrl;
+	struct dsi_display *display;
+	mfr_ctrl.priv_data = &mfr_priv_data;
+	mfr_ctrl.enable_output_vid   = drm_mfr_msm_enable_output_vid;
+	mfr_ctrl.vblank_callback     = drm_mfr_msm_vblank_callback;
+	mfr_ctrl.prepare_restart_vid = drm_mfr_msm_prepare_restart_vid;
+	mfr_ctrl.can_stop_video      = drm_mfr_msm_can_stop_video;
+	mfr_ctrl.is_video_stopped    = drm_mfr_msm_is_video_stopped;
+	mfr_ctrl.priv_data->dualmode = true;
+
+	master_ctrl = &mfr_ctrl.priv_data->master_ctrl;
+	slave_ctrl = &mfr_ctrl.priv_data->slave_ctrl;
+
+	/* get tg-control-interface */
+	// get_sde_hw_intf(0): dp_interface?
+	master_ctrl->sde_hw_intf = get_sde_hw_intf(1);
+	slave_ctrl->sde_hw_intf = get_sde_hw_intf(2);
+	// get_sde_hw_intf(3): writeback interface?
+	if (!master_ctrl->sde_hw_intf || !slave_ctrl->sde_hw_intf) {
+		pr_err("%s: no sde_hw_intf\n", __func__);
+		return;
+	}
+
+	/* get dsi-control-interface */
+	display = msm_drm_get_dsi_displey();
+	if (!display) {
+		pr_err("%s: no dsi_display\n", __func__);
+		return;
+	}
+
+	master_ctrl->dsi_ctrl = display->ctrl[0].ctrl;
+	slave_ctrl->dsi_ctrl = display->ctrl[1].ctrl;
+	if (!master_ctrl->dsi_ctrl || !slave_ctrl->dsi_ctrl) {
+		pr_err("%s: no dsi_ctrl\n", __func__);
+		return;
+	}
+	/* get vblank_callback-interface */
+	master_ctrl->sde_encoder_phys_vid = get_sde_encoder_phys_vid(0);
+	slave_ctrl->sde_encoder_phys_vid = get_sde_encoder_phys_vid(1);
+	if (!master_ctrl->sde_encoder_phys_vid ||
+					!slave_ctrl->sde_encoder_phys_vid) {
+		pr_err("%s: no sde_encoder_phys_vid\n", __func__);
+		return;
+	}
+
+	mfr_ctrl.priv_data->dualmode =
+		!slave_ctrl->sde_encoder_phys_vid->base.ops.is_master(
+					&slave_ctrl->sde_encoder_phys_vid->base);
+	pr_debug("%s: dualmode = %d\n", __func__, mfr_ctrl.priv_data->dualmode);
+}
+
+const struct drm_mfr_controller *drm_get_mfr_controller(void)
+{
+	init_mfr_controller();
+	pr_debug("%s: mfr_ctrl = %p\n", __func__, &mfr_ctrl);
+	return &mfr_ctrl;
+}
+
+struct psv_ctrl_priv_data {
+	int a;
+};
+
+static struct psv_ctrl_priv_data     psv_priv_data;
+static struct drm_mfr_psv_controller psv_ctrl;
+
+static int drm_mfr_psv_vsync_intr_ctrl(struct psv_ctrl_priv_data *priv, int en)
+{
+	pr_debug("%s: en = %d\n", __func__, en);
+	drm_mfr_msm_enable_vsync_intr(&mfr_priv_data, en);
+	return 0;
+}
+
+static int drm_mfr_psv_underrun_intr_ctrl(struct psv_ctrl_priv_data *priv, int en)
+{
+	pr_debug("%s: en = %d\n", __func__, en);
+	drm_mfr_msm_enable_underrun_intr(&mfr_priv_data, en);
+	return 0;
+}
+
+static int drm_mfr_psv_clocks_ctrl(struct psv_ctrl_priv_data *priv, int en)
+{
+	pr_debug("%s: en = %d\n", __func__, en);
+	drm_mfr_msm_enable_clocks(&mfr_priv_data, en);
+	return 0;
+}
+
+static void init_psv_controller(void)
+{
+	psv_ctrl.priv_data = &psv_priv_data;
+	// psv_ctrl.intrs_ctrl = drm_mfr_psv_intrs_ctrl;
+	psv_ctrl.vsync_intr_ctrl = drm_mfr_psv_vsync_intr_ctrl;
+	psv_ctrl.underrun_intr_ctrl = drm_mfr_psv_underrun_intr_ctrl;
+	psv_ctrl.clocks_ctrl = drm_mfr_psv_clocks_ctrl;
+}
+
+extern const struct drm_mfr_psv_controller *drm_get_psv_controller(void)
+{
+	init_psv_controller();
+	pr_debug("%s: psv_ctrl = %p\n", __func__, &psv_ctrl);
+	return &psv_ctrl;
+}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+
 static int __init msm_drm_register(void)
 {
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	int ret = 0;
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 	DBG("init");
 	msm_smmu_driver_init();
 	msm_dsi_register();
 	msm_edp_register();
 	msm_hdmi_register();
 	adreno_register();
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	ret = platform_driver_register(&msm_platform_driver);
+	return ret;
+#else
 	return platform_driver_register(&msm_platform_driver);
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 }
 
 static void __exit msm_drm_unregister(void)
@@ -2029,6 +2713,458 @@ static void __exit msm_drm_unregister(void)
 	msm_dsi_unregister();
 	msm_smmu_driver_cleanup();
 }
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+static void msm_mdp_mipi_clkchg_param_log(struct mdp_mipi_clkchg_param *clkchg_param)
+{
+	pr_debug("[%s]param->host.frame_rate        = %10d\n"  ,
+			__func__, clkchg_param->host.frame_rate       );
+	pr_debug("[%s]param->host.clock_rate        = %10d\n"  ,
+			__func__, clkchg_param->host.clock_rate       );
+	pr_debug("[%s]param->host.display_width     = %10d\n"  ,
+			__func__, clkchg_param->host.display_width    );
+	pr_debug("[%s]param->host.display_height    = %10d\n"  ,
+			__func__, clkchg_param->host.display_height   );
+	pr_debug("[%s]param->host.hsync_pulse_width = %10d\n"  ,
+			__func__, clkchg_param->host.hsync_pulse_width);
+	pr_debug("[%s]param->host.h_back_porch      = %10d\n"  ,
+			__func__, clkchg_param->host.h_back_porch     );
+	pr_debug("[%s]param->host.h_front_porch     = %10d\n"  ,
+			__func__, clkchg_param->host.h_front_porch    );
+	pr_debug("[%s]param->host.vsync_pulse_width = %10d\n"  ,
+			__func__, clkchg_param->host.vsync_pulse_width);
+	pr_debug("[%s]param->host.v_back_porch      = %10d\n"  ,
+			__func__, clkchg_param->host.v_back_porch     );
+	pr_debug("[%s]param->host.v_front_porch     = %10d\n"  ,
+			__func__, clkchg_param->host.v_front_porch    );
+	pr_debug("[%s]param->host.t_clk_post        = 0x%02X\n",
+			__func__, clkchg_param->host.t_clk_post       );
+	pr_debug("[%s]param->host.t_clk_pre         = 0x%02X\n",
+			__func__, clkchg_param->host.t_clk_pre        );
+	pr_debug("[%s]param->host.timing_ctrl[ 0]   = 0x%02X\n",
+			__func__, clkchg_param->host.timing_ctrl[ 0]  );
+	pr_debug("[%s]param->host.timing_ctrl[ 1]   = 0x%02X\n",
+			__func__, clkchg_param->host.timing_ctrl[ 1]  );
+	pr_debug("[%s]param->host.timing_ctrl[ 2]   = 0x%02X\n",
+			__func__, clkchg_param->host.timing_ctrl[ 2]  );
+	pr_debug("[%s]param->host.timing_ctrl[ 3]   = 0x%02X\n",
+			__func__, clkchg_param->host.timing_ctrl[ 3]  );
+	pr_debug("[%s]param->host.timing_ctrl[ 4]   = 0x%02X\n",
+			__func__, clkchg_param->host.timing_ctrl[ 4]  );
+	pr_debug("[%s]param->host.timing_ctrl[ 5]   = 0x%02X\n",
+			__func__, clkchg_param->host.timing_ctrl[ 5]  );
+	pr_debug("[%s]param->host.timing_ctrl[ 6]   = 0x%02X\n",
+			__func__, clkchg_param->host.timing_ctrl[ 6]  );
+	pr_debug("[%s]param->host.timing_ctrl[ 7]   = 0x%02X\n",
+			__func__, clkchg_param->host.timing_ctrl[ 7]  );
+	pr_debug("[%s]param->host.timing_ctrl[ 8]   = 0x%02X\n",
+			__func__, clkchg_param->host.timing_ctrl[ 8]  );
+	pr_debug("[%s]param->host.timing_ctrl[ 9]   = 0x%02X\n",
+			__func__, clkchg_param->host.timing_ctrl[ 9]  );
+	pr_debug("[%s]param->host.timing_ctrl[10]   = 0x%02X\n",
+			__func__, clkchg_param->host.timing_ctrl[10]  );
+	pr_debug("[%s]param->host.timing_ctrl[11]   = 0x%02X\n",
+			__func__, clkchg_param->host.timing_ctrl[11]  );
+
+	pr_debug("[%s]param->panel.mipi_vbp_hf[0]   = 0x%02X\n",
+			__func__, clkchg_param->panel.mipi_vbp_hf[0]  );
+	pr_debug("[%s]param->panel.mipi_vbp_hf[1]   = 0x%02X\n",
+			__func__, clkchg_param->panel.mipi_vbp_hf[1]  );
+	pr_debug("[%s]param->panel.mipi_vfp_hf[0]   = 0x%02X\n",
+			__func__, clkchg_param->panel.mipi_vfp_hf[0]  );
+	pr_debug("[%s]param->panel.mipi_vfp_hf[1]   = 0x%02X\n",
+			__func__, clkchg_param->panel.mipi_vfp_hf[1]  );
+	pr_debug("[%s]param->panel.vbp_norm_hf[0]   = 0x%02X\n",
+			__func__, clkchg_param->panel.vbp_norm_hf[0]  );
+	pr_debug("[%s]param->panel.vbp_norm_hf[1]   = 0x%02X\n",
+			__func__, clkchg_param->panel.vbp_norm_hf[1]  );
+	pr_debug("[%s]param->panel.vfp_norm_hf[0]   = 0x%02X\n",
+			__func__, clkchg_param->panel.vfp_norm_hf[0]  );
+	pr_debug("[%s]param->panel.vfp_norm_hf[1]   = 0x%02X\n",
+			__func__, clkchg_param->panel.vfp_norm_hf[1]  );
+	pr_debug("[%s]param->panel.rtn_v_hf[0]      = 0x%02X\n",
+			__func__, clkchg_param->panel.rtn_v_hf[0]     );
+	pr_debug("[%s]param->panel.rtn_v_hf[1]      = 0x%02X\n",
+			__func__, clkchg_param->panel.rtn_v_hf[1]     );
+	pr_debug("[%s]param->panel.rtn_hf[0]        = 0x%02X\n",
+			__func__, clkchg_param->panel.rtn_hf[0]       );
+	pr_debug("[%s]param->panel.rtn_hf[1]        = 0x%02X\n",
+			__func__, clkchg_param->panel.rtn_hf[1]       );
+	pr_debug("[%s]param->panel.stv_delay_hf     = 0x%02X\n",
+			__func__, clkchg_param->panel.stv_delay_hf    );
+	pr_debug("[%s]param->panel.stv_adv_hf       = 0x%02X\n",
+			__func__, clkchg_param->panel.stv_adv_hf      );
+	pr_debug("[%s]param->panel.gck_delay_hf     = 0x%02X\n",
+			__func__, clkchg_param->panel.gck_delay_hf    );
+	pr_debug("[%s]param->panel.gck_adv_hf       = 0x%02X\n",
+			__func__, clkchg_param->panel.gck_adv_hf      );
+	pr_debug("[%s]param->panel.soeht_hf         = 0x%02X\n",
+			__func__, clkchg_param->panel.soeht_hf        );
+	pr_debug("[%s]param->panel.muxs_hf          = 0x%02X\n",
+			__func__, clkchg_param->panel.muxs_hf         );
+	pr_debug("[%s]param->panel.muxw_hf          = 0x%02X\n",
+			__func__, clkchg_param->panel.muxw_hf         );
+	pr_debug("[%s]param->panel.muxs_v_hf        = 0x%02X\n",
+			__func__, clkchg_param->panel.muxs_v_hf       );
+	pr_debug("[%s]param->panel.muxw_v_hf        = 0x%02X\n",
+			__func__, clkchg_param->panel.muxw_v_hf       );
+	pr_debug("[%s]param->panel.oscset1          = 0x%02X\n",
+			__func__, clkchg_param->panel.oscset1         );
+	pr_debug("[%s]param->panel.oscset2          = 0x%02X\n",
+			__func__, clkchg_param->panel.oscset2         );
+	pr_debug("[%s]param->panel.oscscope         = 0x%02X\n",
+			__func__, clkchg_param->panel.oscscope        );
+	pr_debug("[%s]param->panel.osc_fine_trim    = 0x%02X\n",
+			__func__, clkchg_param->panel.osc_fine_trim   );
+	pr_debug("[%s]param->internal_osc           = %10d\n"  ,
+			__func__, clkchg_param->internal_osc          );
+}
+
+static int msm_ioctl_mipi_dsi_clkchg(struct drm_device *dev, void *data,
+		struct drm_file *file)
+{
+	struct msm_drm_private *priv;
+	struct mdp_mipi_clkchg_param *clkchg_param;
+	struct dsi_display *display = NULL;
+	int rc = 0;
+
+	if (!dev || !data)
+		return -EINVAL;
+
+	priv = dev->dev_private;
+	if (!priv)
+		return -EINVAL;
+
+	clkchg_param = &priv->usr_clkchg_param;
+	if (!clkchg_param)
+		return -EINVAL;
+
+	display = msm_drm_get_dsi_displey();
+	if (!display) {
+		pr_err("[%s]Invalid dsi_display\n", __func__);
+		return -EINVAL;
+	}
+
+#ifdef CONFIG_ARCH_DIO
+	if (display->config.panel_mode == DSI_OP_VIDEO_MODE) {
+		struct dsi_display_mode *dsi_mode = NULL;
+		struct dsi_display_mode_priv_info *priv_info = NULL;
+
+		if (display->panel) {
+			dsi_mode = display->panel->cur_mode;
+		}
+		if (!dsi_mode) {
+			pr_err("[%s]Invalid cur_mode\n", __func__);
+			return -EINVAL;
+		}
+
+		priv_info = (struct dsi_display_mode_priv_info*)
+							dsi_mode->priv_info;
+		if (!priv_info) {
+			pr_err("[%s]Invalid priv_info\n", __func__);
+			return -EINVAL;
+		}
+
+		mutex_lock(&priv->mipiclk_lock);
+		memcpy(clkchg_param, data, sizeof(struct mdp_mipi_clkchg_param));
+		msm_mdp_mipi_clkchg_param_log(clkchg_param);
+
+		if (priv_info->clk_rate_hz != clkchg_param->host.clock_rate) {
+			priv->mipiclk_pending = true;
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+			priv->mipiclk_cnt = 2;
+
+			drm_mfr_chg_maxmfr_if_default_clkrate(true,
+				priv->usr_clkchg_param.host.clock_rate);
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+
+		}
+		pr_debug("%s:%d -> %d %d\n", __func__,
+			(int)priv_info->clk_rate_hz,
+			(int)clkchg_param->host.clock_rate,
+			priv->mipiclk_pending);
+
+		mutex_unlock(&priv->mipiclk_lock);
+	}
+#else
+	mutex_lock(&priv->mipiclk_lock);
+	memcpy(clkchg_param, data, sizeof(struct mdp_mipi_clkchg_param));
+	msm_mdp_mipi_clkchg_param_log(clkchg_param);
+	mutex_unlock(&priv->mipiclk_lock);
+#endif /* CONFIG_ARCH_DIO */
+
+	return rc;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00014 */
+static int msm_ioctl_set_gmmtable_and_voltage(struct drm_device *dev,
+		void *data, struct drm_file *file)
+{
+	int ret = 0;
+	struct msm_drm_private *priv = dev->dev_private;
+	struct mdp_gmm_volt_info *gmm_volt_info;
+
+	if ((!data) || (!priv))
+		return -EINVAL;
+
+	if (priv->upper_unit_is_connected != DRM_UPPER_UNIT_IS_CONNECTED) {
+		pr_err("%s: upper_unit isn't connected\n", __func__);
+		return -ENODEV;
+	}
+
+	gmm_volt_info = data;
+
+	ret = drm_diag_panel_set_gmm(gmm_volt_info);
+	return ret;
+}
+
+static int msm_ioctl_get_gmmtable_and_voltage(struct drm_device *dev,
+		void *data, struct drm_file *file)
+{
+	int ret = 0;
+	struct msm_drm_private *priv = dev->dev_private;
+	struct mdp_gmm_volt_info *gmm_volt_info;
+
+	if ((!data) || (!priv))
+		return -EINVAL;
+
+	if (priv->upper_unit_is_connected == DRM_UPPER_UNIT_IS_NOT_CONNECTED) {
+		pr_err("%s: upper_unit isn't connected\n", __func__);
+		return -ENODEV;
+	}
+
+	gmm_volt_info = data;
+
+	ret = drm_diag_panel_get_gmm(gmm_volt_info);
+	return ret;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00010 */
+static int msm_ioctl_set_flicker_param(struct drm_device *dev, void *data,
+		struct drm_file *file)
+{
+	int ret = 0;
+	struct msm_drm_private *priv = dev->dev_private;
+	struct drm_flicker_param *param;
+
+	if ((!data) || (!priv))
+		return -EINVAL;
+
+	if (priv->upper_unit_is_connected == DRM_UPPER_UNIT_IS_NOT_CONNECTED) {
+		pr_debug("%s: upper unit is not connected\n", __func__);
+		return -ENODEV;
+	}
+
+	param = data;
+
+	ret = drm_diag_set_flicker_param(param);
+
+	return ret;
+}
+
+static int msm_ioctl_get_flicker_param(struct drm_device *dev, void *data,
+		struct drm_file *file)
+{
+	int ret = 0;
+	struct msm_drm_private *priv = dev->dev_private;
+	struct drm_flicker_param *param;
+
+	if ((!data) || (!priv))
+		return -EINVAL;
+
+	if (priv->upper_unit_is_connected == DRM_UPPER_UNIT_IS_NOT_CONNECTED) {
+		pr_debug("%s: upper unit is not connected\n", __func__);
+		return -ENODEV;
+	}
+
+	param = data;
+
+	ret = drm_diag_get_flicker_param(param);
+
+	return ret;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00019 */
+static void msm_mdp_mipi_mipichk_param_log(struct mdp_mipi_check_param *mipi_check_param)
+{
+	pr_debug("[%s]param->frame_cnt     = %d\n",
+			__func__, mipi_check_param->frame_cnt);
+	pr_debug("[%s]param->amp           = %d\n",
+			__func__, mipi_check_param->amp);
+	pr_debug("[%s]param->sensitiv      = %d\n",
+			__func__, mipi_check_param->sensitiv);
+	pr_debug("[%s]param->result_master = %d\n",
+			__func__, mipi_check_param->result_master);
+	pr_debug("[%s]param->result_slave  = %d\n",
+			__func__, mipi_check_param->result_slave);
+}
+
+static int msm_ioctl_mipi_dsi_mipichk(struct drm_device *dev, void *data,
+		struct drm_file *file)
+{
+	int ret = 0;
+	struct msm_drm_private *priv = dev->dev_private;
+	struct mdp_mipi_check_param *mipi_check_param;
+	struct drm_mipichk_param drm_mipi_check_param;
+
+	if (!dev || !data)
+		return -EINVAL;
+
+	if (priv->upper_unit_is_connected == DRM_UPPER_UNIT_IS_NOT_CONNECTED) {
+		pr_debug("%s: upper unit is not connected\n", __func__);
+		return -ENODEV;
+	}
+
+	mipi_check_param = data;
+	drm_mipi_check_param.mipi_check_param = data;
+	drm_mipi_check_param.dev = dev;
+	drm_mipi_check_param.file = file;
+
+	ret = drm_diag_mipi_check(&drm_mipi_check_param);
+
+	msm_mdp_mipi_mipichk_param_log(mipi_check_param);
+
+	return ret;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00022 */
+static int msm_ioctl_get_panel_otp_info(struct drm_device *dev, void *data,
+		struct drm_file *file)
+{
+	struct drm_panel_otp_info *info;
+	sharp_smem_common_type *sh_smem = NULL;
+	struct shdisp_boot_context *boot_ctx = NULL;
+
+	if (!data)
+		return -EINVAL;
+
+	info = data;
+
+	memset(info, 0x00, sizeof(struct drm_panel_otp_info));
+
+	sh_smem = (sharp_smem_common_type *)sh_smem_get_common_address();
+	if (sh_smem == NULL) {
+		pr_err("get smem address is NULL\n");
+		return -EINVAL;
+	}
+
+	boot_ctx = (struct shdisp_boot_context *)sh_smem->shdisp_data_buf;
+
+	if (!boot_ctx->panel_connected) {
+		pr_debug("DaughterBoad no connected.\n");
+		return -ENODEV;
+	}
+
+	memcpy(info, &boot_ctx->panel_otp_info, sizeof(struct drm_panel_otp_info));
+
+	return 0;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00040 */
+static int msm_drm_change_base_fps_low(struct drm_device *dev, void *data,
+		struct drm_file *file)
+{
+	struct msm_drm_private *priv;
+	int fpslow_param;
+
+	if (!dev || !data) {
+		return -EINVAL;
+	}
+
+	priv = dev->dev_private;
+	if (!priv) {
+		return -EINVAL;
+	}
+
+	if (!(&priv->fpslow_param)) {
+		return -EINVAL;
+	}
+
+	memcpy(&fpslow_param, data, sizeof(int));
+	switch (fpslow_param) {
+	case DRM_BASE_FPS_30:
+	case DRM_BASE_FPS_60:
+	case DRM_BASE_FPS_100:
+	case DRM_BASE_FPS_120:
+		break;
+	default:
+		pr_err("%s:fpslow_param invalid(%d)\n",
+			__func__, fpslow_param);
+		return -EINVAL;
+	}
+
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	mutex_lock(&priv->setswvsync_lock);
+	priv->fpslow_param = fpslow_param;
+	priv->setswvsync_pending = true;
+	mutex_unlock(&priv->setswvsync_lock);
+#else /* CONFIG_SHARP_DRM_HR_VID */
+	priv->fpslow_param = fpslow_param;
+	msm_set_fps_low_base(priv->fpslow_param);
+	priv->fpslow_base = priv->fpslow_param;
+#endif /* CONFIG_SHARP_DRM_HR_VID */
+
+	return 0;
+}
+
+void msm_set_fps_low_base(int fpslow_param)
+{
+	msm_drv_fpslow_base = fpslow_param;
+}
+
+int drm_base_fps_low_mode(void)
+{
+	int ret_fps = 0;
+
+	switch (msm_drv_fpslow_base) {
+	case DRM_BASE_FPS_100:
+	case DRM_BASE_FPS_120:
+		ret_fps = DRM_BASE_FPS_DEFAULT;
+		break;
+	default:
+		ret_fps = msm_drv_fpslow_base;
+	}
+	pr_debug("%s: return fps = %d.\n", __func__, ret_fps);
+
+	return ret_fps;
+}
+EXPORT_SYMBOL(drm_base_fps_low_mode);
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00066 */
+int drm_pagechg_lock(bool lock)
+{
+	struct msm_drm_private *priv = NULL;
+	struct dsi_display *display = NULL;
+
+	display = msm_drm_get_dsi_displey();
+	if (!display) {
+		pr_err("[%s]Invalid dsi_display\n", __func__);
+		return -EINVAL;
+	}
+
+	priv = display->drm_dev->dev_private;
+	if (!priv) {
+		pr_err("[%s]Invalid dev_private\n", __func__);
+		return -EINVAL;
+	}
+
+	if (lock) {
+		mutex_lock(&priv->pagechg_lock);
+		pr_debug("[%s]pagechg_lock is Lock\n", __func__);
+	} else {
+		mutex_unlock(&priv->pagechg_lock);
+		pr_debug("[%s]pagechg_lock is Unlock\n", __func__);
+	}
+
+	return 0;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 module_init(msm_drm_register);
 module_exit(msm_drm_unregister);

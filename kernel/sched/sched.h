@@ -16,6 +16,9 @@
 #include "cpupri.h"
 #include "cpudeadline.h"
 #include "cpuacct.h"
+#ifdef CONFIG_SHARP_PNP_CLOCK
+#include <linux/cpufreq.h>
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 #ifdef CONFIG_SCHED_DEBUG
 #define SCHED_WARN_ON(x)	WARN_ONCE(x, #x)
@@ -172,6 +175,18 @@ static inline void update_idle_core(struct rq *rq) { }
  * single value that denotes runtime == period, ie unlimited time.
  */
 #define RUNTIME_INF	((u64)~0ULL)
+
+#ifdef CONFIG_SHARP_PNP_CLOCK
+extern int sh_sched_load_boost_gold;
+extern unsigned int sh_sched_load_boost_freq_gold;
+static unsigned int sh_get_sched_load_boost(int cpu)
+{
+	if (cpu >=4 && cpufreq_quick_get(cpu) >= sh_sched_load_boost_freq_gold)
+		return sh_sched_load_boost_gold;
+	else
+		return per_cpu(sched_load_boost, cpu);
+}
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 static inline int idle_policy(int policy)
 {
@@ -1854,7 +1869,11 @@ cpu_util_freq_pelt(int cpu)
 	u64 util = rq->cfs.avg.util_avg;
 	unsigned long capacity = capacity_orig_of(cpu);
 
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	util *= (100 + sh_get_sched_load_boost(cpu));
+#else /* CONFIG_SHARP_PNP_CLOCK */
 	util *= (100 + per_cpu(sched_load_boost, cpu));
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 	do_div(util, 100);
 
 	return (util >= capacity) ? capacity : util;
@@ -1874,7 +1893,11 @@ cpu_util_freq_walt(int cpu, struct sched_walt_cpu_load *walt_load)
 	if (walt_disabled || !sysctl_sched_use_walt_cpu_util)
 		return cpu_util_freq_pelt(cpu);
 
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	boost = sh_get_sched_load_boost(cpu);
+#else /* CONFIG_SHARP_PNP_CLOCK */
 	boost = per_cpu(sched_load_boost, cpu);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 	util_unboosted = util = freq_policy_load(rq);
 	util = div64_u64(util * (100 + boost),
 			 walt_cpu_util_freq_divisor);
@@ -1933,8 +1956,13 @@ extern unsigned int capacity_margin_freq;
 static inline unsigned long
 add_capacity_margin(unsigned long cpu_capacity, int cpu)
 {
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	cpu_capacity  = cpu_capacity * capacity_margin_freq *
+			(100 + sh_get_sched_load_boost(cpu));
+#else /* CONFIG_SHARP_PNP_CLOCK */
 	cpu_capacity  = cpu_capacity * capacity_margin_freq *
 			(100 + per_cpu(sched_load_boost, cpu));
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 	cpu_capacity /= 100;
 	cpu_capacity /= SCHED_CAPACITY_SCALE;
 	return cpu_capacity;

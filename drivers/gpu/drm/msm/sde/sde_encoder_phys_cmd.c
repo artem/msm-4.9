@@ -50,6 +50,15 @@
  */
 #define SDE_ENC_CTL_START_THRESHOLD_US 500
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+static struct sde_encoder_phys_cmd *sde_encoder_phys_cmd_enc[2];
+
+struct sde_encoder_phys_cmd *get_sde_encoder_phys_cmd(int index)
+{
+	return sde_encoder_phys_cmd_enc[index];
+}
+#endif /* CONFIG_SHARP_DISPLAY */
+
 static inline int _sde_encoder_phys_cmd_get_idle_timeout(
 		struct sde_encoder_phys_cmd *cmd_enc)
 {
@@ -1452,6 +1461,13 @@ struct sde_encoder_phys *sde_encoder_phys_cmd_init(
 	init_waitqueue_head(&cmd_enc->pending_vblank_wq);
 	atomic_set(&cmd_enc->autorefresh.kickoff_cnt, 0);
 	init_waitqueue_head(&cmd_enc->autorefresh.kickoff_wq);
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	if (p->intf_idx == 2) { /* Master */
+		sde_encoder_phys_cmd_enc[0] = cmd_enc;
+	} else if (p->intf_idx == 3) { /* Slave */
+		sde_encoder_phys_cmd_enc[1] = cmd_enc;
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	SDE_DEBUG_CMDENC(cmd_enc, "created\n");
 

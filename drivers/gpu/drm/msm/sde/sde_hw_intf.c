@@ -67,6 +67,11 @@
 
 #define INTF_MISR_CTRL			0x180
 #define INTF_MISR_SIGNATURE		0x184
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00003 */
+#define COLLECTED_SDE_HW_INTF_LEN	(4)
+
+static struct sde_hw_intf *collected_sde_hw_intf[COLLECTED_SDE_HW_INTF_LEN];
+#endif /* CONFIG_SHARP_DISPLAY */
 
 static struct sde_intf_cfg *_intf_offset(enum sde_intf intf,
 		struct sde_mdss_cfg *m,
@@ -206,9 +211,15 @@ static void sde_hw_intf_enable_timing_engine(
 	SDE_REG_WRITE(c, INTF_TIMING_ENGINE_EN, enable != 0);
 }
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+static void sde_hw_intf_setup_prg_fetch(
+		struct sde_hw_intf *intf,
+		const struct intf_prog_fetch *fetch, bool mipiclk_chg)
+#else
 static void sde_hw_intf_setup_prg_fetch(
 		struct sde_hw_intf *intf,
 		const struct intf_prog_fetch *fetch)
+#endif /* CONFIG_SHARP_DISPLAY */
 {
 	struct sde_hw_blk_reg_map *c = &intf->hw;
 	int fetch_enable;
@@ -219,6 +230,16 @@ static void sde_hw_intf_setup_prg_fetch(
 	 */
 
 	fetch_enable = SDE_REG_READ(c, INTF_CONFIG);
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	if ((fetch_enable & 0x800000) == 0) {
+		if (mipiclk_chg) {
+			SDE_REG_WRITE(c, INTF_CONFIG, fetch_enable & ~BIT(31));
+			return;
+		}
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
+
 	if (fetch->enable) {
 		fetch_enable |= BIT(31);
 		SDE_REG_WRITE(c, INTF_PROG_FETCH_START,
@@ -355,6 +376,14 @@ struct sde_hw_intf *sde_hw_intf_init(enum sde_intf idx,
 
 	sde_dbg_reg_register_dump_range(SDE_DBG_NAME, cfg->name, c->hw.blk_off,
 			c->hw.blk_off + c->hw.length, c->hw.xin_id);
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00003 */
+	/* First call index = 1 */
+	if (0 <= idx-1 && idx-1 < COLLECTED_SDE_HW_INTF_LEN) {
+		collected_sde_hw_intf[idx-1] = c;
+	} else {
+		pr_err("%s: idx=%d is out of range \n", __func__, idx);
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	return c;
 
@@ -370,4 +399,10 @@ void sde_hw_intf_destroy(struct sde_hw_intf *intf)
 		sde_hw_blk_destroy(&intf->base);
 	kfree(intf);
 }
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00003 */
+struct sde_hw_intf *get_sde_hw_intf(int index)
+{
+	return collected_sde_hw_intf[index];
+}
+#endif /* CONFIG_SHARP_DISPLAY */
 

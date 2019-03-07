@@ -17,6 +17,9 @@
 #include "sde_formats.h"
 #include "dsi_display.h"
 #include "sde_trace.h"
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+#include "../sharp/drm_mfr.h"
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 #define SDE_DEBUG_VIDENC(e, fmt, ...) SDE_DEBUG("enc%d intf%d " fmt, \
 		(e) && (e)->base.parent ? \
@@ -39,6 +42,15 @@
 /* Poll time to do recovery during active region */
 #define POLL_TIME_USEC_FOR_LN_CNT 500
 #define MAX_POLL_CNT 10
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00015 */ /* CUST_ID_00007 */
+static struct sde_encoder_phys_vid *sde_encoder_phys_vid_enc[2];
+
+struct sde_encoder_phys_vid *get_sde_encoder_phys_vid(int index)
+{
+	return sde_encoder_phys_vid_enc[index];
+}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 static bool _sde_encoder_phys_is_ppsplit(struct sde_encoder_phys *phys_enc)
 {
@@ -224,8 +236,13 @@ static u32 programmable_fetch_get_num_lines(
  *
  * @timing: Pointer to the intf timing information for the requested mode
  */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+static void programmable_fetch_config(struct sde_encoder_phys *phys_enc,
+		const struct intf_timing_params *timing, bool mipiclk_chg)
+#else
 static void programmable_fetch_config(struct sde_encoder_phys *phys_enc,
 				      const struct intf_timing_params *timing)
+#endif /* CONFIG_SHARP_DISPLAY */
 {
 	struct sde_encoder_phys_vid *vid_enc =
 		to_sde_encoder_phys_vid(phys_enc);
@@ -255,7 +272,11 @@ static void programmable_fetch_config(struct sde_encoder_phys *phys_enc,
 		vfp_fetch_lines, vfp_fetch_start_vsync_counter);
 
 	spin_lock_irqsave(phys_enc->enc_spinlock, lock_flags);
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	vid_enc->hw_intf->ops.setup_prg_fetch(vid_enc->hw_intf, &f, mipiclk_chg);
+#else
 	vid_enc->hw_intf->ops.setup_prg_fetch(vid_enc->hw_intf, &f);
+#endif /* CONFIG_SHARP_DISPLAY */
 	spin_unlock_irqrestore(phys_enc->enc_spinlock, lock_flags);
 }
 
@@ -358,8 +379,13 @@ static bool sde_encoder_phys_vid_mode_fixup(
 	return true;
 }
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+static void sde_encoder_phys_vid_setup_timing_engine(
+		struct sde_encoder_phys *phys_enc, bool mipiclk_chg)
+#else
 static void sde_encoder_phys_vid_setup_timing_engine(
 		struct sde_encoder_phys *phys_enc)
+#endif /* CONFIG_SHARP_DISPLAY */
 {
 	struct sde_encoder_phys_vid *vid_enc;
 	struct drm_display_mode mode;
@@ -428,7 +454,11 @@ static void sde_encoder_phys_vid_setup_timing_engine(
 			&timing_params, fmt);
 	phys_enc->hw_ctl->ops.setup_intf_cfg(phys_enc->hw_ctl, &intf_cfg);
 	spin_unlock_irqrestore(phys_enc->enc_spinlock, lock_flags);
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	programmable_fetch_config(phys_enc, &timing_params, mipiclk_chg);
+#else
 	programmable_fetch_config(phys_enc, &timing_params);
+#endif /* CONFIG_SHARP_DISPLAY */
 }
 
 static void sde_encoder_phys_vid_vblank_irq(void *arg, int irq_idx)
@@ -442,6 +472,10 @@ static void sde_encoder_phys_vid_vblank_irq(void *arg, int irq_idx)
 	u32 reset_status = 0;
 	int new_cnt = -1, old_cnt = -1;
 	u32 event = 0;
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	enum DRM_MFR_SEND_VBLANK is_send_vblank = DRM_MFR_SEND_VBLANK_SEND;
+	const struct drm_mfr_callbacks * mfr_cb = NULL;
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 	if (!phys_enc)
 		return;
@@ -451,6 +485,18 @@ static void sde_encoder_phys_vid_vblank_irq(void *arg, int irq_idx)
 		return;
 
 	SDE_ATRACE_BEGIN("vblank_irq");
+
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	if (sde_encoder_phys_vid_is_master(phys_enc)) {
+		mfr_cb = drm_mfr_get_mfr_callbacks();
+		if (mfr_cb && (vid_enc->hw_intf->cap->type == INTF_DSI)) {
+			is_send_vblank = mfr_cb->notify_hw_vsync(mfr_cb->ctx);
+		}
+	} else {
+		SDE_ERROR_VIDENC(vid_enc,
+				"slave vid_vblank_irq is called...\n");
+	}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 	/*
 	 * only decrement the pending flush count if we've actually flushed
@@ -487,9 +533,16 @@ not_flushed:
 		phys_enc->parent_ops.handle_frame_done(phys_enc->parent,
 			phys_enc, event);
 
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	if ((phys_enc->parent_ops.handle_vblank_virt)
+			&& (is_send_vblank == DRM_MFR_SEND_VBLANK_SEND))
+		phys_enc->parent_ops.handle_vblank_virt(phys_enc->parent,
+				phys_enc);
+#else /* CONFIG_SHARP_DRM_HR_VID */
 	if (phys_enc->parent_ops.handle_vblank_virt)
 		phys_enc->parent_ops.handle_vblank_virt(phys_enc->parent,
 				phys_enc);
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 	SDE_EVT32_IRQ(DRMID(phys_enc->parent), vid_enc->hw_intf->idx - INTF_0,
 			old_cnt, new_cnt, reset_status ? SDE_EVTLOG_ERROR : 0,
@@ -514,6 +567,9 @@ static void sde_encoder_phys_vid_underrun_irq(void *arg, int irq_idx)
 
 static bool _sde_encoder_phys_is_dual_ctl(struct sde_encoder_phys *phys_enc)
 {
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_DIO) /* CUST_ID_00007 */
+	return true;
+#else /* CONFIG_SHARP_DISPLAY */
 	enum sde_rm_topology_name topology;
 
 	if (!phys_enc)
@@ -525,6 +581,7 @@ static bool _sde_encoder_phys_is_dual_ctl(struct sde_encoder_phys *phys_enc)
 		return true;
 
 	return false;
+#endif /* CONFIG_SHARP_DISPLAY */
 }
 
 static bool sde_encoder_phys_vid_needs_single_flush(
@@ -561,6 +618,11 @@ static void sde_encoder_phys_vid_cont_splash_mode_set(
 		struct sde_encoder_phys *phys_enc,
 		struct drm_display_mode *adj_mode)
 {
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	const struct drm_mfr_callbacks * mfr_cb = NULL;
+	struct sde_encoder_phys_vid *vid_enc =
+			to_sde_encoder_phys_vid(phys_enc);
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 	if (!phys_enc || !adj_mode) {
 		SDE_ERROR("invalid args\n");
 		return;
@@ -570,6 +632,14 @@ static void sde_encoder_phys_vid_cont_splash_mode_set(
 	phys_enc->enable_state = SDE_ENC_ENABLED;
 
 	_sde_encoder_phys_vid_setup_irq_hw_idx(phys_enc);
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	if (phys_enc->split_role != ENC_ROLE_SLAVE) {
+		mfr_cb = drm_mfr_get_mfr_callbacks();
+		if (mfr_cb && (vid_enc->hw_intf->cap->type == INTF_DSI)) {
+			mfr_cb->notify_power(mfr_cb->ctx, 1);
+		}
+	}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 }
 
 static void sde_encoder_phys_vid_mode_set(
@@ -621,6 +691,10 @@ static int sde_encoder_phys_vid_control_vblank_irq(
 	int ret = 0;
 	struct sde_encoder_phys_vid *vid_enc;
 	int refcount;
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	const struct drm_mfr_callbacks *mfr_cb;
+	enum DRM_MFR_CTRL_BY ctrl_by = DRM_MFR_CTRL_BY_MFR;
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 	if (!phys_enc) {
 		SDE_ERROR("invalid encoder\n");
@@ -648,6 +722,47 @@ static int sde_encoder_phys_vid_control_vblank_irq(
 	SDE_EVT32(DRMID(phys_enc->parent), enable,
 			atomic_read(&phys_enc->vblank_refcount));
 
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	mfr_cb = drm_mfr_get_mfr_callbacks();
+
+	if (enable && atomic_inc_return(&phys_enc->vblank_refcount) == 1) {
+		if (vid_enc->hw_intf->cap->type == INTF_DSI) {
+			if (mfr_cb) {
+				ctrl_by =
+					mfr_cb->notify_vsync_enable(mfr_cb->ctx, 1);
+				if (ctrl_by == DRM_MFR_CTRL_BY_VENDOR) {
+					ret = sde_encoder_helper_register_irq(
+						phys_enc, INTR_IDX_VSYNC);
+					if (ret)
+						atomic_dec_return(&phys_enc->vblank_refcount);
+				}
+			}
+		} else {
+			ret = sde_encoder_helper_register_irq(phys_enc, INTR_IDX_VSYNC);
+			if (ret)
+				atomic_dec_return(&phys_enc->vblank_refcount);
+		}
+	} else if (!enable &&
+			atomic_dec_return(&phys_enc->vblank_refcount) == 0) {
+		if (vid_enc->hw_intf->cap->type == INTF_DSI) {
+			if (mfr_cb) {
+				ctrl_by =
+					mfr_cb->notify_vsync_enable(mfr_cb->ctx, 0);
+				if (ctrl_by == DRM_MFR_CTRL_BY_VENDOR) {
+					ret = sde_encoder_helper_unregister_irq(
+						phys_enc, INTR_IDX_VSYNC);
+					if (ret)
+						atomic_inc_return(&phys_enc->vblank_refcount);
+				}
+			}
+		} else {
+			ret = sde_encoder_helper_unregister_irq(phys_enc,
+					INTR_IDX_VSYNC);
+			if (ret)
+				atomic_inc_return(&phys_enc->vblank_refcount);
+		}
+	}
+#else /* CONFIG_SHARP_DRM_HR_VID */
 	if (enable && atomic_inc_return(&phys_enc->vblank_refcount) == 1) {
 		ret = sde_encoder_helper_register_irq(phys_enc, INTR_IDX_VSYNC);
 		if (ret)
@@ -659,6 +774,7 @@ static int sde_encoder_phys_vid_control_vblank_irq(
 		if (ret)
 			atomic_inc_return(&phys_enc->vblank_refcount);
 	}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 end:
 	if (ret) {
@@ -737,11 +853,20 @@ static void sde_encoder_phys_vid_enable(struct sde_encoder_phys *phys_enc)
 	/* reset state variables until after first update */
 	vid_enc->rot_fetch_valid = false;
 
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_DIO) /* CUST_ID_00007 */
+	sde_encoder_helper_split_config(phys_enc,
+					vid_enc->hw_intf->idx);
+#else /* CONFIG_SHARP_DISPLAY */
 	if (!phys_enc->sde_kms->splash_data.cont_splash_en)
 		sde_encoder_helper_split_config(phys_enc,
 						vid_enc->hw_intf->idx);
+#endif /* CONFIG_SHARP_DISPLAY */
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+	sde_encoder_phys_vid_setup_timing_engine(phys_enc, false);
+#else
 	sde_encoder_phys_vid_setup_timing_engine(phys_enc);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	/*
 	 * For single flush cases (dual-ctl or pp-split), skip setting the
@@ -820,6 +945,11 @@ static int _sde_encoder_phys_vid_wait_for_vblank(
 	struct sde_encoder_wait_info wait_info;
 	int ret = 0;
 	u32 event = 0;
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	const struct drm_mfr_callbacks * mfr_cb;
+	struct sde_encoder_phys_vid *vid_enc =
+			to_sde_encoder_phys_vid(phys_enc);
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 	if (!phys_enc) {
 		pr_err("invalid encoder\n");
@@ -857,6 +987,14 @@ end:
 		phys_enc->parent_ops.handle_frame_done(
 				phys_enc->parent, phys_enc,
 				event);
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	mfr_cb = drm_mfr_get_mfr_callbacks();
+	if (mfr_cb && (vid_enc->hw_intf->cap->type == INTF_DSI)) {
+		mfr_cb->notify_restart_vid_counter(mfr_cb->ctx,
+					phys_enc->adjust_vsync_counter,
+					phys_enc->cached_mode.vtotal);
+	}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 	return ret;
 }
 
@@ -910,7 +1048,9 @@ static int sde_encoder_phys_vid_prepare_for_kickoff(
 
 	programmable_rot_fetch_config(phys_enc,
 			params->inline_rotate_prefill, params->is_primary);
-
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	phys_enc->adjust_vsync_counter = params->inline_rotate_prefill;
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 	return rc;
 }
 
@@ -945,6 +1085,15 @@ static void sde_encoder_phys_vid_disable(struct sde_encoder_phys *phys_enc)
 		return;
 	}
 
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	if (sde_encoder_phys_vid_is_master(phys_enc)) {
+		const struct drm_mfr_callbacks * mfr_cb
+				= drm_mfr_get_mfr_callbacks();
+		if (mfr_cb && (vid_enc->hw_intf->cap->type == INTF_DSI)) {
+			mfr_cb->notify_power(mfr_cb->ctx, 0);
+		}
+	}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 	spin_lock_irqsave(phys_enc->enc_spinlock, lock_flags);
 	vid_enc->hw_intf->ops.enable_timing(vid_enc->hw_intf, 0);
 	if (sde_encoder_phys_vid_is_master(phys_enc))
@@ -995,6 +1144,9 @@ static void sde_encoder_phys_vid_handle_post_kickoff(
 {
 	unsigned long lock_flags;
 	struct sde_encoder_phys_vid *vid_enc;
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	const struct drm_mfr_callbacks * mfr_cb = NULL;
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 	if (!phys_enc) {
 		SDE_ERROR("invalid encoder\n");
@@ -1004,6 +1156,11 @@ static void sde_encoder_phys_vid_handle_post_kickoff(
 	vid_enc = to_sde_encoder_phys_vid(phys_enc);
 	SDE_DEBUG_VIDENC(vid_enc, "enable_state %d\n", phys_enc->enable_state);
 
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	if (sde_encoder_phys_vid_is_master(phys_enc)) {
+		mfr_cb = drm_mfr_get_mfr_callbacks();
+	}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 	/*
 	 * Video mode must flush CTL before enabling timing engine
 	 * Video encoders need to turn on their interfaces now
@@ -1011,11 +1168,21 @@ static void sde_encoder_phys_vid_handle_post_kickoff(
 	if (phys_enc->enable_state == SDE_ENC_ENABLING) {
 		SDE_EVT32(DRMID(phys_enc->parent),
 				vid_enc->hw_intf->idx - INTF_0);
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+		if (mfr_cb && (vid_enc->hw_intf->cap->type == INTF_DSI)) {
+			mfr_cb->notify_power(mfr_cb->ctx, 1);
+		}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 		spin_lock_irqsave(phys_enc->enc_spinlock, lock_flags);
 		vid_enc->hw_intf->ops.enable_timing(vid_enc->hw_intf, 1);
 		spin_unlock_irqrestore(phys_enc->enc_spinlock, lock_flags);
 		phys_enc->enable_state = SDE_ENC_ENABLED;
 	}
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	if (mfr_cb && (vid_enc->hw_intf->cap->type == INTF_DSI)) {
+		mfr_cb->notify_commit_frame(mfr_cb->ctx);
+	}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 }
 
 static void sde_encoder_phys_vid_irq_control(struct sde_encoder_phys *phys_enc,
@@ -1023,6 +1190,11 @@ static void sde_encoder_phys_vid_irq_control(struct sde_encoder_phys *phys_enc,
 {
 	struct sde_encoder_phys_vid *vid_enc;
 	int ret;
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	const struct drm_mfr_callbacks * mfr_cb = NULL;
+	enum DRM_MFR_CTRL_BY ctrl_by = DRM_MFR_CTRL_BY_VENDOR;
+	int index = 0; // 0: master, 1: slave
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 	if (!phys_enc)
 		return;
@@ -1036,12 +1208,43 @@ static void sde_encoder_phys_vid_irq_control(struct sde_encoder_phys *phys_enc,
 		ret = sde_encoder_phys_vid_control_vblank_irq(phys_enc, true);
 		if (ret)
 			return;
-
+#ifndef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
 		sde_encoder_helper_register_irq(phys_enc, INTR_IDX_UNDERRUN);
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 	} else {
 		sde_encoder_phys_vid_control_vblank_irq(phys_enc, false);
+#ifndef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
 		sde_encoder_helper_unregister_irq(phys_enc, INTR_IDX_UNDERRUN);
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 	}
+
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	// controll master / slave underrun interrupts..
+	index = sde_encoder_phys_vid_is_master(phys_enc) ? 0 : 1;
+	if (vid_enc->hw_intf->cap->type == INTF_DSI) {
+		mfr_cb = drm_mfr_get_mfr_callbacks();
+	}
+	ctrl_by = (mfr_cb != NULL) ?
+		DRM_MFR_CTRL_BY_MFR : DRM_MFR_CTRL_BY_VENDOR;
+
+	if ((ctrl_by == DRM_MFR_CTRL_BY_MFR) && mfr_cb &&
+				(vid_enc->hw_intf->cap->type == INTF_DSI)) {
+		ctrl_by = mfr_cb->notify_underrun_enable(
+					mfr_cb->ctx, enable,
+					index);
+	}
+
+	// underrn isn't controlled by drm_mfr
+	if (ctrl_by == DRM_MFR_CTRL_BY_VENDOR) {
+		if (enable) {
+			sde_encoder_helper_register_irq(
+					phys_enc, INTR_IDX_UNDERRUN);
+		} else {
+			sde_encoder_helper_unregister_irq(
+					phys_enc, INTR_IDX_UNDERRUN);
+		}
+	}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 }
 
 static void sde_encoder_phys_vid_setup_misr(struct sde_encoder_phys *phys_enc,
@@ -1087,6 +1290,23 @@ static int sde_encoder_phys_vid_get_line_count(
 
 	return vid_enc->hw_intf->ops.get_line_count(vid_enc->hw_intf);
 }
+
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+static int sde_encoder_phys_vid_get_line_count_mfr(
+		struct sde_encoder_phys *phys_enc)
+{
+	struct sde_encoder_phys_vid *vid_enc;
+
+	if (!phys_enc)
+		return -EINVAL;
+
+	vid_enc = to_sde_encoder_phys_vid(phys_enc);
+	if (!vid_enc->hw_intf || !vid_enc->hw_intf->ops.get_line_count)
+		return -EINVAL;
+
+	return vid_enc->hw_intf->ops.get_line_count(vid_enc->hw_intf);
+}
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 
 static int sde_encoder_phys_vid_wait_for_active(
 			struct sde_encoder_phys *phys_enc)
@@ -1180,6 +1400,9 @@ static void sde_encoder_phys_vid_init_ops(struct sde_encoder_phys_ops *ops)
 	ops->get_wr_line_count = sde_encoder_phys_vid_get_line_count;
 	ops->wait_dma_trigger = sde_encoder_phys_vid_wait_dma_trigger;
 	ops->wait_for_active = sde_encoder_phys_vid_wait_for_active;
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	ops->get_line_count_mfr = sde_encoder_phys_vid_get_line_count_mfr;
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 }
 
 struct sde_encoder_phys *sde_encoder_phys_vid_init(
@@ -1270,6 +1493,13 @@ struct sde_encoder_phys *sde_encoder_phys_vid_init(
 	atomic_set(&phys_enc->pending_retire_fence_cnt, 0);
 	init_waitqueue_head(&phys_enc->pending_kickoff_wq);
 	phys_enc->enable_state = SDE_ENC_DISABLED;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00015 */ /* CUST_ID_00007 */
+	if (p->intf_idx == 2) { /* Master */
+		sde_encoder_phys_vid_enc[0] = vid_enc;
+	} else if (p->intf_idx == 3) { /* Slave */
+		sde_encoder_phys_vid_enc[1] = vid_enc;
+	}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	SDE_DEBUG_VIDENC(vid_enc, "created intf idx:%d\n", p->intf_idx);
 
@@ -1282,3 +1512,11 @@ fail:
 
 	return ERR_PTR(ret);
 }
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+void sde_encoder_phys_vid_setup_timing_engine_wrap(
+		struct sde_encoder_phys *phys_enc)
+{
+	sde_encoder_phys_vid_setup_timing_engine(phys_enc, true);
+}
+#endif /* CONFIG_SHARP_DISPLAY */

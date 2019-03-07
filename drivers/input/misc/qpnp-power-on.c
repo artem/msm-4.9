@@ -927,6 +927,14 @@ static int qpnp_pon_store_and_clear_warm_reset(struct qpnp_pon *pon)
 	return 0;
 }
 
+#if defined(CONFIG_QPNP_SCPOWER_ON) || defined(CONFIG_INPUT_QPNP_SCPOWER_ON)
+static uint powerkey_count;
+module_param(powerkey_count, uint, 0644);
+
+static uint volumeupkey_count;
+module_param(volumeupkey_count, uint, 0644);
+#endif /* CONFIG_QPNP_SCPOWER_ON || CONFIG_INPUT_QPNP_SCPOWER_ON */
+
 static int
 qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 {
@@ -964,9 +972,18 @@ qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 	switch (cfg->pon_type) {
 	case PON_KPDPWR:
 		pon_rt_bit = QPNP_PON_KPDPWR_N_SET;
+#if defined(CONFIG_QPNP_SCPOWER_ON) || defined(CONFIG_INPUT_QPNP_SCPOWER_ON)
+		printk(KERN_INFO "pwrkey: %s\n", (pon_rt_sts & pon_rt_bit) ? "press" : "release");
+		if (pon_rt_sts & pon_rt_bit)
+			powerkey_count++;
+#endif /* CONFIG_QPNP_SCPOWER_ON || CONFIG_INPUT_QPNP_SCPOWER_ON */
 		break;
 	case PON_RESIN:
 		pon_rt_bit = QPNP_PON_RESIN_N_SET;
+#if defined(CONFIG_QPNP_SCPOWER_ON) || defined(CONFIG_INPUT_QPNP_SCPOWER_ON)
+		if (pon_rt_sts & pon_rt_bit)
+			volumeupkey_count++;
+#endif /* CONFIG_QPNP_SCPOWER_ON || CONFIG_INPUT_QPNP_SCPOWER_ON */
 		break;
 	case PON_CBLPWR:
 		pon_rt_bit = QPNP_PON_CBLPWR_N_SET;

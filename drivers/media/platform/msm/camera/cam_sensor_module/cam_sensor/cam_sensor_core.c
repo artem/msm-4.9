@@ -16,6 +16,21 @@
 #include "cam_sensor_util.h"
 #include "cam_soc_util.h"
 #include "cam_trace.h"
+/* SHLOCAL_CAMERA_DRIVERS-> */
+#ifdef CONFIG_SHARP_SHTERM
+#include <misc/shterm_k.h>
+#endif /* CONFIG_SHARP_SHTERM */
+
+extern int32_t shcampdaf_fw_init(struct cam_sensor_ctrl_t *s_ctrl);
+extern int32_t sh_ois_fw_wait_complete(void);
+struct mutex shcampdaf_mutex;
+extern int32_t sh_ois_exit(struct cam_sensor_ctrl_t *s_ctrl);
+
+static int camstatus;
+module_param_named(
+	camstatus, camstatus, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+/* SHLOCAL_CAMERA_DRIVERS<- */
 
 static void cam_sensor_update_req_mgr(
 	struct cam_sensor_ctrl_t *s_ctrl,
@@ -253,6 +268,9 @@ static int32_t cam_sensor_i2c_modes_util(
 	int32_t rc = 0;
 	uint32_t i, size;
 
+/* SHLOCAL_CAMERA_DRIVERS-> */
+	mutex_lock(&shcampdaf_mutex);
+/* SHLOCAL_CAMERA_DRIVERS<- */
 	if (i2c_list->op_code == CAM_SENSOR_I2C_WRITE_RANDOM) {
 		rc = camera_io_dev_write(io_master_info,
 			&(i2c_list->i2c_settings));
@@ -260,6 +278,9 @@ static int32_t cam_sensor_i2c_modes_util(
 			CAM_ERR(CAM_SENSOR,
 				"Failed to random write I2C settings: %d",
 				rc);
+/* SHLOCAL_CAMERA_DRIVERS-> */
+			mutex_unlock(&shcampdaf_mutex);
+/* SHLOCAL_CAMERA_DRIVERS<- */
 			return rc;
 		}
 	} else if (i2c_list->op_code == CAM_SENSOR_I2C_WRITE_SEQ) {
@@ -271,6 +292,9 @@ static int32_t cam_sensor_i2c_modes_util(
 			CAM_ERR(CAM_SENSOR,
 				"Failed to seq write I2C settings: %d",
 				rc);
+/* SHLOCAL_CAMERA_DRIVERS-> */
+			mutex_unlock(&shcampdaf_mutex);
+/* SHLOCAL_CAMERA_DRIVERS<- */
 			return rc;
 		}
 	} else if (i2c_list->op_code == CAM_SENSOR_I2C_WRITE_BURST) {
@@ -282,6 +306,9 @@ static int32_t cam_sensor_i2c_modes_util(
 			CAM_ERR(CAM_SENSOR,
 				"Failed to burst write I2C settings: %d",
 				rc);
+/* SHLOCAL_CAMERA_DRIVERS-> */
+			mutex_unlock(&shcampdaf_mutex);
+/* SHLOCAL_CAMERA_DRIVERS<- */
 			return rc;
 		}
 	} else if (i2c_list->op_code == CAM_SENSOR_I2C_POLL) {
@@ -298,11 +325,17 @@ static int32_t cam_sensor_i2c_modes_util(
 			if (rc < 0) {
 				CAM_ERR(CAM_SENSOR,
 					"i2c poll apply setting Fail: %d", rc);
+/* SHLOCAL_CAMERA_DRIVERS-> */
+				mutex_unlock(&shcampdaf_mutex);
+/* SHLOCAL_CAMERA_DRIVERS<- */
 				return rc;
 			}
 		}
 	}
 
+/* SHLOCAL_CAMERA_DRIVERS-> */
+	mutex_unlock(&shcampdaf_mutex);
+/* SHLOCAL_CAMERA_DRIVERS<- */
 	return rc;
 }
 
@@ -655,6 +688,9 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 		 */
 		s_ctrl->is_probe_succeed = 1;
 		s_ctrl->sensor_state = CAM_SENSOR_INIT;
+/* SHLOCAL_CAMERA_DRIVERS-> */
+		mutex_init(&shcampdaf_mutex);
+/* SHLOCAL_CAMERA_DRIVERS<- */
 	}
 		break;
 	case CAM_ACQUIRE_DEV: {
@@ -984,6 +1020,27 @@ int cam_sensor_power_up(struct cam_sensor_ctrl_t *s_ctrl)
 	if (rc < 0)
 		CAM_ERR(CAM_SENSOR, "cci_init failed: rc: %d", rc);
 
+/* SHLOCAL_CAMERA_DRIVERS-> */
+	rc = shcampdaf_fw_init(s_ctrl);
+	if (rc < 0){
+		cam_sensor_power_down(s_ctrl);
+		return rc;
+	}
+
+#ifdef CONFIG_SHARP_SHTERM
+	{
+		struct cam_camera_slave_info *slave_info;
+		
+		slave_info = &(s_ctrl->sensordata->slave_info);
+		if((slave_info->sensor_id == 0x0318) || (slave_info->sensor_id == 0x0168)){
+			shterm_k_set_info( SHTERM_INFO_CAMERA,  1 );
+		} else {
+			shterm_k_set_info( SHTERM_INFO_SUBCAMERA,  1 );
+		}
+	}
+#endif /* CONFIG_SHARP_SHTERM */
+
+/* SHLOCAL_CAMERA_DRIVERS<- */
 	return rc;
 }
 
@@ -1005,6 +1062,24 @@ int cam_sensor_power_down(struct cam_sensor_ctrl_t *s_ctrl)
 		CAM_ERR(CAM_SENSOR, "failed: power_info %pK", power_info);
 		return -EINVAL;
 	}
+/* SHLOCAL_CAMERA_DRIVERS-> */
+	sh_ois_fw_wait_complete();
+	sh_ois_exit(s_ctrl);
+
+#ifdef CONFIG_SHARP_SHTERM
+	{
+		struct cam_camera_slave_info *slave_info;
+		
+		slave_info = &(s_ctrl->sensordata->slave_info);
+		
+		if((slave_info->sensor_id == 0x0318) || (slave_info->sensor_id == 0x0168)){
+			shterm_k_set_info( SHTERM_INFO_CAMERA, 0 );
+		} else {
+			shterm_k_set_info( SHTERM_INFO_SUBCAMERA, 0 );
+		}
+	}
+#endif /* CONFIG_SHARP_SHTERM */
+/* SHLOCAL_CAMERA_DRIVERS<- */
 	rc = msm_camera_power_down(power_info, soc_info);
 	if (rc < 0) {
 		CAM_ERR(CAM_SENSOR, "power down the core is failed:%d", rc);

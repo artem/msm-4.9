@@ -1,0 +1,13 @@
+#
+# Proximity device configuration
+#
+# drivers/sharp/proximity/Kconfig
+
+menu "Proximity Configuration"
+
+config PROXIMITY_CHECKER
+	tristate "Proximity checker driver"
+	default n
+
+endmenu
+

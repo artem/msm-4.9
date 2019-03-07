@@ -174,6 +174,13 @@ struct __extcon_info {
 	},
 
 	/* Miscellaneous external connector */
+#ifdef CONFIG_SHARP_FLIP
+	[EXTCON_FLIP] = {
+		.type = EXTCON_TYPE_MISC,
+		.id = EXTCON_FLIP,
+		.name = "FLIP",
+	},
+#endif
 	[EXTCON_DOCK] = {
 		.type = EXTCON_TYPE_MISC,
 		.id = EXTCON_DOCK,

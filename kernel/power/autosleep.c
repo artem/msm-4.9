@@ -103,6 +103,9 @@ int pm_autosleep_set_state(suspend_state_t state)
 	__pm_relax(autosleep_ws);
 
 	if (state > PM_SUSPEND_ON) {
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+		print_active_locks();
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
 		pm_wakep_autosleep_enabled(true);
 		queue_up_suspend_work();
 	} else {

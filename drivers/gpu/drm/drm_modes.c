@@ -41,6 +41,10 @@
 
 #include "drm_crtc_internal.h"
 
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+static int store_hdisplay;
+#endif /* CONFIG_SHARP_DISPLAY */
+
 /**
  * drm_mode_debug_printmodeline - print a mode to dmesg
  * @mode: mode to print
@@ -1482,8 +1486,13 @@ EXPORT_SYMBOL(drm_mode_create_from_cmdline_mode);
  * Convert a drm_display_mode into a drm_mode_modeinfo structure to return to
  * the user.
  */
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+void drm_mode_convert_to_umode(struct drm_mode_modeinfo *out,
+			       const struct drm_display_mode *in, bool main_display)
+#else
 void drm_mode_convert_to_umode(struct drm_mode_modeinfo *out,
 			       const struct drm_display_mode *in)
+#endif /* CONFIG_SHARP_DISPLAY */
 {
 	WARN(in->hdisplay > USHRT_MAX || in->hsync_start > USHRT_MAX ||
 	     in->hsync_end > USHRT_MAX || in->htotal > USHRT_MAX ||
@@ -1493,7 +1502,23 @@ void drm_mode_convert_to_umode(struct drm_mode_modeinfo *out,
 	     "timing values too large for mode info\n");
 
 	out->clock = in->clock;
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+	if (main_display) {
+		if (in->hdisplay == 1440) {
+			store_hdisplay = in->hdisplay;
+			out->hdisplay = 1080;
+		} else if (in->hdisplay == 720) {
+			store_hdisplay = 2*in->hdisplay;
+			out->hdisplay = 540;
+		} else {
+			out->hdisplay = in->hdisplay;
+		}
+	} else {
+		out->hdisplay = in->hdisplay;
+	}
+#else /* CONFIG_SHARP_DISPLAY */
 	out->hdisplay = in->hdisplay;
+#endif /* CONFIG_SHARP_DISPLAY */
 	out->hsync_start = in->hsync_start;
 	out->hsync_end = in->hsync_end;
 	out->htotal = in->htotal;
@@ -1521,8 +1546,13 @@ void drm_mode_convert_to_umode(struct drm_mode_modeinfo *out,
  * Returns:
  * Zero on success, negative errno on failure.
  */
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+int drm_mode_convert_umode(struct drm_display_mode *out,
+			   const struct drm_mode_modeinfo *in, bool main_display)
+#else
 int drm_mode_convert_umode(struct drm_display_mode *out,
 			   const struct drm_mode_modeinfo *in)
+#endif /* CONFIG_SHARP_DISPLAY */
 {
 	int ret = -EINVAL;
 
@@ -1535,7 +1565,21 @@ int drm_mode_convert_umode(struct drm_display_mode *out,
 		goto out;
 
 	out->clock = in->clock;
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+	if (main_display) {
+		if (in->hdisplay == 1080) {
+			out->hdisplay = store_hdisplay;
+		} else if (in->hdisplay == 540) {
+			out->hdisplay = store_hdisplay/2;
+		} else {
+			out->hdisplay = in->hdisplay;
+		}
+	} else {
+		out->hdisplay = in->hdisplay;
+	}
+#else /* CONFIG_SHARP_DISPLAY */
 	out->hdisplay = in->hdisplay;
+#endif /* CONFIG_SHARP_DISPLAY */
 	out->hsync_start = in->hsync_start;
 	out->hsync_end = in->hsync_end;
 	out->htotal = in->htotal;

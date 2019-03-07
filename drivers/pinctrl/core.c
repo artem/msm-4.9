@@ -1080,6 +1080,25 @@ int pinctrl_select_state(struct pinctrl *p, struct pinctrl_state *state)
 }
 EXPORT_SYMBOL_GPL(pinctrl_select_state);
 
+/* SH_BSP_CUST Mod Start */
+/* copy from pinctrl_select_state in order to release pinctrl */
+void pinctrl_free_state(struct pinctrl *p)
+{
+	struct pinctrl_setting *setting;
+
+	if (p->state) {
+		list_for_each_entry(setting, &p->state->settings, node) {
+			if (setting->type != PIN_MAP_TYPE_MUX_GROUP)
+				continue;
+			pinmux_disable_setting(setting);
+		}
+	}
+
+	p->state = NULL;
+}
+EXPORT_SYMBOL_GPL(pinctrl_free_state);
+/* SH_BSP_CUST Mod End */
+
 static void devm_pinctrl_release(struct device *dev, void *res)
 {
 	pinctrl_put(*(struct pinctrl **)res);

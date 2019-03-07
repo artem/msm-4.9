@@ -1,0 +1,88 @@
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&tlmm {
+	/*****************************************/
+	/*  pinctrl customize setting            */
+	/*  NFC/FeliCa                           */
+	/*****************************************/
+	nfc_cxd224x: nfc_cxd224x {
+		nfc_nint_active: nfc_nint_active {
+			mux {
+				pins = "gpio95";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio95";
+				drive-strength = <2>;
+				bias-disable;
+			};
+		};
+		nfc_nint_suspend: nfc_nint_suspend {
+			mux {
+				pins = "gpio95";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio95";
+				drive-strength = <2>;
+				bias-disable;
+			};
+		};
+	
+		nfc_pon_active: nfc_pon_active {
+			mux {
+				pins = "gpio12";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio12";
+				drive-strength = <2>;
+				bias-disable;
+			};
+		};
+		nfc_pon_suspend: nfc_pon_suspend {
+			mux {
+				pins = "gpio12";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio12";
+				drive-strength = <2>;
+				bias-disable;
+			};
+		};
+	
+		nfc_status_active: nfc_status_active {
+			mux {
+				pins = "gpio96";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio96";
+				drive-strength = <2>;
+				bias-disable;
+			};
+		};
+		nfc_status_suspend: nfc_status_suspend {
+			mux {
+				pins = "gpio96";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio96";
+				drive-strength = <2>;
+				bias-disable;
+			};
+		};
+	};
+};

@@ -564,6 +564,12 @@ struct spi_master {
 	void			*dummy_tx;
 
 	int (*fw_translate_cs)(struct spi_master *master, unsigned cs);
+
+	bool not_use_pinctrl;
+
+#if defined( CONFIG_SHARP_SPI_AUTO_SUSPEND )
+	int autosuspend_delay;
+#endif	/* CONFIG_SHARP_SPI_AUTO_SUSPEND */
 };
 
 static inline void *spi_master_get_devdata(struct spi_master *master)
@@ -761,6 +767,10 @@ struct spi_transfer {
 	u8		bits_per_word;
 	u16		delay_usecs;
 	u32		speed_hz;
+#if defined( CONFIG_SHARP_SPI_DEASSERT_WAIT )
+#define SHARP_DEASSERT_WAIT_CLK_MAX	63
+	u16		deassert_wait;	/* The de-assertion wait time (us) */
+#endif	/* defined( CONFIG_SPI_DEASSERT_WAIT_SH ) */
 
 	struct list_head transfer_list;
 };

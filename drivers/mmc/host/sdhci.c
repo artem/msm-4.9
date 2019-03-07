@@ -58,6 +58,11 @@ static void sdhci_enable_sdio_irq_nolock(struct sdhci_host *host, int enable);
 
 static void sdhci_enable_preset_value(struct sdhci_host *host, bool enable);
 
+#if defined(CONFIG_SHARP_MMC_SD_BATTLOG) && defined(CONFIG_SHARP_SHTERM)
+#include "../card/mmc_sd_battlog.h"
+static u32 mmc_sd_err_cmd = 0;
+#endif /* CONFIG_SHARP_MMC_SD_BATTLOG && CONFIG_SHARP_SHTERM */
+
 static void sdhci_dump_state(struct sdhci_host *host)
 {
 	struct mmc_host *mmc = host->mmc;
@@ -1222,6 +1227,11 @@ void sdhci_send_command(struct sdhci_host *host, struct mmc_command *cmd)
 	unsigned long timeout;
 
 	WARN_ON(host->cmd);
+
+#if defined(CONFIG_SHARP_MMC_SD_BATTLOG) && defined(CONFIG_SHARP_SHTERM)
+	if (host->mmc->card && (mmc_card_sd(host->mmc->card)))
+		mmc_sd_err_cmd = cmd->opcode;
+#endif /* CONFIG_SHARP_MMC_SD_BATTLOG && CONFIG_SHARP_SHTERM */
 
 	/* Initially, a command has no error */
 	cmd->error = 0;
@@ -2934,6 +2944,10 @@ static void sdhci_timeout_timer(unsigned long data)
 		MMC_TRACE(host->mmc, "Timeout waiting for h/w interrupt\n");
 		sdhci_dumpregs(host);
 
+#if defined(CONFIG_SHARP_MMC_SD_BATTLOG) && defined(CONFIG_SHARP_SHTERM)
+		mmc_sd_set_err_cmd_type(host->mmc, mmc_sd_err_cmd, _REQ_TIMEOUT);
+#endif /* CONFIG_SHARP_MMC_SD_BATTLOG && CONFIG_SHARP_SHTERM */
+
 		host->cmd->error = -ETIMEDOUT;
 		sdhci_finish_mrq(host, host->cmd->mrq);
 	}
@@ -2958,6 +2972,10 @@ static void sdhci_timeout_data_timer(unsigned long data)
 		       mmc_hostname(host->mmc));
 		MMC_TRACE(host->mmc, "Timeout waiting for h/w interrupt\n");
 		sdhci_dumpregs(host);
+
+#if defined(CONFIG_SHARP_MMC_SD_BATTLOG) && defined(CONFIG_SHARP_SHTERM)
+		mmc_sd_set_err_cmd_type(host->mmc, mmc_sd_err_cmd, _REQ_TIMEOUT);
+#endif /* CONFIG_SHARP_MMC_SD_BATTLOG && CONFIG_SHARP_SHTERM */
 
 		if (host->data) {
 			pr_info("%s: bytes to transfer: %d transferred: %d\n",
@@ -3019,6 +3037,12 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask)
 			host->cmd->error = -EILSEQ;
 			host->mmc->err_stats[MMC_ERR_CMD_CRC]++;
 		}
+#if defined(CONFIG_SHARP_MMC_SD_BATTLOG) && defined(CONFIG_SHARP_SHTERM)
+		if (intmask & SDHCI_INT_TIMEOUT)
+			 mmc_sd_set_err_cmd_type(host->mmc, mmc_sd_err_cmd, _CMD_TIMEOUT);
+		else if (intmask & SDHCI_INT_CRC)
+			mmc_sd_set_err_cmd_type(host->mmc, mmc_sd_err_cmd, _CMD_CRC_ERROR);
+#endif /* CONFIG_SHARP_MMC_SD_BATTLOG && CONFIG_SHARP_SHTERM */
 
 		if (intmask & SDHCI_INT_AUTO_CMD_ERR) {
 			auto_cmd_status = host->auto_cmd_err_sts;
@@ -3193,6 +3217,17 @@ static void sdhci_data_irq(struct sdhci_host *host, u32 intmask)
 		if (host->ops->adma_workaround)
 			host->ops->adma_workaround(host, intmask);
 	}
+
+#if defined(CONFIG_SHARP_MMC_SD_BATTLOG) && defined(CONFIG_SHARP_SHTERM)
+	if (intmask & SDHCI_INT_DATA_TIMEOUT)
+		mmc_sd_set_err_cmd_type(host->mmc, mmc_sd_err_cmd, _DATA_TIMEOUT);
+	else if ((intmask & SDHCI_INT_DATA_CRC) &&
+				SDHCI_GET_CMD(sdhci_readw(host, SDHCI_COMMAND))
+				!= MMC_BUS_TEST_R)
+		mmc_sd_set_err_cmd_type(host->mmc, mmc_sd_err_cmd,
+									_DATA_CRC_ERROR);
+#endif /* CONFIG_SHARP_MMC_SD_BATTLOG && CONFIG_SHARP_SHTERM */
+
 	if (host->data->error) {
 		if (intmask & (SDHCI_INT_DATA_CRC | SDHCI_INT_DATA_TIMEOUT
 					| SDHCI_INT_DATA_END_BIT)) {
@@ -4032,6 +4067,12 @@ void __sdhci_read_caps(struct sdhci_host *host, u16 *ver, u32 *caps, u32 *caps1)
 		return;
 
 	host->caps1 = caps1 ? *caps1 : sdhci_readl(host, SDHCI_CAPABILITIES_1);
+
+#ifdef CONFIG_SHARP_MMC_SD_ENABLE_ONLY_DDR50
+	if (!strcmp(mmc_hostname(host->mmc), HOST_MMC_SD))
+		host->caps1 &= ~(SDHCI_SUPPORT_SDR104 | SDHCI_SUPPORT_SDR50 |
+						SDHCI_USE_SDR50_TUNING);
+#endif /* CONFIG_SHARP_MMC_SD_ENABLE_ONLY_DDR50 */
 }
 EXPORT_SYMBOL_GPL(__sdhci_read_caps);
 

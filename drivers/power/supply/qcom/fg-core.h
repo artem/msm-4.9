@@ -191,6 +191,9 @@ enum fg_sram_param_id {
 	FG_SRAM_ESR_TIGHT_FILTER,
 	FG_SRAM_ESR_BROAD_FILTER,
 	FG_SRAM_SLOPE_LIMIT,
+#ifdef CONFIG_BATTERY_SHARP
+	FG_SRAM_IBATT_CUTOFF,
+#endif /* CONFIG_BATTERY_SHARP */
 	FG_SRAM_MAX,
 };
 
@@ -319,6 +322,13 @@ struct fg_dt_props {
 	int	ki_coeff_hi_dischg[KI_COEFF_SOC_LEVELS];
 	int	slope_limit_coeffs[SLOPE_LIMIT_NUM_COEFFS];
 	u8	batt_therm_coeffs[BATT_THERM_NUM_COEFFS];
+#ifdef CONFIG_BATTERY_SHARP
+	int	cl_max_cap_inc_2nd;
+	int	cl_max_cap_dec_2nd;
+	int	ibatt_cutoff;
+	int	empty_soc_silver_freq_khz;
+	int	empty_soc_gold_freq_khz;
+#endif /* CONFIG_BATTERY_SHARP */
 };
 
 /* parameters from battery profile */
@@ -328,6 +338,9 @@ struct fg_batt_props {
 	int		float_volt_uv;
 	int		vbatt_full_mv;
 	int		fastchg_curr_ma;
+#ifdef CONFIG_BATTERY_SHARP
+	int		nom_batt_cap_mah;
+#endif /* CONFIG_BATTERY_SHARP */
 };
 
 struct fg_cyc_ctr_data {
@@ -425,6 +438,9 @@ struct fg_chip {
 	struct power_supply	*pc_port_psy;
 	struct iio_channel	*batt_id_chan;
 	struct iio_channel	*die_temp_chan;
+#ifdef CONFIG_BATTERY_SHARP
+	struct iio_channel	*skin_temp_chan;
+#endif /* CONFIG_BATTERY_SHARP */
 	struct fg_irq_info	*irqs;
 	struct votable		*awake_votable;
 	struct votable		*delta_bsoc_irq_en_votable;
@@ -495,6 +511,12 @@ struct fg_chip {
 	struct work_struct	esr_filter_work;
 	struct alarm		esr_filter_alarm;
 	ktime_t			last_delta_temp_time;
+#ifdef CONFIG_BATTERY_SHARP
+	struct delayed_work	update_current_avg_work;
+	int64_t				current_avg;
+	struct mutex		current_avg_lock;
+	unsigned long		last_current_avg_update_time;
+#endif /* CONFIG_BATTERY_SHARP */
 };
 
 /* Debugfs data structures are below */

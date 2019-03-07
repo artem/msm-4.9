@@ -52,6 +52,28 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/ufs.h>
 
+#if defined(CONFIG_SHARP_SCSI_UFS_LOG) && defined(CONFIG_ANDROID_ENGINEERING)
+#include <linux/ktime.h>
+
+typedef struct {
+	u8				opcode;
+	u8				opcode_param;
+	u8				lun;
+	sector_t		lba;
+	int				len;
+	unsigned int	tag;
+	ktime_t			start;
+} SEND_COMMAND_INFO;
+
+#define MAX_SEND_INFO_COMMAND_NUM	(32)
+static SEND_COMMAND_INFO	send_command_info[MAX_SEND_INFO_COMMAND_NUM];
+static bool	sh_debug_init_flg = false;
+
+static int	sh_ufs_debug_mask = 0;
+module_param_named(sh_debug_mask, sh_ufs_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
+MODULE_PARM_DESC(sh_debug_mask, "UFS cards tests param");
+#endif /* CONFIG_SHARP_SCSI_UFS_LOG && CONFIG_ANDROID_ENGINEERING */
+
 #ifdef CONFIG_DEBUG_FS
 
 static int ufshcd_tag_req_type(struct request *rq)
@@ -572,6 +594,122 @@ static inline void ufshcd_remove_non_printable(char *val)
 		*val = ' ';
 }
 
+#if defined(CONFIG_SHARP_SCSI_UFS_LOG) && defined(CONFIG_ANDROID_ENGINEERING)
+static void ufshcd_cond_add_cmd_trace_sh(struct ufs_hba *hba,
+					unsigned int tag, const char *str)
+{
+	sector_t lba = 0;
+	u8 opcode = 0;
+	u8 opcode_param = 0;
+	struct ufshcd_lrb *lrbp;
+	u8 lun = 0;
+	int transfer_len = 0;
+	int i;
+	int free_space = MAX_SEND_INFO_COMMAND_NUM;
+	int count = MAX_SEND_INFO_COMMAND_NUM;
+
+	if ((sh_ufs_debug_mask & 0xFF) == 0x00) {
+		sh_debug_init_flg = false;
+		return;
+	} else if (!(sh_ufs_debug_mask & 0xF0)) {
+		count = 0;
+	}
+
+	if (!sh_debug_init_flg) {
+		memset(send_command_info, 0xFF, sizeof(send_command_info));
+		sh_debug_init_flg = true;
+	}
+
+	lrbp = &hba->lrb[tag];
+	if (lrbp->cmd) { 
+		opcode = (u8)(*lrbp->cmd->cmnd);
+		if (opcode == START_STOP)
+			opcode_param = ((u8)((lrbp->cmd->cmnd[4])) >> 4);
+		if (lrbp->cmd->request && lrbp->cmd->request->bio)
+			lba = lrbp->cmd->request->bio->bi_iter.bi_sector;
+		transfer_len = be32_to_cpu(
+			lrbp->ucd_req_ptr->sc.exp_data_transfer_len);
+	}
+	lun = lrbp->lun;
+
+	if ((!strncmp(str, "scsi_send", 9)) ||
+		(!strncmp(str, "dev_cmd_send", 12))) {
+		for (i = 0; i < count; i++) {
+			if ((send_command_info[i].opcode == opcode) &&
+				(send_command_info[i].opcode_param == opcode_param) &&
+				(send_command_info[i].lun == lun) &&
+				(send_command_info[i].lba == lba) &&
+				(send_command_info[i].len == transfer_len) &&
+				(send_command_info[i].tag == tag)) {
+				free_space = MAX_SEND_INFO_COMMAND_NUM;
+				break;
+			}
+			if ((free_space == MAX_SEND_INFO_COMMAND_NUM) &&
+				(send_command_info[i].opcode == 0xFF))
+				free_space = i;
+		}
+		if (free_space < MAX_SEND_INFO_COMMAND_NUM) {
+			send_command_info[free_space].opcode = opcode;
+			send_command_info[free_space].opcode_param = opcode_param;
+			send_command_info[free_space].lun = lun;
+			send_command_info[free_space].lba = lba;
+			send_command_info[free_space].len = transfer_len;
+			send_command_info[free_space].tag = tag;
+			send_command_info[free_space].start = ktime_get();
+		}
+
+		if (opcode != START_STOP)
+			pr_info("ufs-shlog : %-14s : %02d : "
+					"opcode=0x%02x,lun=0x%02x,lba=0x%016lx,"
+					"transfer_len=0x%08x,tag=0x%08x\n",
+					str, free_space, opcode, lun, lba, transfer_len, tag);
+		else
+			pr_info("ufs-shlog : %-14s : %02d : "
+					"opcode=0x%02x,lun=0x%02x,lba=0x%016lx,"
+					"transfer_len=0x%08x,tag=0x%08x : pwr_mode=%d\n",
+					str, free_space, opcode, lun, lba, transfer_len, tag,
+					opcode_param);
+	} else {
+		for (i = 0; i < count; i++) {
+			if ((send_command_info[i].opcode == opcode) &&
+				(send_command_info[i].opcode_param == opcode_param) &&
+				(send_command_info[i].lun == lun) &&
+				(send_command_info[i].lba == lba) &&
+				(send_command_info[i].len == transfer_len) &&
+				(send_command_info[i].tag == tag)) {
+				free_space = i;
+				break;
+			}
+		}
+		if (free_space < MAX_SEND_INFO_COMMAND_NUM) {
+			if (opcode != START_STOP)
+				pr_info("ufs-shlog : %-14s : %02d : "
+						"opcode=0x%02x,lun=0x%02x,lba=0x%016lx,"
+						"transfer_len=0x%08x,tag=0x%08x,time=%ld\n",
+						str, free_space, opcode, lun, lba, transfer_len, tag,
+						(long)ktime_to_us(ktime_sub(ktime_get(),
+											send_command_info[i].start)));
+		    else
+				pr_info("ufs-shlog : %-14s : %02d : "
+						"opcode=0x%02x,lun=0x%02x,lba=0x%016lx,"
+						"transfer_len=0x%08x,tag=0x%08x,time=%ld : "
+						"pwr_mode=%d\n",
+						str, free_space, opcode, lun, lba, transfer_len, tag,
+						(long)ktime_to_us(ktime_sub(ktime_get(),
+											send_command_info[i].start)),
+						opcode_param);
+			memset(&send_command_info[free_space], 0xFF,
+											sizeof(SEND_COMMAND_INFO));
+		} else if (count != 0) {
+			pr_info("ufs-shlog : %-14s : %02d : "
+					"opcode=0x%02x,lun=0x%02x,lba=0x%016lx,"
+					"transfer_len=0x%08x,tag=0x%08x\n",
+					str, free_space, opcode, lun, lba, transfer_len, tag);
+		}
+	}
+}
+#endif /* CONFIG_SHARP_SCSI_UFS_LOG && CONFIG_ANDROID_ENGINEERING */
+
 #define UFSHCD_MAX_CMD_LOGGING	200
 
 #ifdef CONFIG_TRACEPOINTS
@@ -755,11 +893,18 @@ static inline void ufshcd_cond_add_cmd_trace(struct ufs_hba *hba,
 
 	__ufshcd_cmd_log(hba, (char *) str, cmd_type, tag, cmd_id, idn,
 			 lrbp->lun, lba, transfer_len);
+
+#if defined(CONFIG_SHARP_SCSI_UFS_LOG) && defined(CONFIG_ANDROID_ENGINEERING)
+	ufshcd_cond_add_cmd_trace_sh(hba, tag, str);
+#endif /* CONFIG_SHARP_SCSI_UFS_LOG && CONFIG_ANDROID_ENGINEERING */
 }
 #else
 static inline void ufshcd_cond_add_cmd_trace(struct ufs_hba *hba,
 					unsigned int tag, const char *str)
 {
+#if defined(CONFIG_SHARP_SCSI_UFS_LOG) && defined(CONFIG_ANDROID_ENGINEERING)
+	ufshcd_cond_add_cmd_trace_sh(hba, tag, str);
+#endif /* CONFIG_SHARP_SCSI_UFS_LOG && CONFIG_ANDROID_ENGINEERING */
 }
 #endif
 
@@ -1453,6 +1598,11 @@ static int ufshcd_set_clk_freq(struct ufs_hba *hba, bool scale_up)
 		}
 		dev_dbg(hba->dev, "%s: clk: %s, rate: %lu\n", __func__,
 				clki->name, clk_get_rate(clki->clk));
+#if defined(CONFIG_SHARP_SCSI_UFS_LOG) && defined(CONFIG_ANDROID_ENGINEERING)
+		if (sh_ufs_debug_mask & 0xF00)
+			pr_info("ufs-shlog : %s: clk: %s, rate: %lu\n", __func__,
+					clki->name, clk_get_rate(clki->clk));
+#endif /* CONFIG_SHARP_SCSI_UFS_LOG && CONFIG_ANDROID_ENGINEERING */
 	}
 
 out:
@@ -3340,6 +3490,25 @@ ufshcd_dev_cmd_completion(struct ufs_hba *hba, struct ufshcd_lrb *lrbp)
 		dev_err(hba->dev, "%s: Reject UPIU not fully implemented\n",
 				__func__);
 		break;
+#ifdef CONFIG_SHARP_SCSI_UFS_ERR_DETECT
+	case UPIU_TRANSACTION_RESPONSE:
+		{
+			int scsi_status;
+			scsi_status = ufshcd_get_rsp_upiu_result(lrbp->ucd_rsp_ptr)
+														& MASK_SCSI_STATUS;
+			if (scsi_status == SAM_STAT_CHECK_CONDITION) {
+				int sense_key;
+				sense_key = (0x0F & lrbp->ucd_rsp_ptr->sr.sense_data[2]);
+				dev_err(hba->dev,
+					"%s: CHECK CONDITION sense key = %d, ASC = %d, ASCQ = %d",
+					__func__, sense_key, lrbp->ucd_rsp_ptr->sr.sense_data[12],
+					lrbp->ucd_rsp_ptr->sr.sense_data[13]);
+				if (sense_key == HARDWARE_ERROR)
+					BUG_ON(1);
+			}
+			break;
+		}
+#endif /* CONFIG_SHARP_SCSI_UFS_ERR_DETECT */
 	default:
 		err = -EINVAL;
 		dev_err(hba->dev, "%s: Invalid device management cmd response: %x\n",
@@ -5612,6 +5781,37 @@ ufshcd_transfer_rsp_status(struct ufs_hba *hba, struct ufshcd_lrb *lrbp)
 			scsi_status = result & MASK_SCSI_STATUS;
 			result = ufshcd_scsi_cmd_status(lrbp, scsi_status);
 
+#ifdef CONFIG_SHARP_SCSI_UFS_ERR_DETECT
+			if (scsi_status == SAM_STAT_CHECK_CONDITION) {
+				int sense_key;
+				u8 opcode = 0xFF;
+				u8 lun = lrbp->lun;
+				sector_t lba = 0x0;
+
+				sense_key = (0x0F & lrbp->ucd_rsp_ptr->sr.sense_data[2]);
+
+				if (lrbp->cmd) {
+					opcode = (u8)(*lrbp->cmd->cmnd);
+
+					if ((opcode == READ_10) || (opcode == WRITE_10))
+						if (lrbp->cmd->request && lrbp->cmd->request->bio)
+							lba = lrbp->cmd->request->bio->bi_iter.bi_sector;
+				}
+
+				if (!((sense_key == DATA_PROTECT) &&
+					(opcode == SYNCHRONIZE_CACHE) &&
+					((lun == 1) || (lun == 2) || (lun == 4)))) {
+					dev_err(hba->dev,
+						"%s: CHECK CONDITION sense key=%d, ASC=%d, ASCQ=%d, " \
+						"opcode=%d, lun=%d, lba=0x%016lx",
+						__func__, sense_key, lrbp->ucd_rsp_ptr->sr.sense_data[12],
+						lrbp->ucd_rsp_ptr->sr.sense_data[13], opcode, lun, lba);
+				}
+				if (sense_key == HARDWARE_ERROR)
+					BUG_ON(1);
+			}
+#endif /* CONFIG_SHARP_SCSI_UFS_ERR_DETECT */
+
 			/*
 			 * Currently we are only supporting BKOPs exception
 			 * events hence we can ignore BKOPs exception event
@@ -7504,6 +7704,9 @@ static void ufshcd_set_active_icc_lvl(struct ufs_hba *hba)
 		dev_err(hba->dev,
 			"%s: Failed reading power descriptor.len = %d ret = %d",
 			__func__, buff_len, ret);
+#ifdef CONFIG_SHARP_SCSI_UFS_BUG_FIX
+		kfree(desc_buf);
+#endif /* CONFIG_SHARP_SCSI_UFS_BUG_FIX */
 		return;
 	}
 
@@ -7518,6 +7721,9 @@ static void ufshcd_set_active_icc_lvl(struct ufs_hba *hba)
 		dev_err(hba->dev,
 			"%s: Failed configuring bActiveICCLevel = %d ret = %d",
 			__func__, icc_level, ret);
+#ifdef CONFIG_SHARP_SCSI_UFS_BUG_FIX
+	kfree(desc_buf);
+#endif /* CONFIG_SHARP_SCSI_UFS_BUG_FIX */
 }
 
 /**
@@ -7888,8 +8094,15 @@ static int ufs_read_device_desc_data(struct ufs_hba *hba)
 		}
 	}
 	err = ufshcd_read_device_desc(hba, desc_buf, hba->desc_size.dev_desc);
+#ifdef CONFIG_SHARP_SCSI_UFS_BUG_FIX
+	if (err) {
+		kfree(desc_buf);
+		return err;
+	}
+#else
 	if (err)
 		return err;
+#endif /* CONFIG_SHARP_SCSI_UFS_BUG_FIX */
 
 	/*
 	 * getting vendor (manufacturerID) and Bank Index in big endian
@@ -7902,6 +8115,9 @@ static int ufs_read_device_desc_data(struct ufs_hba *hba)
 		desc_buf[DEVICE_DESC_PARAM_DEVICE_SUB_CLASS];
 	hba->dev_info.i_product_name = desc_buf[DEVICE_DESC_PARAM_PRDCT_NAME];
 
+#ifdef CONFIG_SHARP_SCSI_UFS_BUG_FIX
+	kfree(desc_buf);
+#endif /* CONFIG_SHARP_SCSI_UFS_BUG_FIX */
 	return 0;
 }
 
@@ -8298,6 +8514,9 @@ static int ufshcd_query_ioctl(struct ufs_hba *hba, u8 lun, void __user *buffer)
 		case QUERY_DESC_IDN_INTERCONNECT:
 		case QUERY_DESC_IDN_GEOMETRY:
 		case QUERY_DESC_IDN_POWER:
+#if defined(CONFIG_SHARP_SCSI_UFS_LOG) && defined(CONFIG_ANDROID_ENGINEERING)
+		case QUERY_DESC_IDN_RFU_2:
+#endif /* CONFIG_SHARP_SCSI_UFS_LOG && CONFIG_ANDROID_ENGINEERING */
 			index = 0;
 			break;
 		case QUERY_DESC_IDN_UNIT:
@@ -10170,6 +10389,16 @@ out:
 			hba->pwr_info.gear_tx, hba->pwr_info.gear_rx,
 			new_pwr_info.gear_tx, new_pwr_info.gear_rx,
 			scale_up);
+#if defined(CONFIG_SHARP_SCSI_UFS_LOG) && defined(CONFIG_ANDROID_ENGINEERING)
+	if (!ret) {
+		if (sh_ufs_debug_mask & 0xF00)
+			pr_info("ufs-shlog : %s: old gear: (tx %d rx %d), new gear: (tx %d rx %d), scale_up = %d\n",
+				__func__,
+				hba->pwr_info.gear_tx, hba->pwr_info.gear_rx,
+				new_pwr_info.gear_tx, new_pwr_info.gear_rx,
+				scale_up);
+	}
+#endif /* CONFIG_SHARP_SCSI_UFS_LOG && CONFIG_ANDROID_ENGINEERING */
 
 	return ret;
 }

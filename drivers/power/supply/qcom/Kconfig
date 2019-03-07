@@ -18,6 +18,17 @@ config QPNP_FG_GEN3
 	  the fuel gauge. The state of charge is reported through a BMS power
 	  supply property and also sends uevents when the capacity is updated.
 
+menu "SHARP Battery Driver"
+
+comment "Battery Control Configuration"
+
+config BATTERY_SHARP
+		bool "SHARP Battery Control support"
+		help
+			Say Y to enable support for the battery in SH.
+
+endmenu
+
 config SMB135X_CHARGER
 	tristate "SMB135X Battery Charger"
 	depends on I2C

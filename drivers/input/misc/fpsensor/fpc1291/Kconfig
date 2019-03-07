@@ -1,0 +1,19 @@
+#
+# Sensor  drivers configuration
+#
+
+menu "SENSORS_FRPRINT_FPC"
+
+config SENSORS_FPRINT_FPC_PLATFORM_1291
+	tristate "FPC fingerprint sensor platform support"
+	default n
+	help
+	  If you say yes here you get support for the platform of the fpc fingerprint sensor.
+
+config SENSORS_FPRINT_SHARP_CUSTOMIZE
+	bool "fingerprint sensor enable sharp customize"
+	default n
+	help
+	  If you say yes here you can enable Sharp customize.
+
+endmenu

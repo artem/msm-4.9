@@ -1,0 +1,162 @@
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+
+// write down for overlayDTS
+
+// change panel regulators(vddio) (DB/ES1) ////////////////////////
+&dsi_panel_pwr_supply_no_labibb {
+
+    qcom,panel-supply-entry@0 {
+//	qcom,supply-name = "vddio";
+        qcom,supply-post-on-sleep = <5>;
+        qcom,supply-post-off-sleep = <60>;
+    };
+};
+
+// add panels /////////////////////////////////////////////////////////////////////////////////////
+#include "sharp-shdisp-dsi-panel-rm69350-qd-1440p-cmd.dtsi"
+#include "sharp-shdisp-dsi-panel-rm69350-db-1440p-cmd.dtsi"
+#include "sharp-shdisp-dsi-panel-rm69350-qe-1440p-cmd.dtsi"
+#include "sharp-shdisp-panel-det.dtsi"
+#include "sharp-shled-johnny.dtsi"
+
+// delete Qualcom default-active panel ////////////////////////////////////////////////////////////
+&dsi_nt35597_truly_dsc_cmd_display {
+	/delete-property/qcom,dsi-display-active;
+};
+
+// add chain-node for panel ////////////////////////////////////////////////////////////////////////
+&soc {
+	dsi_shdisp_rm69350_qd_1440p_cmd: qcom,dsi-display@50 {
+		compatible = "qcom,dsi-display";
+		pinctrl-names = "panel_active", "panel_suspend";
+		pinctrl-0 = <&sde_te_active>;
+		pinctrl-1 = <&sde_te_suspend>;
+
+		label = "shdisp_rm69350_qd_1440p_cmd";
+		qcom,display-type = "primary";
+
+		qcom,dsi-ctrl = <&mdss_dsi0>;
+		qcom,dsi-phy = <&mdss_dsi_phy0>;
+		clocks = <&mdss_dsi0_pll BYTECLK_MUX_0_CLK>,
+			<&mdss_dsi0_pll PCLK_MUX_0_CLK>,
+			<&pm8998_div_clk1 0>;
+		clock-names = "src_byte_clk", "src_pixel_clk", "consumer_s-div_clk-name";
+
+		qcom,dsi-panel = <&dsi_shdisp_rm69350_qd_cmd>;
+		vddio-supply = <&pm8998_l14>;
+		vdda-3p3-supply = <&pm8998_l10>;
+	};
+};
+
+&soc {
+	dsi_shdisp_rm69350_db_1440p_cmd: qcom,dsi-display@51 {
+		compatible = "qcom,dsi-display";
+		pinctrl-names = "panel_active", "panel_suspend";
+		pinctrl-0 = <&sde_te_active>;
+		pinctrl-1 = <&sde_te_suspend>;
+
+		label = "shdisp_rm69350_db_1440p_cmd";
+		qcom,display-type = "primary";
+
+		qcom,dsi-ctrl = <&mdss_dsi0>;
+		qcom,dsi-phy = <&mdss_dsi_phy0>;
+		clocks = <&mdss_dsi0_pll BYTECLK_MUX_0_CLK>,
+			<&mdss_dsi0_pll PCLK_MUX_0_CLK>,
+			<&pm8998_div_clk1 0>;
+		clock-names = "src_byte_clk", "src_pixel_clk", "consumer_s-div_clk-name";
+
+		qcom,dsi-panel = <&dsi_shdisp_rm69350_db_cmd>;
+		vddio-supply = <&pm8998_l14>;
+		vdda-3p3-supply = <&pm8998_l10>;
+	};
+};
+
+&soc {
+	dsi_shdisp_rm69350_qe_1440p_cmd: qcom,dsi-display@52 {
+		compatible = "qcom,dsi-display";
+		pinctrl-names = "panel_active", "panel_suspend";
+		pinctrl-0 = <&sde_te_active>;
+		pinctrl-1 = <&sde_te_suspend>;
+
+		label = "shdisp_rm69350_qe_1440p_cmd";
+		qcom,display-type = "primary";
+
+		qcom,dsi-ctrl = <&mdss_dsi0>;
+		qcom,dsi-phy = <&mdss_dsi_phy0>;
+		clocks = <&mdss_dsi0_pll BYTECLK_MUX_0_CLK>,
+			<&mdss_dsi0_pll PCLK_MUX_0_CLK>,
+			<&pm8998_div_clk1 0>;
+		clock-names = "src_byte_clk", "src_pixel_clk", "consumer_s-div_clk-name";
+
+		qcom,dsi-panel = <&dsi_shdisp_rm69350_qe_cmd>;
+		vddio-supply = <&pm8998_l14>;
+		vdda-3p3-supply = <&pm8998_l10>;
+	};
+};
+
+// change Display port pin config /////////////////////////////////////////////////////////////////
+&sde_dp_aux_active {
+	mux {
+		pins = "gpio43", "gpio44";
+	};
+
+	config {
+		pins = "gpio43", "gpio44";
+	};
+};
+
+&sde_dp_aux_suspend {
+	mux {
+		pins = "gpio43", "gpio44";
+	};
+
+	config {
+		pins = "gpio43", "gpio44";
+	};
+};
+
+&sde_dp {
+	qcom,aux-sel-gpio = <&tlmm 44 0>;
+};
+
+&red_led {
+	qcom,use-blink;
+	qcom,duty-pcts = [00 64];
+	qcom,lut-flags = <27>;
+	qcom,pause-hi = <120>;
+	qcom,pause-lo = <4830>;
+	qcom,pwm-us = <1000>;
+	qcom,ramp-step-ms = <30>;
+	qcom,start-idx = <0>;
+};
+&green_led {
+	qcom,use-blink;
+	qcom,duty-pcts = [00 64];
+	qcom,lut-flags = <27>;
+	qcom,pause-hi = <120>;
+	qcom,pause-lo = <4830>;
+	qcom,pwm-us = <1000>;
+	qcom,ramp-step-ms = <30>;
+	qcom,start-idx = <0>;
+};
+&blue_led {
+	qcom,use-blink;
+	qcom,duty-pcts = [00 64];
+	qcom,lut-flags = <27>;
+	qcom,pause-hi = <120>;
+	qcom,pause-lo = <4830>;
+	qcom,pwm-us = <1000>;
+	qcom,ramp-step-ms = <30>;
+	qcom,start-idx = <0>;
+};

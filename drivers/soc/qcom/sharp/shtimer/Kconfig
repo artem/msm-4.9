@@ -1,0 +1,11 @@
+# drivers/soc/qcom/sharp/shtimer/Kconfig
+
+menu "SHTIMER"
+
+comment "SHARP SHTIMER"
+
+config SHARP_SHTIMER
+bool "SHARP Timer"
+default y
+
+endmenu

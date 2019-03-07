@@ -92,8 +92,13 @@ int sde_wb_connector_get_modes(struct drm_connector *connector, void *display)
 				SDE_ERROR("failed to create mode\n");
 				break;
 			}
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+			ret = drm_mode_convert_umode(mode,
+					&wb_dev->modes[i], false);
+#else /* CONFIG_SHARP_DISPLAY */
 			ret = drm_mode_convert_umode(mode,
 					&wb_dev->modes[i]);
+#endif /* CONFIG_SHARP_DISPLAY */
 			if (ret) {
 				SDE_ERROR("failed to convert mode %d\n", ret);
 				break;
@@ -201,8 +206,13 @@ int sde_wb_connector_set_modes(struct sde_wb_device *wb_dev,
 				struct drm_display_mode dispmode;
 
 				memset(&dispmode, 0, sizeof(dispmode));
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+				ret = drm_mode_convert_umode(&dispmode,
+						&modeinfo[i], false);
+#else /* CONFIG_SHARP_DISPLAY */
 				ret = drm_mode_convert_umode(&dispmode,
 						&modeinfo[i]);
+#endif /* CONFIG_SHARP_DISPLAY */
 				if (ret) {
 					SDE_ERROR(
 						"failed to convert mode %d:\"%s\" %d %d %d %d %d %d %d %d %d %d 0x%x 0x%x status:%d rc:%d\n",

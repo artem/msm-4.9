@@ -225,11 +225,19 @@ struct kparam_array
 	    VERIFY_OCTAL_PERMISSIONS(perm), level, flags, { arg } }
 
 /* Obsolete - use module_param_cb() */
+#if 1	/* COORDINATOR Qualcomm_PreCS2 BUILDERR MODIFY start */
+#define module_param_call(name, _set, _get, arg, perm)			\
+	static const struct kernel_param_ops __param_ops_##name =	\
+		{ .flags = 0, .set = (void *)_set, .get = (void *)_get };		\
+	__module_param_call(MODULE_PARAM_PREFIX,			\
+			    name, &__param_ops_##name, arg, perm, -1, 0)
+#else
 #define module_param_call(name, _set, _get, arg, perm)			\
 	static const struct kernel_param_ops __param_ops_##name =	\
 		{ .flags = 0, .set = _set, .get = _get };		\
 	__module_param_call(MODULE_PARAM_PREFIX,			\
 			    name, &__param_ops_##name, arg, perm, -1, 0)
+#endif	/* COORDINATOR Qualcomm_PreCS2 BUILDERR MODIFY end */
 
 #ifdef CONFIG_SYSFS
 extern void kernel_param_lock(struct module *mod);

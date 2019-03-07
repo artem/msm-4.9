@@ -604,4 +604,34 @@ source "drivers/usb/gadget/legacy/Kconfig"
 
 endchoice
 
+# 20170502 USB SHARP CUSTOMIZE ADD START
+config USB_ANDROID_SHARP_CUST
+	bool "Sharp Customize for Android Gadget"
+	help
+          Add sharp's customize for "Android Gadget".
+
+config USB_ANDROID_SHARP_SERIALS
+	bool "Android Gadget serial functions for Sharp Devices"
+	depends on USB_ANDROID_SHARP_CUST
+	default n
+	help
+          Provides serial function for android gadget driver for sharp devices.
+
+config USB_ANDROID_SHARP_UMS
+	bool "Android gadget mass storage function(userspace) for sharp devices"
+	depends on USB_ANDROID_SHARP_CUST
+	default n
+	help
+	  Provides USB mass storage function for android gadget driver.
+	  This is to apply user space drivers for sharp devices.
+
+config USB_ANDROID_SHARP_MTP
+	bool "Android gadget MTP function for Sharp Devices"
+	depends on USB_ANDROID_SHARP_CUST
+	default n
+	help
+	  Provides USB mtp function for android gadget driver.
+
+# 20170502 USB SHARP CUSTOMIZE ADD END
+
 endif # USB_GADGET

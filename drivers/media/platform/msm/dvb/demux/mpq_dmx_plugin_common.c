@@ -102,7 +102,7 @@ static int video_framing = 1;
 module_param(video_framing, int, 0644);
 
 /* TSIF operation mode: 1 = TSIF_MODE_1,  2 = TSIF_MODE_2, 3 = TSIF_LOOPBACK */
-static int tsif_mode = 2;
+static int tsif_mode = 1;
 module_param(tsif_mode, int, 0644);
 
 /* Inverse TSIF clock signal */

@@ -70,6 +70,9 @@ static int32_t cam_actuator_power_up(struct cam_actuator_ctrl_t *a_ctrl)
 		(struct cam_actuator_soc_private *)a_ctrl->soc_info.soc_private;
 	power_info = &soc_private->power_info;
 
+/* SHLOCAL_CAMERA_DRIVERS-> DEL */
+#if 0
+/* SHLOCAL_CAMERA_DRIVERS<- */
 	if ((power_info->power_setting == NULL) &&
 		(power_info->power_down_setting == NULL)) {
 		CAM_INFO(CAM_ACTUATOR,
@@ -103,15 +106,24 @@ static int32_t cam_actuator_power_up(struct cam_actuator_ctrl_t *a_ctrl)
 			"failed to fill vreg params power down rc:%d", rc);
 		return rc;
 	}
+/* SHLOCAL_CAMERA_DRIVERS-> DEL */
+#endif
+/* SHLOCAL_CAMERA_DRIVERS<- */
 
 	power_info->dev = soc_info->dev;
 
+/* SHLOCAL_CAMERA_DRIVERS-> DEL */
+#if 0
+/* SHLOCAL_CAMERA_DRIVERS<- */
 	rc = cam_sensor_core_power_up(power_info, soc_info);
 	if (rc) {
 		CAM_ERR(CAM_ACTUATOR,
 			"failed in actuator power up rc %d", rc);
 		return rc;
 	}
+/* SHLOCAL_CAMERA_DRIVERS-> DEL */
+#endif
+/* SHLOCAL_CAMERA_DRIVERS<- */
 
 	rc = camera_io_init(&a_ctrl->io_master_info);
 	if (rc < 0)
@@ -141,16 +153,133 @@ static int32_t cam_actuator_power_down(struct cam_actuator_ctrl_t *a_ctrl)
 		CAM_ERR(CAM_ACTUATOR, "failed: power_info %pK", power_info);
 		return -EINVAL;
 	}
+/* SHLOCAL_CAMERA_DRIVERS-> DEL */
+#if 0
+/* SHLOCAL_CAMERA_DRIVERS<- */
 	rc = msm_camera_power_down(power_info, soc_info);
 	if (rc) {
 		CAM_ERR(CAM_ACTUATOR, "power down the core is failed:%d", rc);
 		return rc;
 	}
+/* SHLOCAL_CAMERA_DRIVERS-> DEL */
+#endif
+/* SHLOCAL_CAMERA_DRIVERS<- */
 
 	camera_io_release(&a_ctrl->io_master_info);
 
 	return rc;
 }
+
+/* SHLOCAL_CAMERA_DRIVERS-> */
+extern int32_t sh_ois_fw_wait_complete(void);
+extern struct mutex shcampdaf_mutex;
+
+static int shcam_actuator_move_lens(struct camera_io_master *io_master_info, struct i2c_settings_list *i2c_list){
+
+	int rc = 0;
+	struct cam_sensor_i2c_reg_array *res;
+	struct cam_sensor_i2c_reg_setting  i2c_reg_settings;
+	struct cam_sensor_i2c_reg_array    i2c_reg_array[6];
+	uint32_t status = 0;
+
+	int next_lens_position;
+	
+	CAM_DBG(CAM_ACTUATOR, "start\n");
+	
+	CAM_ERR(CAM_ACTUATOR, "sh_ois_fw_wait_complete start");
+	sh_ois_fw_wait_complete();
+	CAM_ERR(CAM_ACTUATOR, "sh_ois_fw_wait_complete end");
+	
+	mutex_lock(&shcampdaf_mutex);
+
+	memset(&i2c_reg_settings, 0, (sizeof(struct cam_sensor_i2c_reg_setting)));
+	memset(i2c_reg_array, 0, (sizeof(i2c_reg_array)));
+	
+	if(i2c_list->i2c_settings.size == 1){
+
+		res = i2c_list->i2c_settings.reg_setting;
+		next_lens_position = res->reg_data;
+		CAM_DBG(CAM_ACTUATOR, "next_lens_position = %d\n", next_lens_position);
+		
+		i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+		i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+		i2c_reg_settings.delay = 0;
+		i2c_reg_settings.size = 6;
+		i2c_reg_array[0].reg_addr = 0x3378;
+		i2c_reg_array[0].reg_data = 0x1C >> 1;
+		i2c_reg_array[1].reg_data = 0xF0;
+		i2c_reg_array[2].reg_data = 0xD0;
+		i2c_reg_array[3].reg_data = 0x00;
+		i2c_reg_array[4].reg_data = (next_lens_position & 0x0300) >> 8;
+		i2c_reg_array[5].reg_data = (next_lens_position & 0x00FF);
+		i2c_reg_settings.reg_setting = i2c_reg_array;
+
+		CAM_DBG(CAM_ACTUATOR, "addr:0x%x, length:%d\n", i2c_reg_array[0].reg_addr, i2c_reg_settings.size);
+		rc = camera_io_dev_write_continuous(io_master_info,
+			&(i2c_reg_settings), 0);
+		if (rc < 0) {
+			CAM_ERR(CAM_ACTUATOR,
+				"Failed to random write I2C settings: %d",
+				rc);
+		}
+		
+		memset(&i2c_reg_settings, 0, (sizeof(struct cam_sensor_i2c_reg_setting)));
+		memset(i2c_reg_array, 0, (sizeof(i2c_reg_array)));
+		
+		i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+		i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+		i2c_reg_settings.delay = 0;
+		i2c_reg_settings.size = 2;
+		i2c_reg_array[0].reg_addr = 0x3373;
+		i2c_reg_array[0].reg_data = 0x00;
+		i2c_reg_array[1].reg_data = 0x06;
+		i2c_reg_settings.reg_setting = i2c_reg_array;
+		
+		CAM_DBG(CAM_ACTUATOR, "addr:0x%x, length:%d\n", i2c_reg_array[0].reg_addr, i2c_reg_settings.size);
+		rc = camera_io_dev_write_continuous(io_master_info,
+			&i2c_reg_settings, 0);
+		if (rc < 0) {
+			CAM_ERR(CAM_ACTUATOR,
+				"Failed to random write I2C settings: %d",
+				rc);
+		}
+		
+		memset(&i2c_reg_settings, 0, (sizeof(struct cam_sensor_i2c_reg_setting)));
+		memset(i2c_reg_array, 0, (sizeof(i2c_reg_array)));
+		
+		i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+		i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+		i2c_reg_settings.size = 1;
+		i2c_reg_array[0].reg_addr = 0x3370;
+		i2c_reg_array[0].reg_data = 0x81;
+		i2c_reg_settings.delay = 0;
+		i2c_reg_settings.reg_setting = i2c_reg_array;
+
+		CAM_DBG(CAM_ACTUATOR, "addr:0x%x, length:%d\n", i2c_reg_array[0].reg_addr, i2c_reg_settings.size);
+		rc = camera_io_dev_write_continuous(io_master_info,
+			&i2c_reg_settings, 0);
+		
+		
+		do{
+			usleep_range(1000, 2000);
+			rc = camera_io_dev_read(
+				io_master_info, 0x3370, &status,
+				CAMERA_SENSOR_I2C_TYPE_WORD,CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+			CAM_DBG(CAM_ACTUATOR, "read wait status = 0x%02x\n", status);
+			
+		}while((status & 0x80) != 0);
+
+		
+	}
+	mutex_unlock(&shcampdaf_mutex);
+
+	CAM_DBG(CAM_ACTUATOR, "end rc = %d\n", rc);
+
+	return rc;
+
+}
+/* SHLOCAL_CAMERA_DRIVERS<- */
 
 static int32_t cam_actuator_i2c_modes_util(
 	struct camera_io_master *io_master_info,
@@ -160,8 +289,14 @@ static int32_t cam_actuator_i2c_modes_util(
 	uint32_t i, size;
 
 	if (i2c_list->op_code == CAM_SENSOR_I2C_WRITE_RANDOM) {
+/* SHLOCAL_CAMERA_DRIVERS-> */
+#if 0
 		rc = camera_io_dev_write(io_master_info,
 			&(i2c_list->i2c_settings));
+#else
+		rc = shcam_actuator_move_lens(io_master_info, i2c_list);
+#endif
+/* SHLOCAL_CAMERA_DRIVERS<- */
 		if (rc < 0) {
 			CAM_ERR(CAM_ACTUATOR,
 				"Failed to random write I2C settings: %d",
@@ -537,12 +672,18 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 			a_ctrl->cam_act_state = CAM_ACTUATOR_CONFIG;
 		}
 
+/* SHLOCAL_CAMERA_DRIVERS-> DEL */
+#if 0
+/* SHLOCAL_CAMERA_DRIVERS<- */
 		rc = cam_actuator_apply_settings(a_ctrl,
 			&a_ctrl->i2c_data.init_settings);
 		if (rc < 0) {
 			CAM_ERR(CAM_ACTUATOR, "Cannot apply Init settings");
 			return rc;
 		}
+/* SHLOCAL_CAMERA_DRIVERS-> DEL */
+#endif
+/* SHLOCAL_CAMERA_DRIVERS<- */
 
 		/* Delete the request even if the apply is failed */
 		rc = delete_request(&a_ctrl->i2c_data.init_settings);

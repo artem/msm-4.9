@@ -858,6 +858,9 @@ void dpm_resume(pm_message_t state)
 			async_schedule(async_resume, dev);
 		}
 	}
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+	pr_info( "%s(): Executing resume callbacks is started.\n", __func__ );
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
 
 	while (!list_empty(&dpm_suspended_list)) {
 		dev = to_device(dpm_suspended_list.next);
@@ -1517,6 +1520,9 @@ int dpm_suspend(pm_message_t state)
 	mutex_lock(&dpm_list_mtx);
 	pm_transition = state;
 	async_error = 0;
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+	pr_info( "%s(): Executing suspend callbacks is started.\n", __func__ );
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
 	while (!list_empty(&dpm_prepared_list)) {
 		struct device *dev = to_device(dpm_prepared_list.prev);
 

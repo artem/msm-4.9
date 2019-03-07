@@ -1,0 +1,15 @@
+#
+# SHARP configuration
+#
+
+menu "SHARP Device Drivers"
+
+#/* SH_AUDIO_DRIVER -> */ /* A-002 */
+source "drivers/sharp/shaudio/Kconfig"
+#/* SH_AUDIO_DRIVER <- */ /* A-002 */
+
+source "drivers/sharp/proximity_light/Kconfig"
+
+source "drivers/sharp/proximity/Kconfig"
+
+endmenu

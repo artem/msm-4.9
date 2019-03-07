@@ -33,6 +33,10 @@
 #include <linux/of_irq.h>
 #include <linux/spinlock.h>
 
+#ifdef CONFIG_KEYBOARD_GPIO_CUST_SC
+#define COUNT_BUF_SIZE 16
+#endif /* CONFIG_KEYBOARD_GPIO_CUST_SC */
+
 struct gpio_button_data {
 	const struct gpio_keys_button *button;
 	struct input_dev *input;
@@ -48,6 +52,9 @@ struct gpio_button_data {
 	spinlock_t lock;
 	bool disabled;
 	bool key_pressed;
+#ifdef CONFIG_KEYBOARD_GPIO_CUST_SC
+	u32 count;
+#endif /* CONFIG_KEYBOARD_GPIO_CUST_SC */
 };
 
 struct gpio_keys_drvdata {
@@ -343,11 +350,92 @@ static DEVICE_ATTR(disabled_switches, S_IWUSR | S_IRUGO,
 		   gpio_keys_show_disabled_switches,
 		   gpio_keys_store_disabled_switches);
 
+#ifdef CONFIG_KEYBOARD_GPIO_CUST_SC
+static ssize_t gpio_keys_count_attr_show_helper(struct gpio_keys_drvdata *ddata,
+						char *buf, unsigned int code)
+{
+	int i;
+
+	for (i = 0; i < ddata->pdata->nbuttons; i++) {
+		struct gpio_button_data *bdata = &ddata->data[i];
+		if (bdata->button->code == code) {
+			return snprintf(buf, COUNT_BUF_SIZE, "%d", bdata->count);
+		}
+	}
+
+	return -EINVAL;
+}
+
+static ssize_t gpio_keys_count_attr_store_helper(struct gpio_keys_drvdata *ddata,
+						const char *buf, unsigned int code)
+{
+	u32 value;
+	ssize_t error = 0;
+	int i;
+
+	for (i = 0; i < ddata->pdata->nbuttons; i++) {
+		struct gpio_button_data *bdata = &ddata->data[i];
+		if (bdata->button->code == code) {
+			error = kstrtou32(buf, 10, &value);
+			if (error)
+				goto out;
+			bdata->count = value;
+			break;
+		}
+	}
+
+out:
+	return error;
+}
+
+#define ATTR_SHOW_FN_COUNT(code)					\
+static ssize_t gpio_keys_show_count_##code(struct device *dev,		\
+				     struct device_attribute *attr,	\
+				     char *buf)				\
+{									\
+	struct platform_device *pdev = to_platform_device(dev);		\
+	struct gpio_keys_drvdata *ddata = platform_get_drvdata(pdev);	\
+									\
+	return gpio_keys_count_attr_show_helper(ddata, buf, code);	\
+}
+
+ATTR_SHOW_FN_COUNT(KEY_VOLUMEDOWN);
+
+#define ATTR_STORE_FN_COUNT(code)					\
+static ssize_t gpio_keys_store_count_##code(struct device *dev,		\
+					struct device_attribute *attr,	\
+					const char *buf,		\
+					size_t count)			\
+{									\
+	struct platform_device *pdev = to_platform_device(dev);		\
+	struct gpio_keys_drvdata *ddata = platform_get_drvdata(pdev);	\
+	int rc;								\
+									\
+	if (count > COUNT_BUF_SIZE)					\
+		return -EINVAL;						\
+	rc = gpio_keys_count_attr_store_helper(ddata, buf, code);	\
+	if (rc)								\
+		return rc;						\
+									\
+	return count;							\
+}
+
+ATTR_STORE_FN_COUNT(KEY_VOLUMEDOWN);
+
+static DEVICE_ATTR(volumedown, S_IWUSR | S_IRUGO,
+		   gpio_keys_show_count_KEY_VOLUMEDOWN,
+		   gpio_keys_store_count_KEY_VOLUMEDOWN);
+
+#endif /* CONFIG_KEYBOARD_GPIO_CUST_SC */
+
 static struct attribute *gpio_keys_attrs[] = {
 	&dev_attr_keys.attr,
 	&dev_attr_switches.attr,
 	&dev_attr_disabled_keys.attr,
 	&dev_attr_disabled_switches.attr,
+#ifdef CONFIG_KEYBOARD_GPIO_CUST_SC
+	&dev_attr_volumedown.attr,
+#endif /* CONFIG_KEYBOARD_GPIO_CUST_SC */
 	NULL,
 };
 
@@ -374,6 +462,10 @@ static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 			input_event(input, type, button->code, button->value);
 	} else {
 		input_event(input, type, button->code, state);
+#ifdef CONFIG_KEYBOARD_GPIO_CUST_SC
+		if (type == EV_KEY && !!state)
+			bdata->count++;
+#endif /* CONFIG_KEYBOARD_GPIO_CUST_SC */
 	}
 	input_sync(input);
 }
@@ -795,6 +887,10 @@ static int gpio_keys_probe(struct platform_device *pdev)
 
 		if (button->wakeup)
 			wakeup = 1;
+
+#ifdef CONFIG_KEYBOARD_GPIO_CUST_SC
+		bdata->count = 0;
+#endif /* CONFIG_KEYBOARD_GPIO_CUST_SC */
 	}
 
 	error = sysfs_create_group(&pdev->dev.kobj, &gpio_keys_attr_group);
@@ -875,7 +971,9 @@ static int gpio_keys_resume(struct device *dev)
 	if (error)
 		return error;
 
+#ifndef CONFIG_KEYBOARD_GPIO_CUST_SC
 	gpio_keys_report_state(ddata);
+#endif /* CONFIG_KEYBOARD_GPIO_CUST_SC */
 	return 0;
 }
 #endif

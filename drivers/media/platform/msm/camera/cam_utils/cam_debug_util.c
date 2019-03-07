@@ -18,6 +18,11 @@
 static uint debug_mdl;
 module_param(debug_mdl, uint, 0644);
 
+/* SHLOCAL_CAMERA_DRIVER-> */
+static uint camstatus;
+module_param(camstatus, uint, 0644);
+/* SHLOCAL_CAMERA_DRIVER<- */
+
 const char *cam_get_module_name(unsigned int module_id)
 {
 	const char *name = NULL;

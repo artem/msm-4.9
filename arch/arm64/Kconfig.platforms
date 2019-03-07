@@ -213,6 +213,24 @@ config ARCH_SDM439
 	  This enables support for the sdm439 chipset. If you do not
 	  wish to build a kernel that runs on this chipset, say 'N' here.
 
+config ARCH_DIO
+	depends on ARCH_QCOM
+	bool "SHARP DIO"
+	help
+	  Support for Sharp dio
+
+config ARCH_JOHNNY
+	depends on ARCH_QCOM
+	bool "SHARP JOHNNY"
+	help
+	  Support for Sharp johnny
+
+config ARCH_PUCCI
+	depends on ARCH_QCOM
+	bool "SHARP PUCCI"
+	help
+	  Support for Sharp pucci
+
 config ARCH_ROCKCHIP
 	bool "Rockchip Platforms"
 	select ARCH_HAS_RESET_CONTROLLER

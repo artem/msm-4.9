@@ -128,6 +128,17 @@ module_param_named(print_parsed_dt, print_parsed_dt, bool, 0664);
 static bool sleep_disabled;
 module_param_named(sleep_disabled, sleep_disabled, bool, 0664);
 
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+enum {
+	SH_PM_DEBUG_IDLE_SLEEP_MODE = 1U << 0,
+};
+
+static int sh_pm_debug_mask = 0;
+module_param_named(
+	sh_debug_mask, sh_pm_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
+
 /**
  * msm_cpuidle_get_deep_idle_latency - Get deep idle latency value
  *
@@ -1417,6 +1428,11 @@ static int lpm_cpuidle_enter(struct cpuidle_device *dev,
 	if (need_resched())
 		goto exit;
 
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+	if (sh_pm_debug_mask & SH_PM_DEBUG_IDLE_SLEEP_MODE)
+		pr_info("CPU%u:%s:from idle mode %d\n", dev->cpu, __func__, idx);
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
+
 	success = psci_enter_sleep(cpu, idx, true);
 
 exit:
@@ -1683,7 +1699,24 @@ static int lpm_suspend_enter(suspend_state_t state)
 	cpu_prepare(lpm_cpu, idx, false);
 	cluster_prepare(cluster, cpumask, idx, false, 0);
 
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+	pr_info("CPU%u:%s:from suspend mode:%d\n", cpu, __func__, idx);
+	{
+		int ret = 0;
+
+		if (idx > 0)
+		{
+			pr_info( "%s(): [CPU%u] Enter suspend power collapse.\n", __func__, cpu);
+		}
+		ret = psci_enter_sleep(lpm_cpu, idx, false);
+		if (idx > 0)
+		{
+			pr_info( "%s(): [CPU%u] Exit suspend power collapse. ret = %d\n", __func__, cpu, ret);
+		}
+	}
+#else /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
 	psci_enter_sleep(lpm_cpu, idx, false);
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
 
 	cluster_unprepare(cluster, cpumask, idx, false, 0);
 	cpu_unprepare(lpm_cpu, idx, false);

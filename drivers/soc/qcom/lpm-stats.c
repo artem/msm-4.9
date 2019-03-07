@@ -884,3 +884,26 @@ void lpm_stats_suspend_exit(void)
 	update_level_stats(&suspend_time_stats, exit_time, true);
 }
 EXPORT_SYMBOL(lpm_stats_suspend_exit);
+
+#ifdef CONFIG_SHARP_PNP_SLEEP_SLEEPLOG
+int64_t sh_get_pm_stats_suspend(void)
+{
+	int64_t result = 0;
+
+	result = suspend_time_stats.total_time;
+
+	return result;
+}
+int64_t sh_get_pm_stats_idle(void)
+{
+	struct lpm_stats *stats;
+	int64_t result = 0;
+
+	stats = &per_cpu(cpu_stats, 0);
+	if(stats != NULL){
+		result = stats->time_stats[stats->num_levels - 1].total_time;
+	}
+
+	return result;
+}
+#endif /* CONFIG_SHARP_PNP_SLEEP_SLEEPLOG */

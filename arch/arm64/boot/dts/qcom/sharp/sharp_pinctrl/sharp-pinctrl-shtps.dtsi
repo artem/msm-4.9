@@ -1,0 +1,143 @@
+/* Copyright (c) 2016, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&tlmm {
+	shtps_test_mode_pull_up: shtps_test_mode_pull_up {
+		config {
+			pins = "gpio50";
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+	};
+
+	shtps_test_mode_pull_down: shtps_test_mode_pull_down {
+		config {
+			pins = "gpio50";
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+	};
+
+	shtps_esd_spi: shtps_esd_spi {
+		/* MOSI, CS, CLK */
+		mux {
+			pins = "gpio86", "gpio87", "gpio88";
+			function = "qup5";
+		};
+
+		config {
+			pins = "gpio86", "gpio87", "gpio88";
+			drive-strength = <4>;
+			bias-disable;
+		};
+	};
+
+	shtps_esd_gpio: shtps_esd_gpio {
+		/* MOSI, CS, CLK */
+		mux {
+			pins = "gpio86", "gpio87", "gpio88";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio86", "gpio87", "gpio88";
+			drive-strength = <4>;
+			bias-pull-down;
+		};
+	};
+
+	shtps_esd_miso_spi: shtps_esd_miso_spi {
+		/* MISO */
+		mux {
+			pins = "gpio85";
+			function = "qup5";
+		};
+
+		config {
+			pins = "gpio85";
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+	};
+
+	shtps_esd_miso_gpio: shtps_esd_miso_gpio {
+		/* MISO */
+		mux {
+			pins = "gpio85";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio85";
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+	};
+
+	shtps_i2c_active: shtps_i2c_active {
+		/* I2C_SDA, I2C_SCL */
+		mux {
+			pins = "gpio85", "gpio86";
+			function = "qup5";
+		};
+
+		config {
+			pins = "gpio85", "gpio86";
+			drive-strength = <2>;
+			bias-disable;
+		};
+	};
+
+	shtps_i2c_standby: shtps_i2c_standby {
+		/* I2C_SDA, I2C_SCL */
+		mux {
+			pins = "gpio85", "gpio86";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio85", "gpio86";
+			drive-strength = <2>;
+			bias-disable;
+		};
+	};
+
+	shtps_int_active: shtps_int_active {
+		/* INT */
+		mux {
+			pins = "gpio125";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio125";
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+	};
+
+	shtps_int_standby: shtps_int_standby {
+		/* INT */
+		mux {
+			pins = "gpio125";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio125";
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+	};
+
+};
+

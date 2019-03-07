@@ -1,0 +1,197 @@
+/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include "sharp-chg-param-pmi8998.dtsi"
+
+/*****************************************/
+/*  pmi8998: qcom,pmi8998 alias          */
+/*****************************************/
+
+&spmi_bus {
+	qcom,pmi8998@2 {
+	};
+
+	qcom,pmi8998@3 {
+		qpnp-labibb-regulator {
+			qcom,ibb@dc00 {
+				qcom,qpnp-ibb-limit-maximum-current = <400>;
+			};
+		};
+	};
+};
+
+/*****************************************/
+/*  pmi8998-gpios: qpnp-pin              */
+/*****************************************/
+&pmi8998_gpios {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pmi8998_gpio1_dig_in_default
+				&pmi8998_vfel_rst_default
+				&pmi8998_gpio3_dig_in_default
+				&pmi8998_gpio5_dig_in_default
+				&pmi8998_gpio6_dig_in_default
+//				&pmi8998_gpio8_dig_in_default
+//				&pmi8998_thrmo_en_default
+				&pmi8998_gpio10_dig_in_default
+				&pmi8998_lcd_detin_default
+				&pmi8998_gpio12_dig_in_default
+				&pmi8998_gpio14_dig_in_default>;
+
+	pmi8998_gpio1_dig_in {
+		/* I/PD/L */	/* - */
+		pmi8998_gpio1_dig_in_default: pmi8998_gpio1_dig_in_default {
+			pins = "gpio1";			/* GPIO 1 */
+			function = "normal";	/* normal input */
+			bias-pull-down;			/* pull down */
+			power-source = <1>;		/* VIN1 */
+			input-enable;			/* digital input */
+		};
+	};
+
+	pmi8998_vfel_rst {
+		/* O/NP/0 */	/* VFEL_RST */
+		pmi8998_vfel_rst_default: pmi8998_vfel_rst_default {
+			pins = "gpio2";			/* GPIO 2 */
+			function = "normal";	/* normal output */
+			bias-disable;			/* No Pull */
+			power-source = <0>;		/* VIN0 */
+			output-low;				/* digital output, no invert */
+			qcom,drive-strength = <1>;	/* Low strength */
+		};
+	};
+
+	pmi8998_gpio3_dig_in {
+		/* I/PD/L */	/* - */
+		pmi8998_gpio3_dig_in_default: pmi8998_gpio3_dig_in_default {
+			pins = "gpio3";			/* GPIO 3 */
+			function = "normal";	/* normal input */
+			bias-pull-down;			/* pull down */
+			power-source = <1>;		/* VIN1 */
+			input-enable;			/* digital input */
+		};
+	};
+
+	pmi8998_gpio5_dig_in {
+		/* I/PD/L */	/* - */
+		pmi8998_gpio5_dig_in_default: pmi8998_gpio5_dig_in_default {
+			pins = "gpio5";			/* GPIO 5 */
+			function = "normal";	/* normal input */
+			bias-pull-down;			/* pull down */
+			power-source = <0>;		/* VIN0 */
+			input-enable;			/* digital input */
+		};
+	};
+
+	pmi8998_gpio6_dig_in {
+		/* I/PD/L */	/* - */
+		pmi8998_gpio6_dig_in_default: pmi8998_gpio6_dig_in_default {
+			pins = "gpio6";			/* GPIO 6 */
+			function = "normal";	/* normal input */
+			bias-pull-down;			/* pull down */
+			power-source = <0>;		/* VIN0 */
+			input-enable;			/* digital input */
+		};
+	};
+
+//	pmi8998_gpio8_dig_in {
+//		/* I/PD/L */	/* - */
+//		pmi8998_gpio8_dig_in_default: pmi8998_gpio8_dig_in_default {
+//			pins = "gpio8";			/* GPIO 8 */
+//			function = "normal";	/* normal input */
+//			bias-pull-down;			/* pull down */
+//			power-source = <1>;		/* VIN1 */
+//			input-enable;			/* digital input */
+//			qcom,drive-strength = <1>;	/* Low strength */
+//		};
+//	};
+
+//	pmi8998_thrmo_en {
+//		/* I/NP/Z(H) */	/* THRMO_EN */
+//		pmi8998_thrmo_en_default: pmi8998_thrmo_en_default {
+//			pins = "gpio9";			/* GPIO 9 */
+//			function = "normal";	/* normal input */
+//			bias-disable;			/* No Pull */
+//			power-source = <0>;		/* VIN0 */
+//			input-enable;			/* digital input */
+//			qcom,drive-strength = <1>;	/* Low strength */
+//		};
+//	};
+
+	pmi8998_gpio10_dig_in {
+		/* I/PD/L */	/* - */
+		pmi8998_gpio10_dig_in_default: pmi8998_gpio10_dig_in_default {
+			pins = "gpio10";		/* GPIO 10 */
+			function = "normal";	/* normal input */
+			bias-pull-down;			/* pull down */
+			power-source = <0>;		/* VIN0 */
+			input-enable;			/* digital input */
+		};
+	};
+
+	pmi8998_lcd_detin {
+		/* I/NP/Z(H) */	/* LCD_DETIN */
+		pmi8998_lcd_detin_default: pmi8998_lcd_detin_default {
+			pins = "gpio11";		/* GPIO 11 */
+			function = "normal";	/* normal input */
+			bias-disable;			/* No Pull */
+			power-source = <1>;		/* VIN1 */
+			input-enable;			/* digital input */
+		};
+	};
+
+	pmi8998_gpio12_dig_in {
+		/* I/PD/L */	/* - */
+		pmi8998_gpio12_dig_in_default: pmi8998_gpio12_dig_in_default {
+			pins = "gpio12";		/* GPIO 12 */
+			function = "normal";	/* normal input */
+			bias-pull-down;			/* pull down */
+			power-source = <0>;		/* VIN0 */
+			input-enable;			/* digital input */
+		};
+	};
+
+	pmi8998_gpio14_dig_in {
+		/* I/PD/L */	/* - */
+		pmi8998_gpio14_dig_in_default: pmi8998_gpio14_dig_in_default {
+			pins = "gpio14";		/* GPIO 14 */
+			function = "normal";	/* normal input */
+			bias-pull-down;			/* pull down */
+			power-source = <0>;		/* VIN0 */
+			input-enable;			/* digital input */
+		};
+	};
+};
+
+/*****************************************/
+/*  pmi8998_charger                    */
+/*****************************************/
+
+//&vendor {
+//	sharp_845_1st_batterydata: qcom,battery-data {
+//		#include "fg-gen3-batterydata-sharp-845-1st.dtsi"
+//	};
+//};
+
+&pmi8998_charger {
+	qcom,pm-vadc = <&pm8998_vadc>;
+//	qcom,battery-data = <&sharp_845_1st_batterydata>;
+};
+
+/*****************************************/
+/*  pmi8998_fg                         */
+/*****************************************/
+&pmi8998_fg {
+	io-channels = <&pmi8998_rradc 0>,<&pmi8998_rradc 2>;
+	io-channel-names = "rradc_batt_id","skin_temp";
+	qcom,fg-rsense-sel = <0>;
+//	qcom,battery-data = <&sharp_845_1st_batterydata>;
+};

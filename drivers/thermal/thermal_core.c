@@ -38,12 +38,18 @@
 #include <net/netlink.h>
 #include <net/genetlink.h>
 #include <linux/suspend.h>
+#ifdef CONFIG_BATTERY_SHARP
+#include <linux/sysfs.h>
+#endif /* CONFIG_BATTERY_SHARP */
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/thermal.h>
 
 #include "thermal_core.h"
 #include "thermal_hwmon.h"
+#ifdef CONFIG_BATTERY_SHARP
+#include "../base/base.h"
+#endif /* CONFIG_BATTERY_SHARP */
 
 MODULE_AUTHOR("Zhang Rui");
 MODULE_DESCRIPTION("Generic thermal management sysfs support");
@@ -500,6 +506,14 @@ int thermal_zone_get_temp(struct thermal_zone_device *tz, int *temp)
 	if (!tz || IS_ERR(tz) || !tz->ops->get_temp)
 		goto exit;
 
+#ifdef CONFIG_BATTERY_SHARP
+	/* debug_temp is enabled, when debug_temp is not zero. */
+	if (tz->debug_temperature != 0) {
+		*temp = tz->debug_temperature;
+		return 0;
+	}
+#endif /* CONFIG_BATTERY_SHARP */
+
 	mutex_lock(&tz->lock);
 
 	ret = tz->ops->get_temp(tz, temp);
@@ -672,6 +686,16 @@ temp_show(struct device *dev, struct device_attribute *attr, char *buf)
 	return sprintf(buf, "%d\n", temperature);
 }
 
+#ifdef CONFIG_BATTERY_SHARP
+static ssize_t
+debug_temp_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct thermal_zone_device *tz = to_thermal_zone(dev);
+
+	return sprintf(buf, "%d\n", tz->debug_temperature);
+}
+#endif /* CONFIG_BATTERY_SHARP */
+
 static ssize_t
 mode_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -709,6 +733,27 @@ static int thermal_zone_device_clear(struct thermal_zone_device *tz)
 
 	return ret;
 }
+
+#ifdef CONFIG_BATTERY_SHARP
+static ssize_t
+debug_temp_store(struct device *dev, struct device_attribute *attr,
+	   const char *buf, size_t count)
+{
+	struct thermal_zone_device *tz = to_thermal_zone(dev);
+	int temperature;
+
+	if (kstrtoint(buf, 10, &temperature))
+		return -EINVAL;
+
+	mutex_lock(&tz->lock);
+	tz->debug_temperature = temperature;
+	mutex_unlock(&tz->lock);
+
+	thermal_zone_device_update(tz, THERMAL_EVENT_UNSPECIFIED);
+
+	return count;
+}
+#endif /* CONFIG_BATTERY_SHARP */
 
 static ssize_t
 mode_store(struct device *dev, struct device_attribute *attr,
@@ -1242,6 +1287,9 @@ int power_actor_set_power(struct thermal_cooling_device *cdev,
 
 static DEVICE_ATTR(type, 0444, type_show, NULL);
 static DEVICE_ATTR(temp, 0444, temp_show, NULL);
+#ifdef CONFIG_BATTERY_SHARP
+static DEVICE_ATTR(debug_temp, 0644, debug_temp_show, debug_temp_store);
+#endif /* CONFIG_BATTERY_SHARP */
 static DEVICE_ATTR(mode, 0644, mode_show, mode_store);
 static DEVICE_ATTR(passive, S_IRUGO | S_IWUSR, passive_show, passive_store);
 static DEVICE_ATTR(policy, S_IRUGO | S_IWUSR, policy_show, policy_store);
@@ -2126,6 +2174,21 @@ static void remove_trip_attrs(struct thermal_zone_device *tz)
  * in case of error, an ERR_PTR. Caller must check return value with
  * IS_ERR*() helpers.
  */
+#ifdef CONFIG_BATTERY_SHARP
+#define BATT_THERM_NAME        "battery"
+#define CAM_THERM_NAME         "cam-therm"
+#define LCD_THERM_NAME         "lcd-therm"
+#define MSM_THERM_NAME         "msm-therm-adc"
+#define PA1_THERM_NAME         "pa-therm1-adc"
+#define USB_THERM_NAME         "usb-therm"
+#define XO_THERM_NAME          "xo-therm-adc"
+
+#define PMIC_THERM_NAME        "pm8998_tz"
+#define PMIC_THERM_TYPE        "pmic_therm"
+
+#define BMS_NAME               "bms"
+#define SKIN_THERM_NAME        "skin_temp"
+#endif /* CONFIG_BATTERY_SHARP */
 struct thermal_zone_device *thermal_zone_device_register(const char *type,
 	int trips, int mask, void *devdata,
 	struct thermal_zone_device_ops *ops,
@@ -2194,6 +2257,12 @@ struct thermal_zone_device *thermal_zone_device_register(const char *type,
 	result = device_create_file(&tz->device, &dev_attr_temp);
 	if (result)
 		goto unregister;
+
+#ifdef CONFIG_BATTERY_SHARP
+	result = device_create_file(&tz->device, &dev_attr_debug_temp);
+	if (result)
+		goto unregister;
+#endif /* CONFIG_BATTERY_SHARP */
 
 	if (ops->get_mode) {
 		result = device_create_file(&tz->device, &dev_attr_mode);
@@ -2279,6 +2348,26 @@ struct thermal_zone_device *thermal_zone_device_register(const char *type,
 
 	/* Bind cooling devices for this zone */
 	bind_tz(tz);
+#ifdef CONFIG_BATTERY_SHARP
+	if (!strcmp(tz->type, MSM_THERM_NAME) || !strcmp(tz->type, LCD_THERM_NAME) ||
+		!strcmp(tz->type, PA1_THERM_NAME) ||
+		!strcmp(tz->type, XO_THERM_NAME)  || !strcmp(tz->type, CAM_THERM_NAME) ||
+		!strcmp(tz->type, USB_THERM_NAME) || !strcmp(tz->type, BATT_THERM_NAME)) {
+			if (sysfs_create_link(&(tz->device.class)->p->subsys.kobj, &tz->device.kobj, tz->type)) {
+				pr_debug("fail to create link sys file:%s\n", tz->type);
+			}
+		}
+	else if (!strcmp(tz->type, PMIC_THERM_NAME)) {
+		if (sysfs_create_link(&(tz->device.class)->p->subsys.kobj, &tz->device.kobj, PMIC_THERM_TYPE)) {
+			pr_debug("fail to create link sys file:%s\n", PMIC_THERM_TYPE);
+		}
+	}
+	else if (!strcmp(tz->type, BMS_NAME)) {
+		if (sysfs_create_link(&(tz->device.class)->p->subsys.kobj, &tz->device.kobj, SKIN_THERM_NAME)) {
+			pr_debug("fail to create link sys file:%s\n", SKIN_THERM_NAME);
+		}
+	}
+#endif /* CONFIG_BATTERY_SHARP */
 
 	INIT_DEFERRABLE_WORK(&(tz->poll_queue), thermal_zone_device_check);
 
@@ -2348,6 +2437,9 @@ void thermal_zone_device_unregister(struct thermal_zone_device *tz)
 	if (tz->type[0])
 		device_remove_file(&tz->device, &dev_attr_type);
 	device_remove_file(&tz->device, &dev_attr_temp);
+#ifdef CONFIG_BATTERY_SHARP
+	device_remove_file(&tz->device, &dev_attr_debug_temp);
+#endif /* CONFIG_BATTERY_SHARP */
 	if (tz->ops->get_mode)
 		device_remove_file(&tz->device, &dev_attr_mode);
 	device_remove_file(&tz->device, &dev_attr_policy);
@@ -2591,9 +2683,16 @@ static int thermal_pm_notify(struct notifier_block *nb,
 	case PM_POST_SUSPEND:
 		atomic_set(&in_suspend, 0);
 		list_for_each_entry(tz, &thermal_tz_list, node) {
+#ifdef CONFIG_SHARP_PNP_THERMAL
+		if(strncmp(tz->type, "bms", sizeof("bms") - 1)
+		&& strncmp(tz->type, "pmi8998_tz", sizeof("pmi8998_tz") - 1)){
+#endif /* CONFIG_SHARP_PNP_THERMAL */
 			thermal_zone_device_reset(tz);
 			thermal_zone_device_update(tz,
 						   THERMAL_EVENT_UNSPECIFIED);
+#ifdef CONFIG_SHARP_PNP_THERMAL
+		}
+#endif /* CONFIG_SHARP_PNP_THERMAL */
 		}
 		break;
 	default:

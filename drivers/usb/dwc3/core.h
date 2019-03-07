@@ -1173,6 +1173,10 @@ struct dwc3 {
 	bool			create_reg_debugfs;
 	u32			xhci_imod_value;
 	int			core_id;
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+   /* force full-speed enable */
+	unsigned long           fs_connect_enable;
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
 };
 
 /* -------------------------------------------------------------------------- */

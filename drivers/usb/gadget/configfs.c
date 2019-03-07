@@ -9,6 +9,15 @@
 #include "u_f.h"
 #include "u_os_desc.h"
 
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+#include "soc/qcom/sh_smem.h"
+#define SH_BOOT_O_C    0x20
+#define SH_BOOT_U_O_C  0x21
+#define SH_BOOT_D      0x40
+#define SH_BOOT_F_F    0x44
+#define SH_BOOT_NORMAL 0xFFFF
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
+
 #ifdef CONFIG_USB_CONFIGFS_UEVENT
 #include <linux/platform_device.h>
 #include <linux/kdev_t.h>
@@ -23,6 +32,10 @@ extern int acc_ctrlrequest(struct usb_composite_dev *cdev,
 				const struct usb_ctrlrequest *ctrl);
 void acc_disconnect(void);
 #endif
+
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+extern int diag_opts_get_diag_enable_from_smem(void);
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 
 static struct class *android_class;
 static struct device *android_device;
@@ -338,6 +351,81 @@ err:
 	return ret;
 }
 
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+typedef enum {
+	BOOT_MODE_ERR = -1,
+	BOOT_MODE_NORMAL = 0,
+	BOOT_MODE_TESTMODE,
+	BOOT_MODE_SOFTWARE_UPDATE,
+} android_boot_mode;
+
+static android_boot_mode boot_mode_hold;
+
+static void get_boot_mode_from_smem(void)
+{
+	sharp_smem_common_type *p_smem_addr = NULL;
+	unsigned short bootmode;
+	int smem_softupdateflg = 0;
+	p_smem_addr = sh_smem_get_common_address();
+	if (!p_smem_addr) {
+		pr_err("%s: failed to get smem address. \n", __func__);
+		return;
+	}
+	smem_softupdateflg = p_smem_addr->shusb_softupdate_mode_flag;
+
+	bootmode = p_smem_addr->sh_boot_mode;
+
+	switch (bootmode) {
+		case SH_BOOT_O_C:
+		case SH_BOOT_U_O_C:
+			boot_mode_hold = BOOT_MODE_NORMAL;
+			break;
+		case SH_BOOT_NORMAL:
+			if (!smem_softupdateflg)
+				boot_mode_hold = BOOT_MODE_NORMAL;
+			else
+				boot_mode_hold = BOOT_MODE_SOFTWARE_UPDATE;
+			break;
+		case SH_BOOT_D:
+		case SH_BOOT_F_F:
+			if (!smem_softupdateflg)
+				boot_mode_hold = BOOT_MODE_TESTMODE;
+			else
+				boot_mode_hold = BOOT_MODE_SOFTWARE_UPDATE;
+			break;
+		default :
+			boot_mode_hold = BOOT_MODE_NORMAL;
+			break;
+	}
+#ifdef CONFIG_USB_DEBUG_SHARP_LOG
+	pr_info("%s: bootmode 0x%04x softupdateflag %d \n",
+				__func__, bootmode, smem_softupdateflg);
+#endif /* CONFIG_USB_DEBUG_SHARP_LOG */
+	return;
+}
+
+static ssize_t gadget_dev_desc_bootmode_show(struct config_item *item, char *page)
+{
+	int bm = 0;
+
+	switch ( boot_mode_hold ) {
+		case BOOT_MODE_NORMAL:
+			bm = 0;
+			break;
+		case BOOT_MODE_TESTMODE:
+			bm = 1;
+			break;
+		case BOOT_MODE_SOFTWARE_UPDATE:
+			bm = 2;
+			break;
+		default :
+			bm = -1;
+			break;
+	}
+	return snprintf(page, PAGE_SIZE, "%d\n", bm);
+}
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
+
 CONFIGFS_ATTR(gadget_dev_desc_, bDeviceClass);
 CONFIGFS_ATTR(gadget_dev_desc_, bDeviceSubClass);
 CONFIGFS_ATTR(gadget_dev_desc_, bDeviceProtocol);
@@ -347,6 +435,9 @@ CONFIGFS_ATTR(gadget_dev_desc_, idProduct);
 CONFIGFS_ATTR(gadget_dev_desc_, bcdDevice);
 CONFIGFS_ATTR(gadget_dev_desc_, bcdUSB);
 CONFIGFS_ATTR(gadget_dev_desc_, UDC);
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+CONFIGFS_ATTR_RO(gadget_dev_desc_, bootmode);
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 
 static struct configfs_attribute *gadget_root_attrs[] = {
 	&gadget_dev_desc_attr_bDeviceClass,
@@ -358,6 +449,9 @@ static struct configfs_attribute *gadget_root_attrs[] = {
 	&gadget_dev_desc_attr_bcdDevice,
 	&gadget_dev_desc_attr_bcdUSB,
 	&gadget_dev_desc_attr_UDC,
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+	&gadget_dev_desc_attr_bootmode,
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 	NULL,
 };
 
@@ -448,6 +542,25 @@ static int config_usb_cfg_link(
 		ret = PTR_ERR(f);
 		goto out;
 	}
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+#ifndef CONFIG_ANDROID_ENGINEERING
+	if (!strcmp(f->name, "diag") && !diag_opts_get_diag_enable_from_smem()) {
+		pr_info("%s: diag cannot enable\n", __func__);
+		ret = 0;
+		goto out;
+	}
+	else if (!strcmp(f->name, "ffs") && BOOT_MODE_TESTMODE == boot_mode_hold && !diag_opts_get_diag_enable_from_smem()) {
+		pr_info("%s: adb cannot enable testmode\n", __func__);
+		ret = 0;
+		goto out;
+	}
+	else if (!strcmp(f->name, "ffs") && BOOT_MODE_SOFTWARE_UPDATE == boot_mode_hold && !diag_opts_get_diag_enable_from_smem()) {
+		pr_info("%s: adb cannot enable softupdate\n", __func__);
+		ret = 0;
+		goto out;
+	}
+#endif /* CONFIG_ANDROID_ENGINEERING */
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 
 	/* stash the function until we bind it to the gadget */
 	list_add_tail(&f->list, &cfg->func_list);
@@ -1287,6 +1400,10 @@ static int configfs_composite_bind(struct usb_gadget *gadget,
 	struct usb_string		*s;
 	unsigned			i;
 	int				ret;
+#ifdef CONFIG_USB_ANDROID_SHARP_MTP
+	u8 need = 0;
+	u8 count = 0;
+#endif /* CONFIG_USB_ANDROID_SHARP_MTP */
 
 	/* the gi->lock is hold by the caller */
 	cdev->gadget = gadget;
@@ -1398,7 +1515,17 @@ static int configfs_composite_bind(struct usb_gadget *gadget,
 				list_add(&f->list, &cfg->func_list);
 				goto err_purge_funcs;
 			}
+#ifdef CONFIG_USB_ANDROID_SHARP_MTP
+			count++;
+			if (!strncmp(f->name , "mtp", strlen("mtp"))) {
+				need = 1;
+			}
+#endif /* CONFIG_USB_ANDROID_SHARP_MTP */
 		}
+#ifdef CONFIG_USB_ANDROID_SHARP_MTP
+		if (need == 1 && count < 4)
+			gi->cdev.count = count;
+#endif /* CONFIG_USB_ANDROID_SHARP_MTP */
 		usb_ep_autoconfig_reset(cdev->gadget);
 	}
 	if (cdev->use_os_string) {
@@ -1408,6 +1535,13 @@ static int configfs_composite_bind(struct usb_gadget *gadget,
 	}
 
 	usb_ep_autoconfig_reset(cdev->gadget);
+
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+	if ( BOOT_MODE_TESTMODE == boot_mode_hold ) {
+		usb_gadget_force_fullspeed(gadget);
+	}
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
+
 	return 0;
 
 err_purge_funcs:
@@ -1802,6 +1936,11 @@ EXPORT_SYMBOL_GPL(unregister_gadget_item);
 static int __init gadget_cfs_init(void)
 {
 	int ret;
+
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+	/* judge boot mode */
+	get_boot_mode_from_smem();
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 
 	config_group_init(&gadget_subsys.su_group);
 

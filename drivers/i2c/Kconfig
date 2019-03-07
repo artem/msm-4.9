@@ -143,6 +143,21 @@ config I2C_DEBUG_BUS
 	  a problem with I2C support and want to see more of what is going
 	  on.
 
+config SHARP_I2C_EXPAND_DEBUG_FUNCTION
+	bool "I2C customize expand debug function"
+	default y
+
+config SHARP_I2C_XFER_RETRY
+	bool "I2C Driver error retry of master xfer processing"
+	default y
+	help
+	  Say Y here if you want the I2C drivers to produce a bunch
+	  of error retry of master xfer processing.
+
+config SHARP_I2C_DMA_ALIGNMENT_CHECK
+	bool "I2C customize dma alignment check"
+	default y
+
 endif # I2C
 
 endmenu

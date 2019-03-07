@@ -1,0 +1,24 @@
+/* Copyright (c) 2016-2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/*****************************************/
+/*  Add SHARP include                    */
+/*****************************************/
+/* SH_AUDIO_DRIVER -> */ /*A-001*/
+#include "sharp-pinctrl-audio-pucci.dtsi"
+/* SH_AUDIO_DRIVER <- */ /*A-001*/
+#include "sharp-pinctrl-shtps.dtsi"
+#include "sharp-pinctrl-dio-sdcc.dtsi"
+#include "sharp-pinctrl-sdm845-nfc.dtsi"
+#include "sharp-pinctrl-pucchi-fpsensor.dtsi"
+#include "sharp-pinctrl-shub.dtsi"
+#include "sharp-pinctrl-hall.dtsi"

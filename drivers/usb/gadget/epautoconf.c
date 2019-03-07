@@ -95,8 +95,17 @@ found_ep:
 	 * If the protocol driver hasn't yet decided on wMaxPacketSize
 	 * and wants to know the maximum possible, provide the info.
 	 */
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+	if (desc->wMaxPacketSize == 0) {
+		if (USB_ENDPOINT_XFER_BULK == type)
+			desc->wMaxPacketSize = cpu_to_le16(64);
+		else
+			desc->wMaxPacketSize = cpu_to_le16(ep->maxpacket);
+	}
+#else /* CONFIG_USB_ANDROID_SHARP_CUST */
 	if (desc->wMaxPacketSize == 0)
 		desc->wMaxPacketSize = cpu_to_le16(ep->maxpacket_limit);
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 
 	/* report address */
 	desc->bEndpointAddress &= USB_DIR_IN;
@@ -113,6 +122,7 @@ found_ep:
 		desc->bEndpointAddress |= gadget->out_epnum;
 	}
 
+#ifndef CONFIG_USB_ANDROID_SHARP_CUST
 	/* report (variable) full speed bulk maxpacket */
 	if ((type == USB_ENDPOINT_XFER_BULK) && !ep_comp) {
 		int size = ep->maxpacket_limit;
@@ -122,6 +132,7 @@ found_ep:
 			size = 64;
 		desc->wMaxPacketSize = cpu_to_le16(size);
 	}
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 
 	ep->address = desc->bEndpointAddress;
 	ep->desc = NULL;

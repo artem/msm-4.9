@@ -1,0 +1,108 @@
+#
+# SHARP configuration
+#
+
+menu "SHARP Device Drivers for Qualcomm SOC"
+
+comment "SHARP Device Drivers for Qualcomm SOC"
+
+config SHARP_SHLOG
+	tristate "SHARP SHLOG driver base system."
+	default n
+	help
+	  SHARP SHLOG driver base system.
+
+config SHARP_SHLOG_RAMOOPS
+	bool "Enable SHARP SHLOG for ramoops."
+	depends on SHARP_SHLOG
+	default n
+	help
+	  Enable SHARP SHLOG for ramoops.
+
+config SHARP_SHLOG_TASKLIST
+	bool "Enable SHARP SHLOG for tasks."
+	depends on SHARP_SHLOG
+	default n
+	help
+	  Enable SHARP SHLOG for tasks.
+
+config SHARP_SHLOG_LATESTSTACK
+	bool "Enable SHARP SHLOG for tasks of latest process."
+	depends on SHARP_SHLOG
+	default n
+	help
+	  Enable SHARP SHLOG for tasks of latest process.
+
+config SHARP_HANDLE_PANIC
+	bool "Enable SHARP handler for panic."
+	depends on SHARP_SHLOG
+	default n
+	help
+	  Enable SHARP handler for panic.
+
+config SHARP_HANDLE_DLOAD
+	bool "Enable SHARP handler for dload."
+	depends on SHARP_SHLOG
+	default n
+	help
+	  Enable SHARP handler for dload.
+
+config SHARP_HANDLE_DLOAD_MINIDEFAULT
+	bool "Set default of dload to mini."
+	depends on SHARP_HANDLE_DLOAD
+	default n
+	help
+	  Enable Set default of dload to mini.
+
+config SHARP_HANDLE_SURFACE_FLINGER
+	bool "Enable SHARP handler for reset of surfaceflinger."
+	depends on SHARP_SHLOG
+	default n
+	help
+	  Enable SHARP handler for reset of surfaceflinger.
+
+config SHARP_PANIC_ON_PWRKEY
+	bool "Enable SHARP handler to call panic when powerkey pressed."
+	depends on SHARP_SHLOG
+	default n
+	help
+	  Enable SHARP handler to call panic when powerkey pressed.
+
+config SHARP_PANIC_ON_PWRKEY_TIMEOUT
+	int "Timeout to call panic when power-key is pressed."
+	depends on SHARP_SHLOG
+	default 4
+	help
+	  Timeout to call panic when power-key is pressed.
+
+config SHARP_SHLOG_SHOW_ABOOTLOG
+	bool "Enable dumping aboot-log after boot."
+	depends on SHARP_SHLOG
+	default n
+	help
+	  Enable dumping aboot-log after boot.
+
+config SHARP_SUPPORT_DLOAD_BOOTPARAM
+	bool "Add parameter to set initial value for dload."
+	default n
+	help
+	  Add parameter to set initial value for dload.
+
+source "drivers/soc/qcom/sharp/shtimer/Kconfig"
+
+source "drivers/soc/qcom/sharp/pnp/Kconfig"
+
+source "drivers/soc/qcom/sharp/shboot/Kconfig"
+
+endmenu
+
+menu "SHARP SHDIAG SMEM driver"
+
+comment "SHARP SHDIAG SMEM driver"
+
+config SHARP_SHDIAG_SMD
+	tristate "SHARP SHDIAG SMEM DRIVER"
+	depends on SHARP_SMEM_CUST
+	default n
+endmenu
+

@@ -20,3 +20,6 @@
 	qcom,board-id = <0 0>;
 };
 
+/* SH_BSP_CUST Add Start */
+#include "sharp/sharp-base-sdm845.dtsi"
+/* SH_BSP_CUST Add End */

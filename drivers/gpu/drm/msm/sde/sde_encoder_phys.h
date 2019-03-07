@@ -186,6 +186,9 @@ struct sde_encoder_phys_ops {
 	int (*get_wr_line_count)(struct sde_encoder_phys *phys);
 	bool (*wait_dma_trigger)(struct sde_encoder_phys *phys);
 	int (*wait_for_active)(struct sde_encoder_phys *phys);
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	int (*get_line_count_mfr)(struct sde_encoder_phys *phys);
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 };
 
 /**
@@ -304,6 +307,9 @@ struct sde_encoder_phys {
 	bool cont_splash_settings;
 	bool in_clone_mode;
 	int vfp_cached;
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+	u32 adjust_vsync_counter;
+#endif /* CONFIG_SHARP_DRM_HR_VID */
 };
 
 static inline int sde_encoder_phys_inc_pending(struct sde_encoder_phys *phys)
@@ -463,6 +469,9 @@ struct sde_encoder_wait_info {
 struct sde_encoder_phys *sde_encoder_phys_vid_init(
 		struct sde_enc_phys_init_params *p);
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00015 */ /* CUST_ID_00007 */
+struct sde_encoder_phys_vid *get_sde_encoder_phys_vid(int index);
+#endif /* CONFIG_SHARP_DISPLAY */
 /**
  * sde_encoder_phys_cmd_init - Construct a new command mode physical encoder
  * @p:	Pointer to init params structure
@@ -470,6 +479,10 @@ struct sde_encoder_phys *sde_encoder_phys_vid_init(
  */
 struct sde_encoder_phys *sde_encoder_phys_cmd_init(
 		struct sde_enc_phys_init_params *p);
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+struct sde_encoder_phys_cmd *get_sde_encoder_phys_cmd(int index);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 /**
  * sde_encoder_phys_wb_init - Construct a new writeback physical encoder
@@ -607,4 +620,8 @@ int sde_encoder_helper_register_irq(struct sde_encoder_phys *phys_enc,
 int sde_encoder_helper_unregister_irq(struct sde_encoder_phys *phys_enc,
 		enum sde_intr_idx intr_idx);
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00007 */
+void sde_encoder_phys_vid_setup_timing_engine_wrap(
+		struct sde_encoder_phys *phys_enc);
+#endif /* CONFIG_SHARP_DISPLAY */
 #endif /* __sde_encoder_phys_H__ */

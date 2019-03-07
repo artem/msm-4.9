@@ -1089,4 +1089,8 @@ config SND_SOC_TPA6130A2
 	tristate "Texas Instruments TPA6130A2 headphone amplifier"
 	depends on I2C
 
+#/* SH_AUDIO_DRIVER -> */ /*A-004*/
+source "sound/soc/codecs/tfa/Kconfig"
+#/* SH_AUDIO_DRIVER <- */ /*A-004*/
+
 endmenu

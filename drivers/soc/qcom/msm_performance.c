@@ -31,6 +31,9 @@
 struct cpu_status {
 	unsigned int min;
 	unsigned int max;
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	unsigned int limitlock_freq;
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 };
 static DEFINE_PER_CPU(struct cpu_status, cpu_stats);
 
@@ -201,6 +204,78 @@ static const struct kernel_param_ops param_ops_cpu_max_freq = {
 };
 module_param_cb(cpu_max_freq, &param_ops_cpu_max_freq, NULL, 0644);
 
+#ifdef CONFIG_SHARP_PNP_CLOCK
+static int set_cpu_limitlock_freq(const char *buf, const struct kernel_param *kp)
+{
+	int i, j, ntokens = 0;
+	unsigned int val, cpu;
+	const char *cp = buf;
+	struct cpu_status *i_cpu_stats;
+	struct cpufreq_policy policy;
+	cpumask_var_t limit_mask;
+	int ret;
+
+	while ((cp = strpbrk(cp + 1, " :")))
+		ntokens++;
+
+	/* CPU:value pair */
+	if (!(ntokens % 2))
+		return -EINVAL;
+
+	cp = buf;
+	cpumask_clear(limit_mask);
+	for (i = 0; i < ntokens; i += 2) {
+		if (sscanf(cp, "%u:%u", &cpu, &val) != 2)
+			return -EINVAL;
+		if (cpu > (num_present_cpus() - 1))
+			return -EINVAL;
+
+		i_cpu_stats = &per_cpu(cpu_stats, cpu);
+
+		i_cpu_stats->limitlock_freq = val;
+		cpumask_set_cpu(cpu, limit_mask);
+
+		cp = strnchr(cp, strlen(cp), ' ');
+		cp++;
+	}
+
+	get_online_cpus();
+	for_each_cpu(i, limit_mask) {
+		i_cpu_stats = &per_cpu(cpu_stats, i);
+		if (cpufreq_get_policy(&policy, i))
+			continue;
+
+		if (cpu_online(i) && (policy.max != i_cpu_stats->limitlock_freq)) {
+			ret = cpufreq_update_policy(i);
+			if (ret)
+				continue;
+		}
+		for_each_cpu(j, policy.related_cpus)
+			cpumask_clear_cpu(j, limit_mask);
+	}
+	put_online_cpus();
+
+	return 0;
+}
+
+static int get_cpu_limitlock_freq(char *buf, const struct kernel_param *kp)
+{
+	int cnt = 0, cpu;
+
+	for_each_present_cpu(cpu) {
+		cnt += snprintf(buf + cnt, PAGE_SIZE - cnt,
+				"%d:%u ", cpu, per_cpu(cpu_stats, cpu).limitlock_freq);
+	}
+	cnt += snprintf(buf + cnt, PAGE_SIZE - cnt, "\n");
+	return cnt;
+}
+
+static const struct kernel_param_ops param_ops_cpu_limitlock_freq = {
+	.set = set_cpu_limitlock_freq,
+	.get = get_cpu_limitlock_freq,
+};
+module_param_cb(cpu_limitlock_freq, &param_ops_cpu_limitlock_freq, NULL, 0644);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 
 
@@ -235,14 +310,35 @@ static int perf_adjust_notify(struct notifier_block *nb, unsigned long val,
 	unsigned int min = cpu_st->min, max = cpu_st->max;
 
 
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	unsigned int limitlock_freq = cpu_st->limitlock_freq;
+#else /* CONFIG_SHARP_PNP_CLOCK */
 	if (val != CPUFREQ_ADJUST)
 		return NOTIFY_OK;
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 	pr_debug("msm_perf: CPU%u policy before: %u:%u kHz\n", cpu,
 						policy->min, policy->max);
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	pr_debug("msm_perf: CPU%u event: %lu seting min:baselimit:limitlock %u:%u:%u kHz\n", cpu, val, min, max, limitlock_freq);
+	switch (val) {
+	case SH_CPUFREQ_BASE_LIMIT:
+		sh_cpufreq_verify_within_limits_max(policy, max);
+		break;
+	case CPUFREQ_ADJUST:
+		cpufreq_verify_within_limits(policy, min, UINT_MAX);
+		break;
+	case CPUFREQ_INCOMPATIBLE:
+		cpufreq_verify_within_limits(policy, 0, limitlock_freq);
+		break;
+	default:
+		break;
+	}
+#else /* CONFIG_SHARP_PNP_CLOCK */
 	pr_debug("msm_perf: CPU%u seting min:max %u:%u kHz\n", cpu, min, max);
 
 	cpufreq_verify_within_limits(policy, min, max);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 	pr_debug("msm_perf: CPU%u policy after: %u:%u kHz\n", cpu,
 						policy->min, policy->max);
@@ -343,8 +439,15 @@ static int __init msm_performance_init(void)
 
 	cpufreq_register_notifier(&perf_cpufreq_nb, CPUFREQ_POLICY_NOTIFIER);
 
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	for_each_present_cpu(cpu) {
+		per_cpu(cpu_stats, cpu).max = 0;
+		per_cpu(cpu_stats, cpu).limitlock_freq = UINT_MAX;
+	}
+#else /* CONFIG_SHARP_PNP_CLOCK */
 	for_each_present_cpu(cpu)
 		per_cpu(cpu_stats, cpu).max = UINT_MAX;
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 	rc = cpuhp_setup_state_nocalls(CPUHP_AP_ONLINE,
 		"msm_performance_cpu_hotplug",

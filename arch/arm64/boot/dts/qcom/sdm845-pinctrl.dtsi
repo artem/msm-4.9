@@ -67,6 +67,32 @@
 			};
 		};
 
+		atest_usb13_active: atest_usb13_active {
+			mux {
+				pins = "gpio8";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio8";
+				drive-strength = <2>;
+				bias-disable;
+				output-high;
+			};
+		};
+
+		atest_usb13_suspend: atest_usb13_suspend {
+			mux {
+				pins = "gpio8";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio8";
+				drive-strength = <2>;
+				bias-disable;
+				output-low;
+			};
+		};
+
 		flash_led3_front {
 			flash_led3_front_en: flash_led3_front_en {
 				mux {
@@ -2237,7 +2263,7 @@
 				config {
 					pins = "gpio45", "gpio48";
 					drive-strength = <2>;
-					bias-no-pull;
+					bias-disable;
 				};
 			};
 

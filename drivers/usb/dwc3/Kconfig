@@ -111,4 +111,21 @@ config USB_DWC3_MSM
 	help
 	  Applicable to QTI MSM Platforms with DesignWare Core USB3 IP,
 	  say 'Y' or 'M' if you have one such device.
+
+# 20170502 USB SHARP CUSTOMIZE ADD START
+config USB_DWC3_SHARP_CUST
+	bool "Sharp Custamize for DWC3 Driver"
+	depends on USB_DWC3 && USB_ANDROID_SHARP_CUST
+	help
+		Add sharp custamize for DWC3 Driver.
+# 20170502 USB SHARP CUSTOMIZE ADD END
+
+# 20170502 USB SHARP CUSTOMIZE ADD START
+config USB_DWC3_LIMIT_LOCK
+	bool "Support for limitlock"
+	depends on USB_DWC3_SHARP_CUST
+	default n
+	help
+		Enable this to support the limit lock.
+# 20170502 USB SHARP CUSTOMIZE ADD END
 endif

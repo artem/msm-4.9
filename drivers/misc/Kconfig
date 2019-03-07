@@ -813,6 +813,10 @@ config QPNP_MISC
 	  and the driver provides an API to check if this interrupt
 	  is available on the current PMIC chip.
 
+config SHARP_SYSTIME_CUST
+    bool "SHARP CUSTOMIZE SYSTIME LOG"
+    default n
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
@@ -826,4 +830,9 @@ source "drivers/misc/genwqe/Kconfig"
 source "drivers/misc/echo/Kconfig"
 source "drivers/misc/cxl/Kconfig"
 source "drivers/misc/fpr_FingerprintCard/Kconfig"
+source "drivers/misc/shterm/Kconfig"
+source "drivers/misc/shsensor_hub/ml630q790/Kconfig"
+source "drivers/misc/shflip/Kconfig"
+source "drivers/misc/shhall/Kconfig"
+source "drivers/misc/shbatt/Kconfig"
 endmenu

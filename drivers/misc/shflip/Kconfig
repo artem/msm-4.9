@@ -1,0 +1,12 @@
+#
+# Flip driver configuration
+#
+
+menu "SHARP Flip Driver"
+
+config SHARP_FLIP
+	tristate "SHARP external cover flip support"
+	default n
+
+endmenu
+

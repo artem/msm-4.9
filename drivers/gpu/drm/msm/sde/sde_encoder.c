@@ -38,6 +38,9 @@
 #include "sde_crtc.h"
 #include "sde_trace.h"
 #include "sde_core_irq.h"
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00060 */
+#include "drm_sharp.h"
+#endif /* CONFIG_SHARP_DISPLAY */
 
 #define SDE_DEBUG_ENC(e, fmt, ...) SDE_DEBUG("enc%d " fmt,\
 		(e) ? (e)->base.base.id : -1, ##__VA_ARGS__)
@@ -800,7 +803,11 @@ void sde_encoder_helper_split_config(
 	else
 		cfg.pp_split_slave = INTF_MAX;
 
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_DIO) /* CUST_ID_00007 */
+	if (phys_enc->split_role != ENC_ROLE_MASTER) {
+#else
 	if (phys_enc->split_role == ENC_ROLE_MASTER) {
+#endif /* CONFIG_SHARP_DISPLAY */
 		SDE_DEBUG_ENC(sde_enc, "enable %d\n", cfg.en);
 
 		if (hw_mdptop->ops.setup_split_pipe)
@@ -2941,9 +2948,56 @@ static void sde_encoder_vblank_callback(struct drm_encoder *drm_enc,
 {
 	struct sde_encoder_virt *sde_enc = NULL;
 	unsigned long lock_flags;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00040 */
+	struct msm_drm_private *priv;
+	int fps_low_base = DRM_BASE_FPS_DEFAULT;
+#ifndef CONFIG_ARCH_JOHNNY
+	const int max_cnt = 4;
+#else
+	const int max_cnt = 2;
+#endif /* CONFIG_ARCH_JOHNNY */
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	if (!drm_enc || !phy_enc)
 		return;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00040 */
+	if (!drm_enc->dev || !drm_enc->dev->dev_private) {
+		SDE_ERROR("invalid encoder parameters\n");
+		return;
+	}
+	priv = drm_enc->dev->dev_private;
+
+	fps_low_base = priv->fpslow_base;
+	fps_low_base = (fps_low_base > 0) ?
+					fps_low_base : DRM_BASE_FPS_DEFAULT;
+	switch(fps_low_base) {
+		case DRM_BASE_FPS_30:
+			priv->fpslow_count += 1;
+			break;
+		case DRM_BASE_FPS_60:
+			priv->fpslow_count += 2;
+			break;
+		case DRM_BASE_FPS_100:
+		case DRM_BASE_FPS_120:
+			priv->fpslow_count += 4;
+			break;
+		default:
+			pr_err("%s: invalid fps_low_base \n", __func__);
+			return;
+	}
+
+	pr_debug("%s: fps_base = %d, fps_count = %d\n",
+			__func__, fps_low_base, priv->fpslow_count);
+
+	if (priv->fpslow_count < max_cnt) {
+		pr_debug("%s: Due to control frame rate,"
+				"sync request is denied.\n", __func__);
+		return;
+	}
+
+	pr_debug("%s: sync request is accepted.\n", __func__);
+	priv->fpslow_count -= max_cnt;
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	SDE_ATRACE_BEGIN("encoder_vblank_callback");
 	sde_enc = to_sde_encoder_virt(drm_enc);
@@ -4987,3 +5041,241 @@ int sde_encoder_display_failure_notification(struct drm_encoder *enc)
 
 	return 0;
 }
+
+#ifdef CONFIG_SHARP_DRM_HR_VID /* CUST_ID_00015 */
+int sde_encoder_set_vsync_irq_control(
+				struct drm_encoder *drm_enc, bool enable)
+{
+	int ret = 0;
+	struct sde_encoder_virt *sde_enc;
+	struct sde_encoder_phys *phys_enc;
+	int i;
+
+	if (!drm_enc || !drm_enc->dev || !drm_enc->dev->dev_private ||
+			!drm_enc->crtc) {
+		SDE_ERROR("invalid parameters "
+			"drm_enc(%p) dev(%p) dev_private(%p) crtc(%p)\n",
+			drm_enc, drm_enc->dev, drm_enc->dev->dev_private,
+						drm_enc->crtc);
+		return -EINVAL;
+	}
+	sde_enc = to_sde_encoder_virt(drm_enc);
+
+	if (enable) {
+		for (i = 0; i < sde_enc->num_phys_encs; i++) {
+			phys_enc = sde_enc->phys_encs[i];
+
+			if (phys_enc->split_role != ENC_ROLE_SLAVE) {
+			    ret = sde_encoder_helper_register_irq(phys_enc,
+			    					INTR_IDX_VSYNC);
+			}
+		}
+	} else {
+		for (i = 0; i < sde_enc->num_phys_encs; i++) {
+			phys_enc = sde_enc->phys_encs[i];
+
+			if (phys_enc->split_role != ENC_ROLE_SLAVE) {
+			    ret = sde_encoder_helper_unregister_irq(phys_enc,
+			    					INTR_IDX_VSYNC);
+			}
+		}
+	}
+
+	return ret;
+}
+
+int sde_encoder_set_underrun_irq_control(
+				struct drm_encoder *drm_enc, bool enable)
+{
+	int ret = 0;
+	struct sde_encoder_virt *sde_enc;
+	struct sde_encoder_phys *phys_enc;
+	int i;
+
+	if (!drm_enc || !drm_enc->dev || !drm_enc->dev->dev_private ||
+			!drm_enc->crtc) {
+		SDE_ERROR("invalid parameters "
+			"drm_enc(%p) dev(%p) dev_private(%p) crtc(%p)\n",
+			drm_enc, drm_enc->dev, drm_enc->dev->dev_private,
+						drm_enc->crtc);
+		return -EINVAL;
+	}
+	sde_enc = to_sde_encoder_virt(drm_enc);
+
+	if (enable) {
+		for (i = 0; i < sde_enc->num_phys_encs; i++) {
+			phys_enc = sde_enc->phys_encs[i];
+
+			sde_encoder_helper_register_irq(
+					phys_enc, INTR_IDX_UNDERRUN);
+		}
+	} else {
+		for (i = 0; i < sde_enc->num_phys_encs; i++) {
+			phys_enc = sde_enc->phys_encs[i];
+
+			sde_encoder_helper_unregister_irq(
+					phys_enc, INTR_IDX_UNDERRUN);
+		}
+	}
+
+	return ret;
+}
+
+
+extern void sde_connector_clk_ctrl_mfr(
+		struct drm_connector *connector, bool enable, int islink);
+extern void sde_encoder_reconfig_phys_vid_mfr(
+			struct sde_encoder_phys *phys_enc);
+void sde_encoder_resource_control_helper_mfr(struct drm_encoder *drm_enc,
+								bool enable)
+{
+	struct msm_drm_private *priv;
+	struct sde_kms *sde_kms;
+	struct sde_encoder_virt *sde_enc;
+
+	sde_enc = to_sde_encoder_virt(drm_enc);
+	priv = drm_enc->dev->dev_private;
+	sde_kms = to_sde_kms(priv->kms);
+
+	DRM_DEBUG_MFR("%s: enable=%d, usecase_ndx=%d>>>\n",
+		__func__, enable, sde_kms->core_client->usecase_ndx);
+	SDE_EVT32(DRMID(drm_enc), enable);
+
+	if (!sde_enc->cur_master) {
+		SDE_ERROR("encoder master not set\n");
+		return;
+	}
+
+	// DRM_DEBUG_MFR("%s: phys encs=%d\n", __func__, sde_enc->num_phys_encs);
+	if (enable) {
+		/* enable SDE core clks(id: name:core) */
+		sde_power_resource_enable(&priv->phandle,
+						sde_kms->core_client, true);
+
+		/* enable DSI clks(id: name:dsi_core_client0/1) */
+		/* dsi_display_clk_ctrl(dsi_clk) */
+		sde_connector_clk_ctrl_mfr(sde_enc->phys_encs[0]->connector,
+							true, 1/* link */);
+		/* dsi_display_clk_ctrl(mdp_clk) */
+		sde_connector_clk_ctrl(sde_enc->cur_master->connector, true);
+
+		//_sde_encoder_resource_control_rsc_update(drm_enc, true);
+	} else {
+		//_sde_encoder_resource_control_rsc_update(drm_enc, false);
+
+		/* disable DSI clks(id: name:dsi_core_client0/1) */
+		/* dsi_display_clk_ctrl(mdp_clk) */
+		sde_connector_clk_ctrl(sde_enc->cur_master->connector, false);
+
+		/* dsi_display_clk_ctrl(dsi_clk) - core/link */
+		sde_connector_clk_ctrl_mfr(sde_enc->phys_encs[0]->connector,
+							false, 1/* link */);
+
+		//* disable SDE core clks(id: name:core) */
+		sde_power_resource_enable(&priv->phandle,
+						sde_kms->core_client, false);
+	}
+	DRM_DEBUG_MFR("%s: enable=%d <<<\n", __func__, enable);
+
+}
+
+int sde_encoder_can_stopped_video_mfr(struct drm_encoder *drm_enc)
+{
+	int stopped = true;
+	struct drm_display_mode *mode;
+	struct sde_encoder_virt *sde_enc;
+	struct sde_encoder_phys *phys_enc;
+	int can_stop_line_count;
+	//int v_front_porch;
+	//int v_back_porch;
+	//int v_pulse_width;
+	int line_count;
+	int i;
+
+	sde_enc = to_sde_encoder_virt(drm_enc);
+	mode = &sde_enc->cur_master->cached_mode;
+	can_stop_line_count = mode->vdisplay;
+	//can_stop_line_count = mode->vtotal;
+	//v_back_porch = mode->vtotal - mode->vsync_end;
+	//v_front_porch = mode->vsync_start - mode->vdisplay;
+	//v_pulse_width = mode->vsync_end - mode->vsync_start;
+	//DRM_DEBUG_MFR("%s: v_back_porch = %d, v_front_porch = %d,"
+	//	" v_pulse_width = %d\n",
+	//	__func__, v_back_porch, v_front_porch, v_pulse_width);
+
+	for (i = 0; i < sde_enc->num_phys_encs; i++) {
+		phys_enc = sde_enc->phys_encs[i];
+		if (!phys_enc->ops.get_line_count_mfr) {
+			continue;
+		}
+		line_count = phys_enc->ops.get_line_count_mfr(phys_enc);
+		DRM_DEBUG_MFR("enc[%d] line_count=%d\n", i, line_count);
+		if (can_stop_line_count < line_count) {
+			pr_warn("enc[%d] can't stop video...: "
+				"line_count=%d, can_stop_line_count = %d\n",
+				i, line_count, can_stop_line_count);
+			stopped = false;
+		}
+	}
+	return stopped;
+}
+
+int sde_encoder_is_stopped_video_mfr(struct drm_encoder *drm_enc,
+							bool wait_ifstopsoon)
+{
+	int stopped = true;
+	struct drm_display_mode *mode;
+	struct sde_encoder_virt *sde_enc;
+	struct sde_encoder_phys *phys_enc;
+	int vtotal;
+	int line_count = 0, line_count2 = 0;
+	int wait_1line_us = 4;
+	int i;
+
+	sde_enc = to_sde_encoder_virt(drm_enc);
+	mode = &sde_enc->cur_master->cached_mode;
+	vtotal = mode->vtotal;
+
+	for (i = 0; i < sde_enc->num_phys_encs; i++) {
+		phys_enc = sde_enc->phys_encs[i];
+		if (!phys_enc->ops.get_line_count_mfr) {
+			continue;
+		}
+		line_count = phys_enc->ops.get_line_count_mfr(phys_enc);
+		//DRM_DEBUG_MFR("enc[%d] line_count=%d\n", i, line_count);
+		if ((vtotal != line_count) && wait_ifstopsoon
+					&& (vtotal - line_count > 0)
+					&& (vtotal - line_count < 10)) {
+			udelay(wait_1line_us * (vtotal - line_count));
+			line_count =
+				phys_enc->ops.get_line_count_mfr(phys_enc);
+		}
+
+		if (vtotal < line_count) {
+			line_count =
+				phys_enc->ops.get_line_count_mfr(phys_enc);
+			udelay(wait_1line_us);
+			line_count2 =
+				phys_enc->ops.get_line_count_mfr(phys_enc);
+			if (line_count == line_count2) {
+				pr_err("enc[%d] video is stopped: "
+					"line_count=%d %d, vtotal = %d\n",
+					i, line_count, line_count2, vtotal);
+				 line_count = vtotal;
+			}
+		}
+
+		if (vtotal != line_count) {
+			pr_warn("enc[%d] video isn't stopped: "
+			//pr_debug("enc[%d] video isn't stopped: "
+				"line_count=%d, vtotal = %d\n",
+				i, line_count, vtotal);
+			stopped = false;
+		}
+	}
+	if (stopped) {
+		udelay(wait_1line_us);
+	}
+	return stopped;
+}
+#endif /* CONFIG_SHARP_DRM_HR_VID */

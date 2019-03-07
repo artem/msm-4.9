@@ -1,0 +1,95 @@
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+
+/****************************************/
+/* pmi8998_charger		*/
+/****************************************/
+&pmi8998_charger {
+	/delete-property/ qcom,batteryless-platform;
+	qcom,fcc-max-ua = <2200000>;
+	qcom,fv-max-uv = <4350000>;
+	qcom,usb-icl-ua = <1500000>;
+	qcom,otg-cl-ua = <1000000>;
+	qcom,shdiag-fv-max-uv = <4000000>;
+	qcom,wipower-max-uw = <5000000>;
+	qcom,thermal-mitigation = <3000000 1500000 1400000 1200000 1100000 1000000 900000 700000 600000 500000 400000 300000 150000>;
+	qcom,float-option = <2>;
+	qcom,auto-recharge-soc;
+	qcom,step-charging-enable;
+	qcom,sw-jeita-enable;
+
+	qcom,typec-safety-therm-ch = <0x4e>;
+	qcom,typec-safety-trigger-threshold = <55>;
+	qcom,typec-safety-cancel-threshold = <45>;
+};
+
+/****************************************/
+/* pmi8998_fg		*/
+/****************************************/
+&pmi8998_fg {
+	qcom,fg-cutoff-voltage = <3350>;
+	qcom,fg-empty-voltage = <3100>;
+//	qcom,fg-recharge-voltage;
+	qcom,fg-chg-term-current = <100>;
+	qcom,fg-sys-term-current = <(-150)>;
+	qcom,fg-delta-soc-thr = <16>;
+	qcom,fg-recharge-soc-thr = <90>;
+	qcom,fg-rsense-sel = <0>;
+	qcom,fg-jeita-thresholds = <0 15 45 55>;
+	qcom,fg-esr-timer-awake = <64 64>;
+	qcom,fg-esr-timer-asleep = <256 256>;
+	qcom,cl-start-capacity = <40>;
+	qcom,cl-min-temp = <150>;
+	qcom,cl-max-temp = <400>;
+	qcom,cl-max-increment = <20>;
+	qcom,cl-max-decrement = <20>;
+	qcom,cl-max-increment-2nd = <10>;
+	qcom,cl-max-decrement-2nd = <10>;
+	qcom,battery-thermal-coefficients = [A1 50 FF];
+	qcom,fg-jeita-hyst-temp = <2>;
+	qcom,fg-batt-temp-delta = <2>;
+	qcom,hold-soc-while-full;
+	qcom,linearize-soc;
+	qcom,fg-auto-recharge-soc;
+	qcom,slope-limit-temp-threshold = <100>;
+	qcom,slope-limit-coeffs = <2 2 2 2>;
+	qcom,ibatt-cutoff = <1638>;
+	qcom,empty-soc-silver-freq-khz = <1132800>;
+	qcom,empty-soc-gold-freq-khz = <1132800>;
+};
+
+/****************************************/
+/* thermal_zones		*/
+/****************************************/
+&thermal_zones {
+	vbat {
+		trips {
+			low-vbat {
+				temperature = <3400>;
+				hysteresis = <200>;
+				type = "passive";
+			};
+		};
+	};
+
+	soc {
+		trips {
+			low-soc {
+				temperature = <5>;
+				hysteresis = <0>;
+				type = "passive";
+			};
+		};
+	};
+};
+

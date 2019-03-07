@@ -1,0 +1,52 @@
+/* Copyright (c) 2016, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/*****************************************/
+/*  pm8005: qcom,pm8005 alias            */
+/*****************************************/
+
+&spmi_bus {
+	qcom,pm8005@5 {
+	};
+};
+
+/*****************************************/
+/*  pm8005-gpios: qpnp-pin               */
+/*****************************************/
+
+&pm8005_gpios {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pm8005_gpio1_dig_in_default
+				&pm8005_gpio2_dig_in_default>;
+
+	pm8005_gpio1_dig_in {
+		/* I/PD/L */	/* - */
+		pm8005_gpio1_dig_in_default: pm8005_gpio1_dig_in_default {
+			pins = "gpio1";			/* GPIO 1 */
+			function = "normal";	/* normal input */
+			bias-pull-down;			/* pull down */
+			power-source = <1>;		/* VIN1 */
+			input-enable;			/* digital input */
+		};
+	};
+
+	pm8005_gpio2_dig_in {
+		/* I/PD/L */	/* - */
+		pm8005_gpio2_dig_in_default: pm8005_gpio2_dig_in_default {
+			pins = "gpio2";			/* GPIO 2 */
+			function = "normal";	/* normal input */
+			bias-pull-down;			/* pull down */
+			power-source = <1>;		/* VIN1 */
+			input-enable;			/* digital input */
+		};
+	};
+};

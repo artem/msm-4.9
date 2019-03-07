@@ -126,3 +126,28 @@ config SCSI_UFSHCD_CMD_LOGGING
 
 	  Select this if you want above mentioned debug information captured.
 	  If unsure, say N.
+
+config SHARP_SCSI_UFS
+	tristate "SHARP UFS driver customized"
+	depends on SCSI_UFSHCD
+	default n
+
+config SHARP_SCSI_UFS_LOG
+	tristate "SHARP UFS driver customized for logging"
+	depends on SHARP_SCSI_UFS
+	default n
+
+config SHARP_SCSI_UFS_ERR_DETECT
+	tristate "SHARP UFS driver customized for error detect"
+	depends on SHARP_SCSI_UFS
+	default n
+
+config SHARP_SCSI_UFS_BUG_FIX
+	tristate "SHARP UFS driver customized for bug fix"
+	depends on SHARP_SCSI_UFS
+	default n
+
+config SHARP_SCSI_UFS_WP
+	tristate "SHARP UFS driver customized for WP"
+	depends on SHARP_SCSI_UFS
+	default n

@@ -72,7 +72,6 @@ enum {
 #define SDE_QSEED3_DEFAULT_PRELOAD_V 0x3
 
 #define DEFAULT_REFRESH_RATE	60
-
 /**
  * enum sde_plane_qos - Different qos configurations for each pipe
  *
@@ -3935,6 +3934,11 @@ static int sde_plane_sspp_atomic_update(struct drm_plane *plane,
 		sde_crtc_get_crtc_roi(crtc->state, &crtc_roi);
 		dst.x -= crtc_roi->x;
 		dst.y -= crtc_roi->y;
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+		if (drm_crtc_index(crtc) == 0) {
+			dst.x += DRM_C2_X_OFFSET;
+		}
+#endif /* CONFIG_SHARP_DISPLAY */
 
 		psde->pipe_cfg.src_rect = src;
 		psde->pipe_cfg.dst_rect = dst;
@@ -3992,6 +3996,11 @@ static int sde_plane_sspp_atomic_update(struct drm_plane *plane,
 			src_flags |= SDE_SSPP_FLIP_UD;
 
 		/* update format */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00056 */
+		if (pstate->stage == SDE_STAGE_0) {
+			pstate->const_alpha_en = false;
+		}
+#endif /* CONFIG_SHARP_DISPLAY */
 		psde->pipe_hw->ops.setup_format(psde->pipe_hw, fmt,
 				pstate->const_alpha_en, src_flags,
 				pstate->multirect_index);

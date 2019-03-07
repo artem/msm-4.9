@@ -34,6 +34,18 @@
 
 #include "power.h"
 
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+#include <linux/module.h>
+enum {
+	SH_DEBUG_DPM_SUSPEND = 1U << 0,
+	SH_DEBUG_DPM_RESUME  = 1U << 1,
+};
+static int sh_debug_mask = 0;
+module_param_named(
+	sh_debug_mask, sh_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
+
 const char *pm_labels[] = { "mem", "standby", "freeze", NULL };
 const char *pm_states[PM_SUSPEND_MAX];
 
@@ -440,7 +452,15 @@ int suspend_devices_and_enter(suspend_state_t state)
 
 	suspend_console();
 	suspend_test_start();
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+	if(sh_debug_mask & SH_DEBUG_DPM_SUSPEND)
+		pr_info("dpm_suspend_start: Start\n");
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
 	error = dpm_suspend_start(PMSG_SUSPEND);
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+	if(sh_debug_mask & SH_DEBUG_DPM_SUSPEND)
+		pr_info("dpm_suspend_start: End\n");
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
 	if (error) {
 		pr_err("PM: Some devices failed to suspend, or early wake event detected\n");
 		log_suspend_abort_reason("Some devices failed to suspend, or early wake event detected");
@@ -456,7 +476,15 @@ int suspend_devices_and_enter(suspend_state_t state)
 
  Resume_devices:
 	suspend_test_start();
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+	if(sh_debug_mask & SH_DEBUG_DPM_RESUME)
+		pr_info("dpm_resume_end: Start\n");
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
 	dpm_resume_end(PMSG_RESUME);
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+	if(sh_debug_mask & SH_DEBUG_DPM_RESUME)
+		pr_info("dpm_resume_end: End\n");
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
 	suspend_test_finish("resume devices");
 	trace_suspend_resume(TPS("resume_console"), state, true);
 	resume_console();

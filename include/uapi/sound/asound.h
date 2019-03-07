@@ -951,6 +951,24 @@ struct snd_ctl_tlv {
 	unsigned int tlv[0];	/* first TLV */
 };
 
+/* SH_AUDIO_DRIVER -> */ /* A-004 */
+struct snd_ctl_elem_nxp_state {
+	unsigned int mtpex_state;
+	unsigned int impedance_state;
+};
+/* SH_AUDIO_DRIVER <- */ /* A-004 */
+
+/* SH_AUDIO_DRIVER -> */ /* A-006 */
+struct snd_ctl_elem_hp_state {
+	unsigned int hp_state;
+	unsigned int button_state;
+};
+/* SH_AUDIO_DRIVER <- */ /* A-006 */
+
+/* SH_AUDIO_DRIVER -> */ /* B-003 */
+#define SNDRV_CTL_IOCTL_SET_MODE_A2DP  _IOR('U', 0xf2, int)
+/* SH_AUDIO_DRIVER <- */ /* B-003 */
+
 #define SNDRV_CTL_IOCTL_PVERSION	_IOR('U', 0x00, int)
 #define SNDRV_CTL_IOCTL_CARD_INFO	_IOR('U', 0x01, struct snd_ctl_card_info)
 #define SNDRV_CTL_IOCTL_ELEM_LIST	_IOWR('U', 0x10, struct snd_ctl_elem_list)
@@ -976,6 +994,14 @@ struct snd_ctl_tlv {
 #define SNDRV_CTL_IOCTL_RAWMIDI_PREFER_SUBDEVICE _IOW('U', 0x42, int)
 #define SNDRV_CTL_IOCTL_POWER		_IOWR('U', 0xd0, int)
 #define SNDRV_CTL_IOCTL_POWER_STATE	_IOR('U', 0xd1, int)
+/* SH_AUDIO_DRIVER -> */ /* A-004 */
+#define SNDRV_CTL_IOCTL_NXP_CAL_BIT _IOR('U', 0xf3, int)
+#define SNDRV_CTL_IOCTL_NXP_STATE _IOR('U', 0xf4, struct snd_ctl_elem_nxp_state)
+/* SH_AUDIO_DRIVER <- */ /* A-004 */
+/* SH_AUDIO_DRIVER -> */ /* A-006 */
+#define SNDRV_CTL_IOCTL_HP_STATE _IOR('U', 0xe0, struct snd_ctl_elem_hp_state)
+#define SNDRV_CTL_IOCTL_SET_BIAS_MODE _IOR('U', 0xf0, int)
+/* SH_AUDIO_DRIVER <- */ /* A-006 */
 
 /*
  *  Read interface.

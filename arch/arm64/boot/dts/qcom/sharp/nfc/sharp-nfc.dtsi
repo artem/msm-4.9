@@ -1,0 +1,31 @@
+/*
+ * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/*----------------------------------------*/
+/* Add SHARP settings.                    */
+/*----------------------------------------*/
+&soc{
+	snfc_en {
+		compatible = "snfc_en";
+		qcom,nfc-nint   = <&tlmm 95 0x00>;
+		qcom,nfc-status = <&tlmm 96 0x00>;
+		qcom,nfc-clkreq = <&pm8998_gpios 21 0x00>;
+		pinctrl-names = "nfc_pon_active","nfc_pon_suspend",
+						"nfc_status_active","nfc_status_suspend";
+		pinctrl-0 = <&nfc_pon_active>;
+		pinctrl-1 = <&nfc_pon_suspend>;
+		pinctrl-2 = <&nfc_status_active>;
+		pinctrl-3 = <&nfc_status_suspend>;
+	};
+};
+

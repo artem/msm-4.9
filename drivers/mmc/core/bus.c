@@ -22,6 +22,11 @@
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
 
+#if defined(CONFIG_SHARP_MMC_SD_BATTLOG) && defined(CONFIG_SHARP_SHTERM)
+#include <linux/mmc/slot-gpio.h>
+#include "../card/mmc_sd_battlog.h"
+#endif /* CONFIG_SHARP_MMC_SD_BATTLOG && CONFIG_SHARP_SHTERM */
+
 #include "core.h"
 #include "sdio_cis.h"
 #include "bus.h"
@@ -426,6 +431,14 @@ void mmc_remove_card(struct mmc_card *card)
 			pr_info("%s: card %04x removed\n",
 				mmc_hostname(card->host), card->rca);
 		}
+#if defined(CONFIG_SHARP_MMC_SD_BATTLOG) && defined(CONFIG_SHARP_SHTERM)
+		if (mmc_sd_detection_status_check(card->host)) {
+			if (mmc_gpio_get_cd(card->host))
+				mmc_sd_post_detection(card->host, SD_SOFT_REMOVED);
+			else
+				mmc_sd_post_detection(card->host, SD_PHY_REMOVED);
+		}
+#endif /* CONFIG_SHARP_MMC_SD_BATTLOG && CONFIG_SHARP_SHTERM */
 		device_del(&card->dev);
 		of_node_put(card->dev.of_node);
 	}

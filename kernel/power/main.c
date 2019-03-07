@@ -593,6 +593,30 @@ power_attr(pm_freeze_timeout);
 
 #endif	/* CONFIG_FREEZER*/
 
+#ifdef CONFIG_SHARP_PNP_SLEEP_SLEEPLOG
+#include <soc/qcom/sharp/sh_sleeplog.h>
+suspend_state_t panel_state = 0;
+static ssize_t panel_state_show(struct kobject *kobj,
+				      struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", panel_state);
+}
+
+static ssize_t panel_state_store(struct kobject *kobj,
+				       struct kobj_attribute *attr,
+				       const char *buf, size_t n)
+{
+	struct timespec ts;
+	panel_state = decode_state(buf, n);
+	getnstimeofday(&ts);
+
+	sh_set_screen_state(ts, panel_state);
+	return n;
+}
+
+power_attr(panel_state);
+#endif/*CONFIG_SHARP_PNP_SLEEP_SLEEPLOG*/
+
 static struct attribute * g[] = {
 	&state_attr.attr,
 #ifdef CONFIG_PM_TRACE
@@ -620,6 +644,9 @@ static struct attribute * g[] = {
 #ifdef CONFIG_FREEZER
 	&pm_freeze_timeout_attr.attr,
 #endif
+#ifdef CONFIG_SHARP_PNP_SLEEP_SLEEPLOG
+	&panel_state_attr.attr,
+#endif/*CONFIG_SHARP_PNP_SLEEP_SLEEPLOG*/
 	NULL,
 };
 

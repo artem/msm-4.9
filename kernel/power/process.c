@@ -21,6 +21,16 @@
 #include <linux/wakeup_reason.h>
 #include <linux/cpuset.h>
 
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+enum {
+	SH_DEBUG_FREEZE_TASKS = 1U << 0,
+};
+static int sh_debug_mask = 0;
+module_param_named(
+	sh_debug_mask, sh_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
+
 /*
  * Timeout for stopping processes
  */
@@ -51,6 +61,10 @@ static int try_to_freeze_tasks(bool user_only)
 		todo = 0;
 		read_lock(&tasklist_lock);
 		for_each_process_thread(g, p) {
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+			if (sh_debug_mask & SH_DEBUG_FREEZE_TASKS)
+				pr_info( "%s(): user_only=%d, g->comm(%s), p->comm(%s)\n", __func__,user_only, g->comm, p->comm );
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
 			if (p == current || !freeze_task(p))
 				continue;
 

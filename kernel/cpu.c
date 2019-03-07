@@ -264,6 +264,21 @@ void get_online_cpus(void)
 }
 EXPORT_SYMBOL_GPL(get_online_cpus);
 
+#ifdef CONFIG_SHARP_PNP_CLOCK
+int get_online_cpus_try(void)
+{
+	might_sleep();
+	if (cpu_hotplug.active_writer == current)
+		return 0;
+	if (!mutex_trylock(&cpu_hotplug.lock))
+		return -EBUSY;
+	atomic_inc(&cpu_hotplug.refcount);
+	mutex_unlock(&cpu_hotplug.lock);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(get_online_cpus_try);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
+
 void put_online_cpus(void)
 {
 	int refcount;

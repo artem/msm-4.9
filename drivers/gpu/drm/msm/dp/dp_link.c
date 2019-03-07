@@ -989,6 +989,7 @@ static void dp_link_send_edid_checksum(struct dp_link *dp_link, u8 checksum)
 			&checksum, response_len);
 }
 
+
 static int dp_link_parse_vx_px(struct dp_link_private *link)
 {
 	u8 bp;

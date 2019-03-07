@@ -1,0 +1,12 @@
+#
+# Flip driver configuration
+#
+
+menu "SHARP Hall IC Driver"
+
+config SHARP_HALL
+	tristate "SHARP external cover detection by Hall sensor"
+	default n
+
+endmenu
+

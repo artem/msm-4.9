@@ -144,10 +144,19 @@ struct cpufreq_policy {
 #define CPUFREQ_SHARED_TYPE_ANY	 (3) /* Freq can be set from any dependent CPU*/
 
 #ifdef CONFIG_CPU_FREQ
+#ifdef CONFIG_SHARP_PNP_CLOCK
+struct cpufreq_policy *sh_cpufreq_cpu_get_raw(unsigned int cpu);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 struct cpufreq_policy *cpufreq_cpu_get_raw(unsigned int cpu);
 struct cpufreq_policy *cpufreq_cpu_get(unsigned int cpu);
 void cpufreq_cpu_put(struct cpufreq_policy *policy);
 #else
+#ifdef CONFIG_SHARP_PNP_CLOCK
+static inline struct cpufreq_policy *sh_cpufreq_cpu_get_raw(unsigned int cpu)
+{
+	return NULL;
+}
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 static inline struct cpufreq_policy *cpufreq_cpu_get_raw(unsigned int cpu)
 {
 	return NULL;
@@ -374,11 +383,42 @@ int cpufreq_unregister_driver(struct cpufreq_driver *driver_data);
 const char *cpufreq_get_current_driver(void);
 void *cpufreq_get_driver_data(void);
 
+#ifdef CONFIG_SHARP_PNP_CLOCK
+unsigned int sh_get_max_freq(struct cpufreq_policy *policy);
+void sh_set_max_freq(struct cpufreq_policy *policy, unsigned int max_freq);
+unsigned int sh_get_max_freq_target(struct cpufreq_policy *policy);
+void sh_set_max_freq_target(struct cpufreq_policy *policy, unsigned int max_freq);
+void sh_cpufreq_frequency_table_target(struct cpufreq_policy *policy, unsigned int *target_freq, unsigned int relation);
+void sh_set_release_limit_freq(struct cpufreq_policy *policy);
+unsigned int sh_get_sh_limit_freq_gold(void);
+static inline void sh_cpufreq_verify_within_limits_max(struct cpufreq_policy *policy, unsigned int max)
+{
+	sh_cpufreq_frequency_table_target(policy, &max, CPUFREQ_RELATION_L);
+	if (sh_get_max_freq(policy) < max)
+		sh_set_max_freq(policy, max);
+	return;
+}
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 static inline void cpufreq_verify_within_limits(struct cpufreq_policy *policy,
 		unsigned int min, unsigned int max)
 {
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	sh_cpufreq_frequency_table_target(policy, &min, CPUFREQ_RELATION_L);
+	sh_cpufreq_frequency_table_target(policy, &max, CPUFREQ_RELATION_H);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
+
 	if (policy->min < min)
 		policy->min = min;
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	if (sh_get_max_freq(policy) < min)
+		sh_set_max_freq(policy, min);
+	if (policy->min > sh_get_max_freq(policy))
+		policy->min = sh_get_max_freq(policy);
+	if (sh_get_max_freq(policy) > max)
+		sh_set_max_freq(policy, max);
+	if (policy->min > sh_get_max_freq(policy))
+		policy->min = sh_get_max_freq(policy);
+#else /* CONFIG_SHARP_PNP_CLOCK */
 	if (policy->max < min)
 		policy->max = min;
 	if (policy->min > max)
@@ -387,6 +427,7 @@ static inline void cpufreq_verify_within_limits(struct cpufreq_policy *policy,
 		policy->max = max;
 	if (policy->min > policy->max)
 		policy->min = policy->max;
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 	return;
 }
 
@@ -420,11 +461,22 @@ static inline void cpufreq_resume(void) {}
 
 /* Policy Notifiers  */
 #define CPUFREQ_ADJUST			(0)
+#ifdef CONFIG_SHARP_PNP_CLOCK
+#define CPUFREQ_INCOMPATIBLE		(1)
+#define CPUFREQ_NOTIFY				(2)
+#define CPUFREQ_START				(3)
+#define CPUFREQ_CREATE_POLICY		(4)
+#define CPUFREQ_REMOVE_POLICY		(5)
+#define SH_CPUFREQ_BASE_LIMIT		(6)
+#define CPUFREQ_STOP			(7)
+void sh_cpufreq_update_policy_try(void);
+#else /* CONFIG_SHARP_PNP_CLOCK */
 #define CPUFREQ_NOTIFY			(1)
 #define CPUFREQ_START			(2)
 #define CPUFREQ_CREATE_POLICY		(3)
 #define CPUFREQ_REMOVE_POLICY		(4)
 #define CPUFREQ_STOP			(5)
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 /* Govinfo Notifiers */
 #define CPUFREQ_LOAD_CHANGE		(0)

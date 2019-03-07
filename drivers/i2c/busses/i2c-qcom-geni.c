@@ -29,6 +29,8 @@
 #include <linux/dmaengine.h>
 #include <linux/msm_gpi.h>
 
+#include "sh_i2c_util.h"
+
 #define SE_I2C_TX_TRANS_LEN		(0x26C)
 #define SE_I2C_RX_TRANS_LEN		(0x270)
 #define SE_I2C_SCL_COUNTERS		(0x278)
@@ -80,6 +82,17 @@
 #define I2C_TIMEOUT_SAFETY_COEFFICIENT	10
 
 #define I2C_TIMEOUT_MIN_USEC	500000
+
+#if defined(CONFIG_SHARP_I2C_XFER_RETRY)
+#define I2C_XFER_RETRY_MAX 2
+#define I2C_XFER_RETRY_DELAY 30
+#endif	/* defined(CONFIG_SHARP_I2C_XFER_RETRY) */
+
+#if defined(CONFIG_SHARP_I2C_EXPAND_DEBUG_FUNCTION)
+int sh_debug_i2c = SH_LOG_NONE;
+module_param_named(sh_debug_i2c, sh_debug_i2c,
+		   int, S_IRUGO | S_IWUSR | S_IWGRP);
+#endif	/* defined(CONFIG_SHARP_I2C_EXPAND_DEBUG_FUNCTION) */
 
 enum i2c_se_mode {
 	UNINITIALIZED,
@@ -166,6 +179,8 @@ static int geni_i2c_clk_map_idx(struct geni_i2c_dev *gi2c)
 	bool clk_map_present = false;
 	struct geni_i2c_clk_fld *itr = geni_i2c_clk_map;
 
+	SH_I2CLOG_DEBUG(SH_LOG_TRACE_L, gi2c->dev, "start\n");
+
 	for (i = 0; i < ARRAY_SIZE(geni_i2c_clk_map); i++, itr++) {
 		if (itr->clk_freq_out == gi2c->i2c_rsc.clk_freq_out) {
 			clk_map_present = true;
@@ -178,12 +193,15 @@ static int geni_i2c_clk_map_idx(struct geni_i2c_dev *gi2c)
 	else
 		ret = -EINVAL;
 
+	SH_I2CLOG_DEBUG(SH_LOG_TRACE_L, gi2c->dev, "end(idx:%d, ret:%d)\n", gi2c->clk_fld_idx, ret);
 	return ret;
 }
 
 static inline void qcom_geni_i2c_conf(struct geni_i2c_dev *gi2c, int dfs)
 {
 	struct geni_i2c_clk_fld *itr = geni_i2c_clk_map + gi2c->clk_fld_idx;
+
+	SH_I2CLOG_DEBUG(SH_LOG_TRACE_M, gi2c->dev, "start\n");
 
 	geni_write_reg(dfs, gi2c->base, SE_GENI_CLK_SEL);
 
@@ -195,6 +213,7 @@ static inline void qcom_geni_i2c_conf(struct geni_i2c_dev *gi2c, int dfs)
 	* Ensure Clk config completes before return.
 	*/
 	mb();
+	SH_I2CLOG_DEBUG(SH_LOG_TRACE_M, gi2c->dev, "No problem(end)\n");
 }
 
 static inline void qcom_geni_i2c_calc_timeout(struct geni_i2c_dev *gi2c)
@@ -228,6 +247,8 @@ static void geni_i2c_err(struct geni_i2c_dev *gi2c, int err)
 	}
 	GENI_SE_DBG(gi2c->ipcl, false, gi2c->dev, "%s: se-mode:%d\n", __func__,
 							gi2c->se_mode);
+	SH_I2CLOG_ERR(gi2c->dev, "%s: se-mode:%d\n", __func__,
+							gi2c->se_mode);
 	geni_se_dump_dbg_regs(&gi2c->i2c_rsc, gi2c->base, gi2c->ipcl);
 err_ret:
 	gi2c->err = gi2c_log[err].err;
@@ -243,6 +264,8 @@ static irqreturn_t geni_i2c_irq(int irq, void *dev)
 	u32 dm_rx_st = readl_relaxed(gi2c->base + SE_DMA_RX_IRQ_STAT);
 	u32 dma = readl_relaxed(gi2c->base + SE_GENI_DMA_MODE_EN);
 	struct i2c_msg *cur = gi2c->cur;
+
+	SH_I2CLOG_DEBUG(SH_LOG_IRQ, gi2c->dev, "Start\n");
 
 	if (!cur || (m_stat & M_CMD_FAILURE_EN) ||
 		    (dm_rx_st & (DM_I2C_CB_ERR)) ||
@@ -334,6 +357,7 @@ irqret:
 	else if ((dm_tx_st & TX_DMA_DONE) || (dm_rx_st & RX_DMA_DONE))
 		complete(&gi2c->xfer);
 
+	SH_I2CLOG_DEBUG(SH_LOG_IRQ, gi2c->dev, "end\n");
 	return IRQ_HANDLED;
 }
 
@@ -416,6 +440,8 @@ static int geni_i2c_gsi_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
 {
 	struct geni_i2c_dev *gi2c = i2c_get_adapdata(adap);
 	int i, ret = 0, timeout = 0;
+
+	SH_I2CLOG_DEBUG(SH_LOG_TRACE_H, gi2c->dev, "start\n");
 
 	ret = pinctrl_select_state(gi2c->i2c_rsc.geni_pinctrl,
 				gi2c->i2c_rsc.geni_gpio_active);
@@ -632,6 +658,7 @@ geni_i2c_gsi_xfer_out:
 		ret = gi2c->err;
 	pinctrl_select_state(gi2c->i2c_rsc.geni_pinctrl,
 				gi2c->i2c_rsc.geni_gpio_sleep);
+	SH_I2CLOG_DEBUG(SH_LOG_TRACE_H, gi2c->dev, "No problem(end) gi2c->err=%d\n", gi2c->err);
 	return ret;
 }
 
@@ -641,6 +668,14 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
 {
 	struct geni_i2c_dev *gi2c = i2c_get_adapdata(adap);
 	int i, ret = 0, timeout = 0;
+
+#if !defined(CONFIG_SHARP_I2C_DMA_ALIGNMENT_CHECK)
+	SH_I2CLOG_DEBUG(SH_LOG_TRACE_H, gi2c->dev, "start\n");
+#else	/* CONFIG_SHARP_I2C_DMA_ALIGNMENT_CHECK */
+	u32 cache_line = dma_get_cache_alignment();
+
+	SH_I2CLOG_DEBUG(SH_LOG_TRACE_H, gi2c->dev, "start cache_line=%d\n", cache_line);
+#endif	/* CONFIG_SHARP_I2C_DMA_ALIGNMENT_CHECK */
 
 	gi2c->err = 0;
 	gi2c->cur = &msgs[0];
@@ -675,7 +710,18 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
 
 		gi2c->cur = &msgs[i];
 		qcom_geni_i2c_calc_timeout(gi2c);
+#if !defined(CONFIG_SHARP_I2C_DMA_ALIGNMENT_CHECK)
 		mode = msgs[i].len > 32 ? SE_DMA : FIFO_MODE;
+#else	/* CONFIG_SHARP_I2C_DMA_ALIGNMENT_CHECK */
+		mode = FIFO_MODE;
+		if (msgs[i].len > 32) {
+			if (msgs[i].buf && IS_ALIGNED((size_t)msgs[i].buf, cache_line)) {
+				mode = SE_DMA;
+			} else {
+				dev_info(gi2c->dev, "%s: Select FIFO Transfer(not aligned)\n", __func__);
+			}
+		}
+#endif	/* CONFIG_SHARP_I2C_DMA_ALIGNMENT_CHECK */
 		ret = geni_se_select_mode(gi2c->base, mode);
 		if (ret) {
 			dev_err(gi2c->dev, "%s: Error mode init %d:%d:%d\n",
@@ -764,8 +810,40 @@ geni_i2c_txn_ret:
 	gi2c->cur = NULL;
 	gi2c->err = 0;
 	dev_dbg(gi2c->dev, "i2c txn ret:%d\n", ret);
+
+	SH_I2CLOG_DEBUG(SH_LOG_TRACE_H, gi2c->dev, "end(ret=%d)\n", ret);
 	return ret;
 }
+
+#if defined(CONFIG_SHARP_I2C_XFER_RETRY)
+static int geni_i2c_xfer_retry(struct i2c_adapter *adap, 
+			 struct i2c_msg msgs[],
+			 int num)
+{
+	int ret = 0;
+	int xfer_cnt;
+	struct geni_i2c_dev *gi2c = i2c_get_adapdata(adap);
+
+	SH_I2CLOG_DEBUG(SH_LOG_TRACE_H, gi2c->dev, "start\n");
+
+	for (xfer_cnt=0; xfer_cnt<=I2C_XFER_RETRY_MAX; xfer_cnt++) {
+
+		ret = geni_i2c_xfer(adap, msgs, num);
+		SH_I2CLOG_DEBUG(SH_LOG_TRACE_L, gi2c->dev, "geni_i2c_xfer call ret=%d\n",ret);
+		if(ret>=0) {
+			if (xfer_cnt != 0)
+				SH_I2CLOG_ERR(gi2c->dev, "Retry Complete [Addr=0x%x]\n", (char)msgs->addr);
+			break;
+		}
+		SH_I2CLOG_ERR(gi2c->dev, "Retry [%d] [Addr=0x%x]\n", (xfer_cnt+1), (char)msgs->addr);
+		udelay(I2C_XFER_RETRY_DELAY);
+	}
+
+	SH_I2CLOG_DEBUG(SH_LOG_TRACE_H, gi2c->dev, "end(ret=%d)\n", ret);
+
+	return ret;
+}
+#endif	/* defined(CONFIG_SHARP_I2C_XFER_RETRY) */
 
 static u32 geni_i2c_func(struct i2c_adapter *adap)
 {
@@ -773,7 +851,11 @@ static u32 geni_i2c_func(struct i2c_adapter *adap)
 }
 
 static const struct i2c_algorithm geni_i2c_algo = {
+#if defined(CONFIG_SHARP_I2C_XFER_RETRY)
+	.master_xfer	= geni_i2c_xfer_retry,
+#else	/* !defined(CONFIG_SHARP_I2C_XFER_RETRY) */
 	.master_xfer	= geni_i2c_xfer,
+#endif	/* defined(CONFIG_SHARP_I2C_XFER_RETRY) */
 	.functionality	= geni_i2c_func,
 };
 
@@ -927,6 +1009,7 @@ static int geni_i2c_remove(struct platform_device *pdev)
 
 static int geni_i2c_resume_noirq(struct device *device)
 {
+	SH_I2CLOG_DEBUG(SH_LOG_PM, device, "\n");
 	return 0;
 }
 
@@ -935,6 +1018,8 @@ static int geni_i2c_runtime_suspend(struct device *dev)
 {
 	struct geni_i2c_dev *gi2c = dev_get_drvdata(dev);
 
+	SH_I2CLOG_DEBUG(SH_LOG_PM, dev, "start\n");
+
 	if (gi2c->se_mode == FIFO_SE_DMA) {
 		disable_irq(gi2c->irq);
 		se_geni_resources_off(&gi2c->i2c_rsc);
@@ -942,6 +1027,9 @@ static int geni_i2c_runtime_suspend(struct device *dev)
 		/* GPIO is set to sleep state already. So just clocks off */
 		se_geni_clks_off(&gi2c->i2c_rsc);
 	}
+
+	SH_I2CLOG_DEBUG(SH_LOG_PM, dev, "end\n");
+
 	return 0;
 }
 
@@ -949,6 +1037,8 @@ static int geni_i2c_runtime_resume(struct device *dev)
 {
 	int ret;
 	struct geni_i2c_dev *gi2c = dev_get_drvdata(dev);
+
+	SH_I2CLOG_DEBUG(SH_LOG_PM, dev, "start\n");
 
 	if (!gi2c->ipcl) {
 		char ipc_name[I2C_NAME_SIZE];
@@ -998,6 +1088,7 @@ static int geni_i2c_runtime_resume(struct device *dev)
 	if (gi2c->se_mode == FIFO_SE_DMA)
 		enable_irq(gi2c->irq);
 
+	SH_I2CLOG_DEBUG(SH_LOG_PM, dev, "end\n");
 	return 0;
 }
 
@@ -1005,6 +1096,8 @@ static int geni_i2c_suspend_noirq(struct device *device)
 {
 	struct geni_i2c_dev *gi2c = dev_get_drvdata(device);
 	int ret;
+
+	SH_I2CLOG_DEBUG(SH_LOG_PM, device, "start\n");
 
 	/* Make sure no transactions are pending */
 	ret = i2c_trylock_bus(&gi2c->adap, I2C_LOCK_SEGMENT);
@@ -1020,6 +1113,8 @@ static int geni_i2c_suspend_noirq(struct device *device)
 		pm_runtime_enable(device);
 	}
 	i2c_unlock_bus(&gi2c->adap, I2C_LOCK_SEGMENT);
+
+	SH_I2CLOG_DEBUG(SH_LOG_PM, device, "end\n");
 	return 0;
 }
 #else

@@ -519,7 +519,8 @@ static bool ldm_validate_partition_table(struct parsed_partitions *state)
 		return false;
 	}
 
-	if (*(__le16*) (data + 0x01FE) != cpu_to_le16 (MSDOS_LABEL_MAGIC))
+	if (*(__le16*) (data + 0x01FE) != cpu_to_le16 (MSDOS_LABEL_MAGIC) &&
+	    *(__le16*) (data + 0x01FE) != cpu_to_le16 (MSDOS_LABEL_MAGIC_REVERSE))
 		goto out;
 
 	p = (struct partition*)(data + 0x01BE);

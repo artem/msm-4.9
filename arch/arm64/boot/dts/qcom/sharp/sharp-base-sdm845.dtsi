@@ -1,0 +1,57 @@
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/*****************************************/
+/* alieas                                */
+/*****************************************/
+/ {
+    aliases {
+        /delete-property/ i2c0;
+        /delete-property/ i2c1;
+        /delete-property/ spi0;
+        /delete-property/ serial0;
+
+        i2c3  = &qupv3_se3_i2c;
+        i2c5  = &qupv3_se5_i2c;
+        i2c7  = &qupv3_se7_i2c;
+        i2c10 = &qupv3_se10_i2c;
+        i2c11 = &qupv3_se11_i2c;
+        spi0  = &qupv3_se0_spi;
+        spi5  = &qupv3_se5_spi;
+/* SH_AUDIO_DRIVER -> */ /*A-004*/
+        spi8  = &qupv3_se8_spi;
+/* SH_AUDIO_DRIVER <- */ /*A-004*/
+        uart9 = &qupv3_se9_2uart;
+
+    };
+};
+
+/*****************************************/
+/* Delete Qualcomm node/property         */
+/*****************************************/
+
+#include "shdisp/sharp-base-sdm845-shdisp.dtsi"
+#include "storage/sharp-base-sdm845-sdcc.dtsi"
+#include "shaudio/sharp-base-sdm845-shaudio.dtsi"
+
+/* SHARP_EXTEND [WFD] qseecom_mem expansion 2018.08.28 */
+/ {
+	reserved-memory {
+		/delete-node/ qseecom_region@0x8ab00000;
+		qseecom_mem: qseecom_region@0x8ab00000 {
+			compatible = "shared-dma-pool";
+			no-map;
+			reg = <0 0x97c00000 0 0x1c00000>;
+		};
+	};
+};
+/* SHARP_EXTEND [WFD] qseecom_mem expansion 2018.08.28 */

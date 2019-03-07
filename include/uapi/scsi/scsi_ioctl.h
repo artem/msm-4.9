@@ -37,6 +37,10 @@
 /* Used to obtain the PCI location of a device */
 #define SCSI_IOCTL_GET_PCI		0x5387
 
+#ifdef CONFIG_SHARP_SCSI_UFS_WP
+#define SCSI_IOCTL_UPDATE_WP		0x53DD
+#define SCSI_IOCTL_WPFLG			0x53DE
+#endif /* CONFIG_SHARP_SCSI_UFS_WP */
 /*
  * Structures used for scsi_ioctl et al.
  */

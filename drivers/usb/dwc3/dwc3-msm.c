@@ -71,6 +71,11 @@ static int cpu_to_affin;
 module_param(cpu_to_affin, int, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(cpu_to_affin, "affin usb irq to this cpu");
 
+
+#ifdef CONFIG_USB_DWC3_LIMIT_LOCK
+static int cpufreq_register_notifier_flag = 0;
+#endif /* CONFIG_USB_DWC3_LIMIT_LOCK */
+
 /* XHCI registers */
 #define USB3_HCSPARAMS1		(0x4)
 #define USB3_HCCPARAMS2		(0x1c)
@@ -238,6 +243,10 @@ struct dwc3_msm {
 #define MDWC3_SS_PHY_SUSPEND		BIT(0)
 #define MDWC3_ASYNC_IRQ_WAKE_CAPABILITY	BIT(1)
 #define MDWC3_POWER_COLLAPSE		BIT(2)
+
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+	bool			shvbus_usb_force_disconnect;
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
 
 	unsigned int		irq_to_affin;
 	struct notifier_block	dwc3_cpu_notifier;
@@ -2685,7 +2694,7 @@ static void dwc3_resume_work(struct work_struct *w)
 			dwc->maximum_speed = dwc->max_hw_supp_speed;
 
 		if (mdwc->override_usb_speed) {
-			dwc->maximum_speed = mdwc->override_usb_speed;
+			dwc->maximum_speed = dwc->max_hw_supp_speed = mdwc->override_usb_speed;
 			dwc->gadget.max_speed = dwc->maximum_speed;
 			dbg_event(0xFF, "override_speed",
 					mdwc->override_usb_speed);
@@ -2946,6 +2955,275 @@ static int dwc3_msm_get_clk_gdsc(struct dwc3_msm *mdwc)
 	return 0;
 }
 
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+struct dwc3_msm *the_dwc3_otg = NULL;
+static atomic_t dwc3_usb_host_enable;
+static int dwc3_cable_type = 2;
+
+static int dwc3_otg_start_host(struct dwc3_msm *mdwc, int on);
+
+#ifdef CONFIG_USB_DWC3_LIMIT_LOCK
+#include <linux/cpufreq.h>
+#include <linux/notifier.h>
+static DEFINE_PER_CPU(unsigned int, limitlock_freq) = UINT_MAX;
+static int dwc3_otg_cpufreq_callback(struct notifier_block *nb, unsigned long event, void *data);
+static void dwc3_otg_limitlock(void);
+static void dwc3_otg_limitunlock(void);
+static void dwc3_otg_cpufreq_update_policy(void);
+static void dwc3_otg_limitlock_init(void);
+static void dwc3_otg_limitlock_exit(void);
+#endif /*CONFIG_USB_DWC3_LIMIT_LOCK*/
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
+
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+static int dwc3_get_cable_type(void)
+{
+	int cable_type;
+
+	if (!test_bit(ID, &the_dwc3_otg->inputs)) {
+		/* host */
+		cable_type = 0;
+	} else if (test_bit(B_SESS_VLD, &the_dwc3_otg->inputs)) {
+		/* peripehral */
+		cable_type = 1;
+	} else {
+		/* not connect */
+		cable_type = 2;
+	}
+
+	return cable_type;
+}
+
+static void dwc3_otg_change_cable_notify(void)
+{
+	char *uevent_envp[] = {"CABLE_CHANGE", NULL};
+	int cable_type = dwc3_get_cable_type();
+
+	if (dwc3_cable_type != cable_type) {
+		kobject_uevent_env(&the_dwc3_otg->dev->kobj, KOBJ_CHANGE, uevent_envp);
+		dev_info(the_dwc3_otg->dev, "sent uevent %s type %d->%d\n", uevent_envp[0], dwc3_cable_type, cable_type);
+		dwc3_cable_type = cable_type;
+	}
+}
+
+int dwc3_otg_is_usb_host_running(bool isUnLock)
+{
+
+	if (!the_dwc3_otg || !the_dwc3_otg->hs_phy )
+		return 0;
+
+	/* In A Host Mode and Usb Host Enabled */
+	if (the_dwc3_otg->otg_state >= OTG_STATE_A_IDLE && atomic_read(&dwc3_usb_host_enable) == 1) {
+		dev_dbg(the_dwc3_otg->hs_phy->dev, "usb host running\n");
+#ifdef CONFIG_USB_DWC3_LIMIT_LOCK
+		if (isUnLock){
+		dwc3_otg_limitunlock();
+		}
+#endif /* CONFIG_USB_DWC3_LIMIT_LOCK */
+		return 1;
+	} else {
+		dev_dbg(the_dwc3_otg->hs_phy->dev, "usb host not running\n");
+		return 0;
+	}
+}
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
+
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+static ssize_t show_usb_force_disconnect(struct device *dev,
+			struct device_attribute *attr,
+			char *buf)
+{
+	size_t val;
+	struct dwc3_msm *mdwc = dev_get_drvdata(dev);
+	val = snprintf(buf, PAGE_SIZE, "%d\n", (int)mdwc->shvbus_usb_force_disconnect);
+	return val;
+}
+
+static ssize_t store_usb_force_disconnect(struct device *dev,
+			struct device_attribute *attr,
+			const char *buf, size_t size)
+{
+	int disconnect = 0;
+	int ret = -EINVAL;
+	struct dwc3_msm *mdwc = dev_get_drvdata(dev);
+	struct dwc3 *dwc = platform_get_drvdata(mdwc->dwc3);
+
+	dev_dbg(dev, "usb force disconnect: %s\n", buf);
+
+	if ((size == 0) || (size > 2) || (buf == NULL)) {
+		dev_err(dev, "store_usb_force_disconnect: Invalid argument\n");
+		return ret;
+	}
+
+	sscanf(buf, "%d", &disconnect);
+
+	if (1 == disconnect) {
+		/* disconnect */
+		if (false == mdwc->shvbus_usb_force_disconnect) {
+/* COORDINATOR Qualcomm_Q01201_PostCS2 BUILDERR MODIFY start */
+//			mdwc->ext_inuse = true;
+/* COORDINATOR Qualcomm_Q01201_PostCS2 BUILDERR MODIFY end */
+			mdwc->vbus_active = false;
+			mdwc->shvbus_usb_force_disconnect = true;
+			ret = size;
+			if (atomic_read(&dwc->in_lpm)) {
+				dev_dbg(mdwc->dev, "%s: calling resume_work\n", __func__);
+				dwc3_resume_work(&mdwc->resume_work);
+			} else {
+				dev_dbg(mdwc->dev, "%s: notifying xceiv event\n", __func__);
+                dwc3_ext_event_notify(mdwc);
+			}
+		}
+	} else if (0 == disconnect) {
+		/* connect */
+		if (true == mdwc->shvbus_usb_force_disconnect) {
+/* COORDINATOR Qualcomm_Q01201_PostCS2 BUILDERR MODIFY start */
+//			mdwc->ext_inuse = false;
+/* COORDINATOR Qualcomm_Q01201_PostCS2 BUILDERR MODIFY end */
+			mdwc->vbus_active = true;
+			mdwc->shvbus_usb_force_disconnect = false;
+			ret = size;
+			if (atomic_read(&dwc->in_lpm)) {
+				dev_dbg(mdwc->dev, "%s: calling resume_work\n", __func__);
+				dwc3_resume_work(&mdwc->resume_work);
+			} else {
+				dev_dbg(mdwc->dev, "%s: notifying xceiv event\n", __func__);
+                dwc3_ext_event_notify(mdwc);
+			}
+		}
+	} else {
+		dev_err(dev, "store_usb_force_disconnect: Invalid parmeter %d\n", disconnect);
+	}
+
+	return ret;
+}
+
+static DEVICE_ATTR(usb_force_disconnect, 0664, show_usb_force_disconnect, store_usb_force_disconnect);
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
+
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+static ssize_t usb_cable_type_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	size_t val;
+	char *cable_str[] = {"host", "peripheral", "none"};
+	int cable_type;
+
+	cable_type = dwc3_get_cable_type();
+	val = snprintf(buf, PAGE_SIZE, "%s\n", cable_str[cable_type]);
+
+	return val;
+}
+static DEVICE_ATTR(usb_cable_type, 0444, usb_cable_type_show, NULL);
+
+static ssize_t usb_host_enable_store(struct device *dev,
+			struct device_attribute *attr,
+			const char *buf, size_t size)
+{
+	int value;
+
+	sscanf(buf, "%04x", &value);
+	if (value == 0) {
+		pr_debug("usb host disable\n");
+		if (dwc3_otg_is_usb_host_running(true))
+			dwc3_otg_start_host(the_dwc3_otg, 0);
+	} else if (value == 1) {
+		pr_debug("usb host enable\n");
+	} else {
+		pr_debug("%s:invalid value\n", __func__);
+		return -EINVAL;
+	}
+	atomic_set(&dwc3_usb_host_enable, value);
+	return size;
+}
+
+static ssize_t usb_host_enable_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	size_t val;
+	val = snprintf(buf, PAGE_SIZE, "%d\n", (int)atomic_read(&dwc3_usb_host_enable));
+	return val;
+}
+
+static DEVICE_ATTR(usb_host_enable, 0644, usb_host_enable_show, usb_host_enable_store);
+
+static ssize_t usb_host_running_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	size_t val;
+
+	if (!the_dwc3_otg)
+		return -ENODEV;
+
+	val = snprintf(buf, PAGE_SIZE, "%d\n", (int)dwc3_otg_is_usb_host_running(true));
+
+	return val;
+}
+
+static DEVICE_ATTR(usb_host_running, S_IRUGO, usb_host_running_show, NULL);
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
+
+#ifdef CONFIG_USB_DWC3_LIMIT_LOCK
+
+static struct notifier_block usb_cpufreq_notifier = {
+	.notifier_call = dwc3_otg_cpufreq_callback,
+};
+
+void dwc3_otg_limitlock(void)
+{
+	int cpu_id;
+
+	for_each_possible_cpu(cpu_id) {
+		if (cpu_id <= 3)
+			per_cpu(limitlock_freq, cpu_id) = 979200;
+		if (cpu_id >=  4)
+			per_cpu(limitlock_freq, cpu_id) = 1132800;
+	}
+	dwc3_otg_cpufreq_update_policy();
+}
+void dwc3_otg_limitunlock(void)
+{
+	int cpu_id;
+
+	for_each_possible_cpu(cpu_id) {
+		if (cpu_id <= 3)
+			per_cpu(limitlock_freq, cpu_id) = UINT_MAX;
+		if (cpu_id >= 4)
+			per_cpu(limitlock_freq, cpu_id) = UINT_MAX;
+	}
+	dwc3_otg_cpufreq_update_policy();
+}
+
+void dwc3_otg_cpufreq_update_policy(void)
+{
+	sh_cpufreq_update_policy_try();
+}
+static int dwc3_otg_cpufreq_callback(struct notifier_block *nb, unsigned long event, void *data)
+{
+	struct cpufreq_policy *policy = data;
+	switch (event) {
+	case CPUFREQ_INCOMPATIBLE:
+		cpufreq_verify_within_limits(policy, 0, per_cpu(limitlock_freq, policy->cpu));
+		break;
+	default:
+		break;
+	}
+	return NOTIFY_OK;
+}
+
+static void dwc3_otg_limitlock_init()
+{
+if (cpufreq_register_notifier(&usb_cpufreq_notifier, CPUFREQ_POLICY_NOTIFIER))
+		pr_err("%s: cannot register cpufreq notifier\n", __func__);
+}
+
+static void dwc3_otg_limitlock_exit()
+{
+if (cpufreq_unregister_notifier(&usb_cpufreq_notifier, CPUFREQ_POLICY_NOTIFIER))
+		pr_err("%s: cannot register cpufreq notifier\n", __func__);
+}
+
+#endif /* CONFIG_USB_DWC3_LIMIT_LOCK */
 static int dwc3_msm_id_notifier(struct notifier_block *nb,
 	unsigned long event, void *ptr)
 {
@@ -3277,8 +3555,8 @@ static ssize_t speed_store(struct device *dev, struct device_attribute *attr,
 	/* restart usb only works for device mode. Perform manual cable
 	 * plug in/out for host mode restart.
 	 */
-	if (req_speed != dwc->maximum_speed &&
-			req_speed <= dwc->max_hw_supp_speed) {
+	if (req_speed != USB_SPEED_UNKNOWN &&
+			req_speed != dwc->max_hw_supp_speed) {
 		mdwc->override_usb_speed = req_speed;
 		schedule_work(&mdwc->restart_usb_work);
 	}
@@ -3363,6 +3641,10 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, mdwc);
 	mdwc->dev = &pdev->dev;
 
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+	the_dwc3_otg = mdwc;
+	atomic_set(&dwc3_usb_host_enable, 1);
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
 	INIT_LIST_HEAD(&mdwc->req_complete_list);
 	INIT_WORK(&mdwc->resume_work, dwc3_resume_work);
 	INIT_WORK(&mdwc->restart_usb_work, dwc3_restart_usb_work);
@@ -3370,6 +3652,12 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 	INIT_DELAYED_WORK(&mdwc->sm_work, dwc3_otg_sm_work);
 	INIT_DELAYED_WORK(&mdwc->perf_vote_work, msm_dwc3_perf_vote_work);
 	INIT_DELAYED_WORK(&mdwc->sdp_check, check_for_sdp_connection);
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+	device_create_file(mdwc->dev, &dev_attr_usb_cable_type);
+	device_create_file(mdwc->dev, &dev_attr_usb_host_enable);
+	device_create_file(mdwc->dev, &dev_attr_usb_host_running);
+	device_create_file(mdwc->dev, &dev_attr_usb_force_disconnect);
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
 
 	mdwc->dwc3_wq = alloc_ordered_workqueue("dwc3_wq", 0);
 	if (!mdwc->dwc3_wq) {
@@ -3707,6 +3995,13 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 		dwc3_ext_event_notify(mdwc);
 	}
 
+#ifdef CONFIG_USB_DWC3_LIMIT_LOCK
+	if (!cpufreq_register_notifier_flag) {
+		dwc3_otg_limitlock_init();
+		cpufreq_register_notifier_flag = 1;
+	}
+#endif /* CONFIG_USB_DWC3_LIMIT_LOCK */
+
 	return 0;
 
 put_psy:
@@ -3770,6 +4065,19 @@ static int dwc3_msm_remove(struct platform_device *pdev)
 	if (mdwc->hs_phy)
 		mdwc->hs_phy->flags &= ~PHY_HOST_MODE;
 	of_platform_depopulate(&pdev->dev);
+
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+	device_remove_file(mdwc->dev, &dev_attr_usb_force_disconnect);
+	device_remove_file(mdwc->dev, &dev_attr_usb_host_enable);
+	device_remove_file(mdwc->dev, &dev_attr_usb_host_running);
+	device_remove_file(mdwc->dev, &dev_attr_usb_cable_type);
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
+#ifdef CONFIG_USB_DWC3_LIMIT_LOCK
+	dwc3_otg_limitlock_exit();
+#endif /* CONFIG_USB_DWC3_LIMIT_LOCK */
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+	the_dwc3_otg = NULL;
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
 
 	pm_runtime_disable(mdwc->dev);
 	pm_runtime_barrier(mdwc->dev);
@@ -3934,6 +4242,11 @@ static int dwc3_otg_start_host(struct dwc3_msm *mdwc, int on)
 {
 	struct dwc3 *dwc = platform_get_drvdata(mdwc->dwc3);
 	int ret = 0;
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+	char *connected[2]    = {"USBHOST=CONNECTED", NULL};
+	char *disconnected[2] = {"USBHOST=DISCONNECTED", NULL};
+	char *host_disable[2] = {"USBHOST=DISABLE", NULL};
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
 
 	/*
 	 * The vbus_reg pointer could have multiple values
@@ -3955,6 +4268,23 @@ static int dwc3_otg_start_host(struct dwc3_msm *mdwc, int on)
 
 	if (on) {
 		dev_dbg(mdwc->dev, "%s: turn on host\n", __func__);
+
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+		kobject_uevent_env(&mdwc->dev->kobj, KOBJ_CHANGE, connected);
+		dev_info(mdwc->dev, "sent host uevent %s \n", connected[0]);
+
+		if (atomic_read(&dwc3_usb_host_enable) == 0) {
+			kobject_uevent_env(&mdwc->dev->kobj, KOBJ_CHANGE, host_disable);
+			dev_info(mdwc->dev, "sent host uevent %s \n", host_disable[0]);
+			return 0;
+		}
+
+#ifdef CONFIG_USB_DWC3_LIMIT_LOCK
+		dwc3_otg_limitlock();
+		msleep(200);
+#endif /* CONFIG_USB_DWC3_LIMIT_LOCK */
+
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
 
 		mdwc->hs_phy->flags |= PHY_HOST_MODE;
 		pm_runtime_get_sync(mdwc->dev);
@@ -4049,8 +4379,20 @@ static int dwc3_otg_start_host(struct dwc3_msm *mdwc, int on)
 				msecs_to_jiffies(1000 * PM_QOS_SAMPLE_SEC));
 	} else {
 		dev_dbg(mdwc->dev, "%s: turn off host\n", __func__);
-
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+		if (atomic_read(&dwc3_usb_host_enable) == 0)
+			return 0;
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
 		usb_unregister_atomic_notify(&mdwc->usbdev_nb);
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+		kobject_uevent_env(&mdwc->dev->kobj, KOBJ_CHANGE, disconnected);
+		dev_info(mdwc->dev, "sent host uevent %s \n", disconnected[0]);
+
+#ifdef CONFIG_USB_DWC3_LIMIT_LOCK
+		dwc3_otg_limitunlock();
+#endif /* CONFIG_USB_DWC3_LIMIT_LOCK */
+
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
 		if (!IS_ERR_OR_NULL(mdwc->vbus_reg))
 			ret = regulator_disable(mdwc->vbus_reg);
 		if (ret) {
@@ -4060,6 +4402,12 @@ static int dwc3_otg_start_host(struct dwc3_msm *mdwc, int on)
 
 		cancel_delayed_work_sync(&mdwc->perf_vote_work);
 		msm_dwc3_perf_vote_update(mdwc, false);
+#ifdef CONFIG_USB_DWC3_SH_CUST
+		if (mdwc->pm_qos_req_dma.pm_qos_class == 0) {
+			dev_info(mdwc->dev, "qos reques has been removed!\n");
+			return 0;
+		}
+#endif /* CONFIG_USB_DWC3_SH_CUST */
 		pm_qos_remove_request(&mdwc->pm_qos_req_dma);
 
 		pm_runtime_get_sync(mdwc->dev);
@@ -4322,7 +4670,13 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 		return;
 	}
 
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+    state = usb_otg_state_string(mdwc->otg_state);
+	dev_info(mdwc->dev, "%s state inputs:%ld\n",
+			state, mdwc->inputs);
+#else /* CONFIG_USB_DWC3_SHARP_CUST */
 	state = usb_otg_state_string(mdwc->otg_state);
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
 	dev_dbg(mdwc->dev, "%s state\n", state);
 	dbg_event(0xFF, state, 0);
 
@@ -4485,6 +4839,9 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 	if (work)
 		schedule_delayed_work(&mdwc->sm_work, delay);
 
+#ifdef CONFIG_USB_DWC3_SHARP_CUST
+	dwc3_otg_change_cable_notify();
+#endif /* CONFIG_USB_DWC3_SHARP_CUST */
 ret:
 	return;
 }

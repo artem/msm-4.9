@@ -101,9 +101,16 @@ void drm_printk(const char *level, unsigned int category,
 	vaf.fmt = format;
 	vaf.va = &args;
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00059 */
+	printk("%s" "[" DRM_NAME ":%ps][pid:%d][tid:%d][comm:%s]%s %pV",
+	       level, __builtin_return_address(0),
+	       current->pid, current->tgid, current->comm,
+	       strcmp(level, KERN_ERR) == 0 ? " *ERROR*" : "", &vaf);
+#else /* CONFIG_SHARP_DISPLAY */
 	printk("%s" "[" DRM_NAME ":%ps]%s %pV",
 	       level, __builtin_return_address(0),
 	       strcmp(level, KERN_ERR) == 0 ? " *ERROR*" : "", &vaf);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 	va_end(args);
 }

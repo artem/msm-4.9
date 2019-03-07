@@ -171,6 +171,13 @@
 #define QPNP_WLED_FS_CURR_MASK		GENMASK(3, 0)
 #define QPNP_WLED_FS_CURR_MIN_UA	0
 #define QPNP_WLED_FS_CURR_MAX_UA	30000
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00064 */
+#ifndef CONFIG_ARCH_PUCCI
+#define QPNP_WLED_FS_CURR_BOOST_MAX_UA	30000
+#else
+#define QPNP_WLED_FS_CURR_BOOST_MAX_UA	25000
+#endif /* CONFIG_ARCH_PUCCI */
+#endif /* CONFIG_LEDS_SHARP */
 #define QPNP_WLED_FS_CURR_STEP_UA	2500
 #define QPNP_WLED_CABC_MASK		0x80
 #define QPNP_WLED_CABC_SHIFT		7
@@ -312,6 +319,34 @@ static struct wled_vref_setting vref_setting_pmi8998 = {
 	60000, 397500, 22500, 127500,
 };
 
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00018 */
+struct qpnp_wled_linear_param {
+	int	x;
+	int	y;
+};
+
+struct qpnp_wled_linear_params {
+	int	cnt;
+	struct qpnp_wled_linear_param *param;
+};
+
+struct qpnp_wled_sink_param {
+	int	a;
+	int	b;
+	int	c;
+	int	d;
+	int	t;
+};
+
+struct qpnp_wled_sink_params {
+	struct qpnp_wled_sink_param param[2][QPNP_WLED_MAX_STRINGS];
+};
+#endif /* CONFIG_LEDS_SHARP */
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00064 */
+static unsigned int cancel_delay_ms = 10000;
+module_param(cancel_delay_ms, uint, 0660);
+#endif /* CONFIG_LEDS_SHARP */
+
 /**
  *  qpnp_wled - wed data structure
  *  @ cdev - led class device
@@ -426,7 +461,34 @@ struct qpnp_wled {
 	bool			auto_calib_done;
 	bool			module_dis_perm;
 	ktime_t			start_ovp_fault_time;
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00018 */
+	struct qpnp_wled_linear_params	linear_params;
+	struct qpnp_wled_sink_params	sink_params;
+#endif /* CONFIG_LEDS_SHARP */
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00064 */
+	struct delayed_work	curr_boost_work;
+	struct workqueue_struct	*ordered_workqueue;
+	bool	curr_boost_req;
+	bool	curr_boosted;
+	u16	last_level;
+#endif /* CONFIG_LEDS_SHARP */
 };
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00023 */
+static struct qpnp_wled *gwled;
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00018 */
+static u32 qpnp_wled_brightness_to_bl(int value,
+		struct qpnp_wled_linear_params *linear_params);
+static int qpnp_wled_brightness_sink(int value, u32 bl_min, u32 bl_max,
+		struct qpnp_wled_sink_param *sink_param);
+static int qpnp_wled_parse_brightness(struct qpnp_wled *wled);
+#endif /* CONFIG_LEDS_SHARP */
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00064 */
+static void qpnp_wled_curr_boost_work(struct work_struct *work);
+static int qpnp_wled_set_max(struct qpnp_wled *wled);
+static int qpnp_wled_restore_current_no_sync(struct qpnp_wled *wled);
+#endif /* CONFIG_LEDS_SHARP */
 
 static int qpnp_wled_step_delay_us = 52000;
 module_param_named(
@@ -576,12 +638,30 @@ static int qpnp_wled_set_level(struct qpnp_wled *wled, int level)
 	u8 reg;
 	u16 low_limit = WLED_MAX_LEVEL_4095 * 4 / 1000;
 
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00018 */
+	int linear_level;
+
+	linear_level = qpnp_wled_brightness_to_bl(level, &wled->linear_params);
+#else
 	/* WLED's lower limit of operation is 0.4% */
 	if (level > 0 && level < low_limit)
 		level = low_limit;
+#endif /* CONFIG_LEDS_SHARP */
 
 	/* set brightness registers */
 	for (i = 0; i < wled->max_strings; i++) {
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00018 */
+		if (i >= wled->num_strings)
+			continue;
+
+		level = qpnp_wled_brightness_sink(linear_level, 0, 4095,
+				&wled->sink_params.param[0][i]);
+
+		/* WLED's lower limit of operation is 0.4% */
+		if (level > 0 && level < low_limit)
+			level = low_limit;
+#endif /* CONFIG_LEDS_SHARP */
+
 		reg = level & QPNP_WLED_BRIGHT_LSB_MASK;
 		rc = qpnp_wled_write_reg(wled,
 				QPNP_WLED_BRIGHT_LSB_REG(wled->sink_base,
@@ -1086,6 +1166,31 @@ static ssize_t qpnp_wled_fs_curr_ua_store(struct device *dev,
 	return count;
 }
 
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00064 */
+static ssize_t qpnp_wled_curr_boost_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct qpnp_wled *wled = dev_get_drvdata(dev);
+
+	return snprintf(buf, PAGE_SIZE, "req:%d,boosted:%d",
+				wled->curr_boost_req, wled->curr_boosted);
+}
+
+static ssize_t qpnp_wled_curr_boost_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct qpnp_wled *wled = dev_get_drvdata(dev);
+	int data, rc;
+
+	rc = kstrtoint(buf, 10, &data);
+	cancel_delayed_work_sync(&wled->curr_boost_work);
+	wled->curr_boost_req = (bool)data;
+
+	queue_delayed_work(wled->ordered_workqueue, &wled->curr_boost_work, 0);
+	return count;
+}
+#endif /* CONFIG_LEDS_SHARP */
+
 /* sysfs attributes exported by wled */
 static struct device_attribute qpnp_wled_attrs[] = {
 	__ATTR(dump_regs, 0664, qpnp_wled_dump_regs_show, NULL),
@@ -1098,6 +1203,10 @@ static struct device_attribute qpnp_wled_attrs[] = {
 	__ATTR(ramp_step, 0664, qpnp_wled_ramp_step_show,
 		qpnp_wled_ramp_step_store),
 	__ATTR(secure_mode, 0664, NULL, qpnp_wled_irq_control),
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00064 */
+	__ATTR(curr_boost, 0664, qpnp_wled_curr_boost_show,
+		qpnp_wled_curr_boost_store),
+#endif /* CONFIG_LEDS_SHARP */
 };
 
 /* worker for setting wled brightness */
@@ -1117,6 +1226,17 @@ static void qpnp_wled_work(struct work_struct *work)
 
 	level = wled->cdev.brightness;
 
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00064 */
+	wled->last_level = level;
+
+	if (wled->curr_boosted) {
+		if (!!level != wled->prev_state) {
+			qpnp_wled_restore_current_no_sync(wled);
+			wled->curr_boosted = false;
+			wled->curr_boost_req = false;
+		}
+	} else
+#endif /*  CONFIG_LEDS_SHARP */
 	if (wled->brt_map_table) {
 		/*
 		 * Change the 12 bit level to 8 bit level and use the mapped
@@ -2672,6 +2792,11 @@ static int qpnp_wled_parse_dt(struct qpnp_wled *wled)
 
 	wled->auto_calib_enabled = of_property_read_bool(pdev->dev.of_node,
 					"qcom,auto-calibration-enable");
+
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00018 */
+	rc = qpnp_wled_parse_brightness(wled);
+#endif /* CONFIG_LEDS_SHARP */
+
 	return 0;
 }
 
@@ -2753,6 +2878,15 @@ static int qpnp_wled_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "wled config failed\n");
 		return rc;
 	}
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00064 */
+	wled->ordered_workqueue = alloc_ordered_workqueue("wled_workqueue", 0);
+	if (!wled->ordered_workqueue) {
+		rc = -ENOMEM;
+		dev_err(&pdev->dev, "alloc_ordered_workqueue failed\n");
+		return rc;
+	}
+	INIT_DELAYED_WORK(&wled->curr_boost_work, qpnp_wled_curr_boost_work);
+#endif /* CONFIG_LEDS_SHARP */
 
 	INIT_WORK(&wled->work, qpnp_wled_work);
 	wled->ramp_ms = QPNP_WLED_RAMP_DLY_MS;
@@ -2777,7 +2911,9 @@ static int qpnp_wled_probe(struct platform_device *pdev)
 			goto sysfs_fail;
 		}
 	}
-
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00023 */
+	gwled = wled;
+#endif /* CONFIG_SHARP_DISPLAY */
 	return 0;
 
 sysfs_fail:
@@ -2787,6 +2923,10 @@ sysfs_fail:
 	led_classdev_unregister(&wled->cdev);
 wled_register_fail:
 	cancel_work_sync(&wled->work);
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00064 */
+	cancel_delayed_work_sync(&wled->curr_boost_work);
+	destroy_workqueue(wled->ordered_workqueue);
+#endif /* CONFIG_LEDS_SHARP */
 	destroy_workqueue(wled->wq);
 	mutex_destroy(&wled->lock);
 	return rc;
@@ -2797,6 +2937,9 @@ static int qpnp_wled_remove(struct platform_device *pdev)
 	struct qpnp_wled *wled = dev_get_drvdata(&pdev->dev);
 	int i;
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00023 */
+	gwled = NULL;
+#endif /* CONFIG_SHARP_DISPLAY */
 	for (i = 0; i < ARRAY_SIZE(qpnp_wled_attrs); i++)
 		sysfs_remove_file(&wled->cdev.dev->kobj,
 				&qpnp_wled_attrs[i].attr);
@@ -2838,3 +2981,391 @@ module_exit(qpnp_wled_exit);
 MODULE_DESCRIPTION("QPNP WLED driver");
 MODULE_LICENSE("GPL v2");
 MODULE_ALIAS("leds:leds-qpnp-wled");
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00023 */
+int qpnp_wled_flbl_led_on(void)
+{
+	int rc;
+
+	if (!gwled) {
+		return -EINVAL;
+	}
+	pr_debug("%s: in\n", __func__);
+
+	/* CABC LED1 */
+	rc = qpnp_wled_write_reg(gwled, QPNP_WLED_CABC_REG(gwled->sink_base,
+			gwled->strings[0]), 0x80);
+	if (rc) {
+		return rc;
+	}
+
+	/* CABC LED2 */
+	rc = qpnp_wled_write_reg(gwled, QPNP_WLED_CABC_REG(gwled->sink_base,
+			gwled->strings[1]), 0x80);
+	if (rc) {
+		return rc;
+	}
+
+	return rc;
+}
+
+int qpnp_wled_flbl_bl_on(void)
+{
+	int rc;
+	u8 reg;
+
+	if (!gwled) {
+		return -EINVAL;
+	}
+	pr_debug("%s: in\n", __func__);
+
+	/* BL mode */
+	rc = qpnp_wled_read_reg(gwled, QPNP_WLED_MOD_REG(gwled->sink_base), &reg);
+	if (rc < 0) {
+		return rc;
+	}
+
+	reg &= QPNP_WLED_DIM_HYB_MASK;
+	reg |= (0 << QPNP_WLED_DIM_HYB_SHIFT);
+	reg &= QPNP_WLED_DIM_ANA_MASK;
+	reg |= QPNP_WLED_DIM_ANALOG;
+
+	rc = qpnp_wled_write_reg(gwled, QPNP_WLED_MOD_REG(gwled->sink_base), reg);
+	if (rc) {
+		return rc;
+	}
+
+	gwled->dim_mode = QPNP_WLED_DIM_ANALOG;
+
+	return rc;
+}
+
+
+int qpnp_wled_flbl_led_off(void)
+{
+	int rc;
+
+	if (!gwled) {
+		return -EINVAL;
+	}
+	pr_debug("%s :in\n", __func__);
+
+	/* CABC LED1 */
+	rc = qpnp_wled_write_reg(gwled, QPNP_WLED_CABC_REG(gwled->sink_base,
+			gwled->strings[0]), 0x00);
+	if (rc) {
+		return rc;
+	}
+
+	/* CABC LED2 */
+	rc = qpnp_wled_write_reg(gwled, QPNP_WLED_CABC_REG(gwled->sink_base,
+		gwled->strings[1]), 0x00);
+	if (rc) {
+		return rc;
+	}
+
+	return rc;
+}
+
+int qpnp_wled_flbl_bl_off(void)
+{
+	int rc;
+	u8 reg;
+
+	if (!gwled) {
+		return -EINVAL;
+	}
+	pr_debug("%s: in\n", __func__);
+
+	/* BL mode */
+	rc = qpnp_wled_read_reg(gwled, QPNP_WLED_MOD_REG(gwled->sink_base), &reg);
+	if (rc < 0) {
+		return rc;
+	}
+
+	reg &= QPNP_WLED_DIM_HYB_MASK;
+	reg |= (1 << QPNP_WLED_DIM_HYB_SHIFT);
+
+	rc = qpnp_wled_write_reg(gwled, QPNP_WLED_MOD_REG(gwled->sink_base), reg);
+	if (rc) {
+		return rc;
+	}
+
+	gwled->dim_mode = QPNP_WLED_DIM_HYBRID;
+
+	return rc;
+}
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00018 */
+#define MIN(a,b) ((a < b) ? a : b)
+#define MAX(a,b) ((a > b) ? a : b)
+
+static u32 qpnp_wled_brightness_to_bl(int value,
+		struct qpnp_wled_linear_params *linear_params)
+{
+	int64_t in = value;
+	int64_t out = value;
+	int i, cnt;
+	int x, x1, y, y1;
+
+	pr_debug("%s:in value:%d\n", __func__, value);
+
+	if (value == 0) {
+		return 0;
+	}
+
+	if (!linear_params) {
+		pr_err("%s:linear_params is null\n", __func__);
+		goto param_err;
+	}
+
+	cnt = linear_params->cnt;
+	pr_debug("%s:param cnt:%d\n", __func__, cnt);
+	for (i = 0;i < cnt;i++) {
+		pr_debug("%s:param %d x:%d y:%d\n", __func__,
+			i, linear_params->param[i].x, linear_params->param[i].y);
+	}
+
+	if (cnt < 2) {
+		pr_err("%s:cnt < 2\n", __func__);
+		goto param_err;
+	}
+
+	if (in <= linear_params->param[0].x) {
+		out = linear_params->param[0].y;
+	} else
+	if (in >= linear_params->param[cnt-1].x) {
+		out = linear_params->param[cnt-1].y;
+	} else {
+		for (i = 1;i < cnt;i++) {
+			if (in <= linear_params->param[i].x) {
+				x  = linear_params->param[i].x;
+				x1 = linear_params->param[i-1].x;
+				y  = linear_params->param[i].y;
+				y1 = linear_params->param[i-1].y;
+				out = ((y - y1) * in + y1 * x - y * x1) /
+					(x - x1);
+				break;
+			}
+		}
+	}
+
+param_err:
+	pr_debug("%s:out ret:%d\n", __func__, (u32)out);
+
+	return (u32)out;
+}
+
+static int qpnp_wled_brightness_sink(int value, u32 bl_min, u32 bl_max,
+		struct qpnp_wled_sink_param *sink_param)
+{
+	int64_t in = value;
+	int64_t out = 0;
+
+	pr_debug("%s:in value:%d, bl_min:%d, bl_max:%d\n", __func__,
+		value, bl_min, bl_max);
+	pr_debug("%s:param a:%d b:%d c:%d d:%d t:%d\n", __func__,
+		sink_param->a, sink_param->b,
+		sink_param->c, sink_param->d,
+		sink_param->t);
+
+	if (in < sink_param->t) {
+		out = (sink_param->a * in / 10)
+			+ sink_param->b;
+	} else {
+		out = (sink_param->c * in / 10)
+			+ sink_param->d;
+	}
+	out = MIN(MAX(out, bl_min), bl_max);
+
+	pr_debug("%s:out ret:%d\n", __func__, (u32)out);
+
+	return out;
+}
+
+static int qpnp_wled_parse_brightness(struct qpnp_wled *wled)
+{
+	struct platform_device *pdev = wled->pdev;
+	int rc, i;
+	int size = 0, cnt, num;
+	struct device_node *sink_node = NULL;
+	struct device_node *sink_root_node = NULL;
+
+	wled->linear_params.cnt = 0;
+
+	if (of_get_property(pdev->dev.of_node,
+		"sharp,wled-linear-params", &size)) {
+		cnt = size / sizeof(int);
+	} else {
+		pr_err("%s:Property linear-params not available\n", __func__);
+		return 0;
+	}
+
+	if (!size) {
+		pr_err("%s:Property linear-params size = 0\n", __func__);
+		return 0;
+	}
+
+	wled->linear_params.param = devm_kzalloc(&pdev->dev, size, GFP_KERNEL);
+	if (!wled->linear_params.param) {
+		pr_err("%s:Failed to alloc mem for linear-params\n",__func__);
+		return 0;
+	}
+
+	rc = of_property_read_u32_array(pdev->dev.of_node,
+		"sharp,wled-linear-params",
+		(u32 *)wled->linear_params.param, cnt);
+	if (rc) {
+		pr_err("%s:Error in reading property: linear-params\n",
+			__func__);
+		return 0;
+	}
+	wled->linear_params.cnt = cnt / 2;
+
+	pr_debug("%s:linear_params cnt:%d\n", __func__, wled->linear_params.cnt);
+	for (i = 0;i < wled->linear_params.cnt;i++) {
+		pr_debug("%s:linear_param %d x:%d y:%d\n", __func__, i,
+			wled->linear_params.param[i].x,
+			wled->linear_params.param[i].y);
+	}
+
+	memset(&wled->sink_params, 0, sizeof(struct qpnp_wled_sink_params));
+
+	sink_root_node = of_get_child_by_name(pdev->dev.of_node,
+		"sharp,wled-sink-entries");
+	if (!sink_root_node) {
+		pr_err("%s:no supply entry present: sink-entries\n", __func__);
+	} else {
+		num = 0;
+
+		for_each_child_of_node(sink_root_node, sink_node) {
+			if (num >= sizeof(struct qpnp_wled_sink_params) /
+				(sizeof(struct qpnp_wled_sink_param) *
+				QPNP_WLED_MAX_STRINGS))
+				break;
+
+			if (of_get_property(sink_node,
+				"sharp,wled-sink-params", &size)) {
+				cnt = size / sizeof(int);
+			} else {
+				pr_err("%s:Property sink-params not available\n",
+					__func__);
+				return 0;
+			}
+
+			if (!size) {
+				pr_err("%s:Property sink-params size = 0\n", __func__);
+				return 0;
+			}
+
+			rc = of_property_read_u32_array(sink_node,
+			"sharp,wled-sink-params",
+			(u32 *)wled->sink_params.param[num], cnt);
+			if (rc) {
+				pr_err("%s:Error in reading property: "
+					"sink-params\n", __func__);
+				return 0;
+			}
+
+			for (i = 0;i < QPNP_WLED_MAX_STRINGS;i++) {
+				pr_debug("%s:sink_param %d %d "
+					"a:%d b:%d c:%d d:%d t:%d\n",
+					__func__, num, i,
+					wled->sink_params.param[num][i].a,
+					wled->sink_params.param[num][i].b,
+					wled->sink_params.param[num][i].c,
+					wled->sink_params.param[num][i].d,
+					wled->sink_params.param[num][i].t);
+			}
+			num++;
+		}
+	}
+
+	return 0;
+}
+#endif /* CONFIG_LEDS_SHARP */
+
+#ifdef CONFIG_LEDS_SHARP /* CUST_ID_00064 */
+static void qpnp_wled_curr_boost_work(struct work_struct *work)
+{
+	struct qpnp_wled *wled;
+
+	wled = container_of(to_delayed_work(work),
+				struct qpnp_wled,curr_boost_work);
+
+	mutex_lock(&wled->lock);
+	if (wled->curr_boost_req == true) {
+		qpnp_wled_set_max(wled);
+		wled->curr_boosted = true;
+		wled->curr_boost_req = false;
+		queue_delayed_work(wled->ordered_workqueue,
+					&wled->curr_boost_work,
+					msecs_to_jiffies(cancel_delay_ms));
+	} else {
+		qpnp_wled_restore_current_no_sync(wled);
+		qpnp_wled_set_level(wled,wled->last_level);
+		wled->curr_boosted = false;
+	}
+	mutex_unlock(&wled->lock);
+}
+
+static int qpnp_wled_set_max(struct qpnp_wled *wled)
+{
+	int i, rc;
+	u8 reg;
+	int level = WLED_MAX_LEVEL_4095;
+	int fs_curr_ua = QPNP_WLED_FS_CURR_BOOST_MAX_UA;
+
+	for (i = 0; i < wled->max_strings; i++) {
+		reg = level & QPNP_WLED_BRIGHT_LSB_MASK;
+		rc = qpnp_wled_write_reg(wled,
+				QPNP_WLED_BRIGHT_LSB_REG(wled->sink_base,
+					wled->strings[i]), reg);
+		if (rc < 0)
+			return rc;
+
+		reg = level >> QPNP_WLED_BRIGHT_MSB_SHIFT;
+		reg = reg & QPNP_WLED_BRIGHT_MSB_MASK;
+		rc = qpnp_wled_write_reg(wled,
+				QPNP_WLED_BRIGHT_MSB_REG(wled->sink_base,
+					wled->strings[i]), reg);
+		if (rc < 0)
+			return rc;
+
+		reg = fs_curr_ua / QPNP_WLED_FS_CURR_STEP_UA;
+		rc = qpnp_wled_masked_write_reg(wled,
+			QPNP_WLED_FS_CURR_REG(wled->sink_base, i),
+			QPNP_WLED_FS_CURR_MASK, reg);
+		if (rc < 0)
+			return rc;
+
+	}
+
+	rc = qpnp_wled_sync_reg_toggle(wled);
+	if (rc < 0) {
+		dev_err(&wled->pdev->dev, "Failed to toggle sync reg %d\n", rc);
+		return rc;
+	}
+
+	return 0;
+}
+static int qpnp_wled_restore_current_no_sync(struct qpnp_wled *wled)
+{
+	int i, rc;
+	u8 reg;
+	int fs_curr_ua = wled->fs_curr_ua;
+
+	for (i = 0; i < wled->max_strings; i++) {
+		reg = fs_curr_ua / QPNP_WLED_FS_CURR_STEP_UA;
+		rc = qpnp_wled_masked_write_reg(wled,
+			QPNP_WLED_FS_CURR_REG(wled->sink_base, i),
+			QPNP_WLED_FS_CURR_MASK, reg);
+		if (rc < 0)
+			return rc;
+
+	}
+
+	return 0;
+}
+#endif /* CONFIG_LEDS_SHARP */

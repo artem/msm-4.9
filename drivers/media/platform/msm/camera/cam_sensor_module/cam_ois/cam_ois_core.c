@@ -19,6 +19,89 @@
 #include "cam_debug_util.h"
 #include "cam_res_mgr_api.h"
 
+/* SHLOCAL_CAMERA_DRIVERS-> */
+#include "../cam_sensor/cam_sensor_dev.h"
+
+extern int32_t sh_ois_fw_wait_complete(void);
+extern struct mutex shcampdaf_mutex;
+extern uint8_t *shcam_eeprom_data;
+extern uint8_t *shcam_diag_data;
+
+enum cam_ois_mode {
+	CAM_OIS_MODE_INVALID,
+	CAM_OIS_MODE_OISINIT,
+	CAM_OIS_MODE_ENABLEOIS,
+	CAM_OIS_MODE_DISABLEOIS,
+	CAM_OIS_MODE_MOVIEMODE,
+	CAM_OIS_MODE_STILLMODE,
+	CAM_OIS_MODE_CENTERINGON,
+	CAM_OIS_MODE_CENTERINGOFF,
+	CAM_OIS_MODE_PANTILTON,
+	CAM_OIS_MODE_SCENEOIS,
+	CAM_OIS_MODE_SCENEFILTERON,
+	CAM_OIS_MODE_SCENEFILTEROFF,
+	CAM_OIS_MODE_SCENERANGEON,
+	CAM_OIS_MODE_SCENERANGEOFF,
+};
+
+typedef struct {
+	uint8_t ois_addr;
+	uint16_t ois_data;
+} sh_ois_setting_t;
+
+sh_ois_setting_t still_mode_setting[] = {
+	{ 0x7F, 0x0C0C },
+	{ 0x36, 0x7FFA },
+	{ 0x38, 0x1505 },
+	{ 0x40, 0x3FFF },
+	{ 0x43, 0x147A },
+	{ 0x47, 0x1101 },
+	{ 0xB6, 0x7FFA },
+	{ 0xB8, 0x1505 },
+	{ 0xC0, 0x3FFF },
+	{ 0xC3, 0x147A },
+	{ 0xC7, 0x147D },
+	{ 0x14, 0x0000 },
+	{ 0x1C, 0x0000 },
+	{ 0x3E, 0x7FFF },
+	{ 0x3C, 0x0000 },
+	{ 0x94, 0x0000 },
+	{ 0x9C, 0x0000 },
+	{ 0xBE, 0x7FFF },
+	{ 0xBC, 0x0000 },
+	{ 0x60, 0x0000 },
+	{ 0x7F, 0x0D0D },
+};
+
+sh_ois_setting_t movie_mode_setting[] = {
+	{ 0x7F, 0x0C0C },
+	{ 0x36, 0x7FF0 },
+	{ 0x38, 0x0C5D },
+	{ 0x40, 0x3FFF },
+	{ 0x43, 0x1EB8 },
+	{ 0x47, 0x1CE8 },
+	{ 0xB6, 0x7FF0 },
+	{ 0xB8, 0x0C5D },
+	{ 0xC0, 0x3FFF },
+	{ 0xC3, 0x1EB8 },
+	{ 0xC7, 0x22D4 },
+	{ 0x14, 0x0000 },
+	{ 0x1C, 0x0000 },
+	{ 0x3E, 0x7FFF },
+	{ 0x3C, 0x0000 },
+	{ 0x94, 0x0000 },
+	{ 0x9C, 0x0000 },
+	{ 0xBE, 0x7FFF },
+	{ 0xBC, 0x0000 },
+	{ 0x60, 0x0001 },
+	{ 0x7F, 0x0D0D },
+};
+
+sh_ois_setting_t disable_ois_setting[] = {
+	{ 0x7F, 0x0C0C },
+};
+/* SHLOCAL_CAMERA_DRIVERS<- */
+
 int32_t cam_ois_construct_default_power_setting(
 	struct cam_sensor_power_ctrl_t *power_info)
 {
@@ -204,6 +287,8 @@ static int cam_ois_power_down(struct cam_ois_ctrl_t *o_ctrl)
 	return rc;
 }
 
+/* SHLOCAL_CAMERA_DRIVERS-> */
+#if 0
 static int cam_ois_apply_settings(struct cam_ois_ctrl_t *o_ctrl,
 	struct i2c_settings_array *i2c_set)
 {
@@ -253,6 +338,227 @@ static int cam_ois_apply_settings(struct cam_ois_ctrl_t *o_ctrl,
 
 	return rc;
 }
+#else
+static int cam_ois_apply_settings(struct cam_ois_ctrl_t *o_ctrl,
+	struct i2c_settings_array *i2c_set)
+{
+	struct i2c_settings_list *i2c_list;
+	int32_t rc = 0;
+	uint32_t i, size;
+	sh_ois_setting_t *reg_data_p = NULL;
+	struct cam_sensor_i2c_reg_setting  i2c_reg_settings;
+	struct cam_sensor_i2c_reg_array    i2c_reg_array[5];
+	uint32_t status = 0;
+
+	if (o_ctrl == NULL || i2c_set == NULL) {
+		CAM_ERR(CAM_OIS, "Invalid Args");
+		return -EINVAL;
+	}
+
+	if (i2c_set->is_settings_valid != 1) {
+		CAM_ERR(CAM_OIS, " Invalid settings");
+		return -EINVAL;
+	}
+
+	list_for_each_entry(i2c_list,
+		&(i2c_set->list_head), list) {
+		if (i2c_list->op_code ==  CAM_SENSOR_I2C_WRITE_RANDOM) {
+			CAM_ERR(CAM_OIS, "CAM_SENSOR_I2C_WRITE_RANDOM");
+			CAM_ERR(CAM_OIS, "i2c_list->i2c_settings.size=%d", i2c_list->i2c_settings.size);
+			CAM_ERR(CAM_OIS, "reg_addr=0x%0x reg_data=0x%0x", i2c_list->i2c_settings.reg_setting[0].reg_addr, i2c_list->i2c_settings.reg_setting[0].reg_data);
+			
+			if(i2c_list->i2c_settings.size != 1){
+				CAM_ERR(CAM_OIS, "i2c_list->i2c_settings.size is not 1");
+				return rc;
+			}
+			size = 0;
+
+			if(i2c_list->i2c_settings.reg_setting[0].reg_addr == 0xFFFF){
+				switch(i2c_list->i2c_settings.reg_setting[0].reg_data) {
+					case CAM_OIS_MODE_INVALID: {
+						CAM_DBG(CAM_OIS,"CAM_OIS_MODE_INVALID");
+						break;
+					}
+					case CAM_OIS_MODE_OISINIT: {
+						CAM_DBG(CAM_OIS,"CAM_OIS_MODE_OISINIT");
+						break;
+					}
+					case CAM_OIS_MODE_ENABLEOIS: {
+						CAM_DBG(CAM_OIS,"CAM_OIS_MODE_ENABLEOIS");
+						break;
+					}
+					case CAM_OIS_MODE_DISABLEOIS: {
+						CAM_DBG(CAM_OIS,"CAM_OIS_MODE_DISABLEOIS");
+						size = sizeof(disable_ois_setting)/sizeof(sh_ois_setting_t);
+						reg_data_p = disable_ois_setting;
+						break;
+					}
+					case CAM_OIS_MODE_MOVIEMODE: {
+						CAM_DBG(CAM_OIS,"CAM_OIS_MODE_MOVIEMODE");
+						size = sizeof(movie_mode_setting)/sizeof(sh_ois_setting_t);
+						reg_data_p = movie_mode_setting;
+						break;
+					}
+					case CAM_OIS_MODE_STILLMODE: {
+						size = sizeof(still_mode_setting)/sizeof(sh_ois_setting_t);
+						reg_data_p = still_mode_setting;
+						CAM_DBG(CAM_OIS,"CAM_OIS_MODE_STILLMODE");
+						break;
+					}
+					case CAM_OIS_MODE_CENTERINGON: {
+						CAM_DBG(CAM_OIS,"CAM_OIS_MODE_CENTERINGON");
+						break;
+					}
+					case CAM_OIS_MODE_CENTERINGOFF: {
+						CAM_DBG(CAM_OIS,"CAM_OIS_MODE_CENTERINGOFF");
+						break;
+					}
+					case CAM_OIS_MODE_PANTILTON: {
+						CAM_DBG(CAM_OIS,"CAM_OIS_MODE_PANTILTON");
+						break;
+					}
+					case CAM_OIS_MODE_SCENEOIS: {
+						CAM_DBG(CAM_OIS,"CAM_OIS_MODE_SCENEOIS");
+						break;
+					}
+					case CAM_OIS_MODE_SCENEFILTERON: {
+						CAM_DBG(CAM_OIS,"CAM_OIS_MODE_SCENEFILTERON");
+						break;
+					}
+					case CAM_OIS_MODE_SCENEFILTEROFF: {
+						CAM_DBG(CAM_OIS,"CAM_OIS_MODE_SCENEFILTEROFF");
+						break;
+					}
+					case CAM_OIS_MODE_SCENERANGEON: {
+						CAM_DBG(CAM_OIS,"CAM_OIS_MODE_SCENERANGEON");
+						break;
+					}
+					case CAM_OIS_MODE_SCENERANGEOFF: {
+						CAM_DBG(CAM_OIS,"CAM_OIS_MODE_SCENERANGEOFF");
+						break;
+					}
+					default: {
+						CAM_DBG(CAM_OIS,"default mode 0x%0x", i2c_list->i2c_settings.reg_setting[0].reg_data);
+						break;
+					}
+				}
+			} else {
+				CAM_ERR(CAM_OIS,"Invalid reg_addr 0x%0x", i2c_list->i2c_settings.reg_setting[0].reg_data);
+				return 0;
+			}
+
+			CAM_DBG(CAM_OIS,"size=%d", size);
+			if(size == 0){
+				return 0;
+			}
+			
+			mutex_lock(&shcampdaf_mutex);
+			
+			memset(&i2c_reg_settings, 0, (sizeof(struct cam_sensor_i2c_reg_setting)));
+			memset(i2c_reg_array, 0, (sizeof(i2c_reg_array)));
+			
+			for (i = 0; i < size; i++) {
+				i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+				i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+				i2c_reg_settings.delay = 0;
+				i2c_reg_settings.size = 5;
+				i2c_reg_array[0].reg_addr = 0x3378;
+				i2c_reg_array[0].reg_data = 0x1C >> 1;
+				i2c_reg_array[1].reg_data = 0x84;
+				i2c_reg_array[2].reg_data = reg_data_p[i].ois_addr;
+				i2c_reg_array[3].reg_data = reg_data_p[i].ois_data & 0x00FF;
+				i2c_reg_array[4].reg_data = (reg_data_p[i].ois_data & 0xFF00) >> 8;
+				i2c_reg_settings.reg_setting = i2c_reg_array;
+
+				CAM_DBG(CAM_OIS, "addr:0x%x, length:%d\n", i2c_reg_array[0].reg_addr, i2c_reg_settings.size);
+				rc = camera_io_dev_write_continuous(&(o_ctrl->io_master_info),
+					&(i2c_reg_settings), 0);
+				if (rc < 0) {
+					CAM_ERR(CAM_OIS,
+						"Failed to random write I2C settings: %d",
+						rc);
+				}
+				
+				memset(&i2c_reg_settings, 0, (sizeof(struct cam_sensor_i2c_reg_setting)));
+				memset(i2c_reg_array, 0, (sizeof(i2c_reg_array)));
+				
+				i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+				i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+				i2c_reg_settings.delay = 0;
+				i2c_reg_settings.size = 2;
+				i2c_reg_array[0].reg_addr = 0x3373;
+				i2c_reg_array[0].reg_data = 0x00;
+				i2c_reg_array[1].reg_data = 0x05;
+				i2c_reg_settings.reg_setting = i2c_reg_array;
+				
+				CAM_DBG(CAM_OIS, "addr:0x%x, length:%d\n", i2c_reg_array[0].reg_addr, i2c_reg_settings.size);
+				rc = camera_io_dev_write_continuous(&(o_ctrl->io_master_info),
+					&i2c_reg_settings, 0);
+				if (rc < 0) {
+					CAM_ERR(CAM_OIS,
+						"Failed to random write I2C settings: %d",
+						rc);
+				}
+				
+				memset(&i2c_reg_settings, 0, (sizeof(struct cam_sensor_i2c_reg_setting)));
+				memset(i2c_reg_array, 0, (sizeof(i2c_reg_array)));
+				
+				i2c_reg_settings.addr_type = CAMERA_SENSOR_I2C_TYPE_WORD;
+				i2c_reg_settings.data_type = CAMERA_SENSOR_I2C_TYPE_BYTE;
+				i2c_reg_settings.size = 1;
+				i2c_reg_array[0].reg_addr = 0x3370;
+				i2c_reg_array[0].reg_data = 0x81;
+				i2c_reg_settings.delay = 0;
+				i2c_reg_settings.reg_setting = i2c_reg_array;
+
+				CAM_DBG(CAM_OIS, "addr:0x%x, length:%d\n", i2c_reg_array[0].reg_addr, i2c_reg_settings.size);
+				rc = camera_io_dev_write_continuous(&(o_ctrl->io_master_info),
+					&i2c_reg_settings, 0);
+				
+				
+				do{
+					usleep_range(1000, 2000);
+					rc = camera_io_dev_read(
+						&(o_ctrl->io_master_info), 0x3370, &status,
+						CAMERA_SENSOR_I2C_TYPE_WORD,CAMERA_SENSOR_I2C_TYPE_BYTE);
+
+					CAM_DBG(CAM_OIS, "read wait status = 0x%02x\n", status);
+					
+				}while((status & 0x80) != 0);
+				
+			}
+			
+			mutex_unlock(&shcampdaf_mutex);
+		
+		} else if (i2c_list->op_code == CAM_SENSOR_I2C_POLL) {
+			CAM_ERR(CAM_OIS, "CAM_SENSOR_I2C_POLL");
+			size = i2c_list->i2c_settings.size;
+			for (i = 0; i < size; i++) {
+				rc = camera_io_dev_poll(
+					&(o_ctrl->io_master_info),
+					i2c_list->i2c_settings.
+						reg_setting[i].reg_addr,
+					i2c_list->i2c_settings.
+						reg_setting[i].reg_data,
+					i2c_list->i2c_settings.
+						reg_setting[i].data_mask,
+					i2c_list->i2c_settings.addr_type,
+					i2c_list->i2c_settings.data_type,
+					i2c_list->i2c_settings.
+						reg_setting[i].delay);
+				if (rc < 0) {
+					CAM_ERR(CAM_OIS,
+						"i2c poll apply setting Fail");
+					return rc;
+				}
+			}
+		}
+	}
+
+	return rc;
+}
+#endif
+/* SHLOCAL_CAMERA_DRIVERS<- */
 
 static int cam_ois_slaveInfo_pkt_parser(struct cam_ois_ctrl_t *o_ctrl,
 	uint32_t *cmd_buf)
@@ -439,6 +745,12 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 		(struct cam_ois_soc_private *)o_ctrl->soc_info.soc_private;
 	struct cam_sensor_power_ctrl_t  *power_info = &soc_private->power_info;
 
+/* SHLOCAL_CAMERA_DRIVERS-> */
+	CAM_ERR(CAM_OIS, "sh_ois_fw_wait_complete start");
+	sh_ois_fw_wait_complete();
+	CAM_ERR(CAM_OIS, "sh_ois_fw_wait_complete end");
+/* SHLOCAL_CAMERA_DRIVERS<- */
+
 	ioctl_ctrl = (struct cam_control *)arg;
 	if (copy_from_user(&dev_config, (void __user *) ioctl_ctrl->handle,
 		sizeof(dev_config)))
@@ -605,6 +917,52 @@ static int cam_ois_pkt_parse(struct cam_ois_ctrl_t *o_ctrl, void *arg)
 		offset = (uint32_t *)&csl_packet->payload;
 		offset += (csl_packet->cmd_buf_offset / sizeof(uint32_t));
 		cmd_desc = (struct cam_cmd_buf_desc *)(offset);
+/* SHLOCAL_CAMERA_DRIVERS-> */
+		if((shcam_eeprom_data != NULL) && (shcam_diag_data != NULL)){
+			CAM_DBG(CAM_OIS, "shcam_eeprom_data[0x28]=0x%0x shcam_eeprom_data[0x29]=0x%0x", shcam_eeprom_data[0x28], shcam_eeprom_data[0x29]);
+			if(((shcam_eeprom_data[0x28] == 0x00) && (shcam_eeprom_data[0x29] == 0x00)) || ((shcam_eeprom_data[0x28] == 0xFF) && (shcam_eeprom_data[0x29] == 0xFF))){
+				return rc;
+			}
+			CAM_DBG(CAM_OIS, "shcam_diag_data[0x00]=0x%0x shcam_diag_data[0x01]=0x%0x", shcam_diag_data[0x00], shcam_diag_data[0x01]);
+			if((shcam_diag_data[0x00] != 0x00) || (shcam_diag_data[0x01] != 0x55)){
+				return rc;
+			}
+		} else {
+			CAM_DBG(CAM_OIS, "shcam_eeprom_data=%p shcam_diag_data=%p", shcam_eeprom_data, shcam_diag_data);
+			return rc;
+		}
+		
+		{
+			struct cam_cmd_i2c_random_wr *cam_cmd_i2c_random_wr;
+			
+			CAM_ERR(CAM_OIS, "cmd_desc[0].length=%d", cmd_desc[0].length);
+			if(cmd_desc[0].length == 0){
+				CAM_ERR(CAM_OIS, "cmd_desc[0].length=%d", cmd_desc[0].length);
+				return rc;
+			}
+			
+			rc = cam_mem_get_cpu_buf(cmd_desc[0].mem_handle,
+				(uint64_t *)&generic_ptr, &len_of_buff);
+			if (rc < 0) {
+				CAM_ERR(CAM_OIS, "Failed to get cpu buf");
+				return rc;
+			}
+			if(len_of_buff == 0){
+				CAM_ERR(CAM_OIS, "len_of_buff=%d", (int)len_of_buff);
+				return rc;
+			}
+
+			cmd_buf = (uint32_t *)generic_ptr;
+			cmd_buf += cmd_desc->offset / sizeof(uint32_t);
+
+			cam_cmd_i2c_random_wr = (struct cam_cmd_i2c_random_wr *)cmd_buf;
+			
+			CAM_ERR(CAM_OIS, "addr_type=%d data_type=%d", cam_cmd_i2c_random_wr->header.addr_type, cam_cmd_i2c_random_wr->header.data_type);
+			if((cam_cmd_i2c_random_wr->header.addr_type == 0) || (cam_cmd_i2c_random_wr->header.data_type == 0)){
+				return rc;
+			}
+		}
+/* SHLOCAL_CAMERA_DRIVERS<- */
 		i2c_reg_settings = &(o_ctrl->i2c_mode_data);
 		i2c_reg_settings->is_settings_valid = 1;
 		i2c_reg_settings->request_id = 0;

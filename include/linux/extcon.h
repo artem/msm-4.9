@@ -74,6 +74,9 @@
 #define EXTCON_DISP_HMD		45	/* Head-Mounted Display */
 
 /* Miscellaneous external connector */
+#if IS_ENABLED(CONFIG_SHARP_FLIP)
+#define EXTCON_FLIP		59
+#endif
 #define EXTCON_DOCK		60
 #define EXTCON_JIG		61
 #define EXTCON_MECHANICAL	62

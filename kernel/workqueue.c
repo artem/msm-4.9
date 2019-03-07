@@ -54,6 +54,18 @@
 
 #include "workqueue_internal.h"
 
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+#include <linux/module.h>
+enum {
+	SH_DEBUG_WORKQUEUE_EXPIRED = 1U << 0,
+	SH_DEBUG_WORKQUEUE_STARTED = 1U << 1,
+};
+static int sh_debug_mask = 0;
+module_param_named(
+	sh_debug_mask, sh_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP
+	);
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
+
 enum {
 	/*
 	 * worker_pool flags
@@ -1504,6 +1516,24 @@ void delayed_work_timer_fn(unsigned long __data)
 {
 	struct delayed_work *dwork = (struct delayed_work *)__data;
 
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+	if (sh_debug_mask & SH_DEBUG_WORKQUEUE_EXPIRED) {
+		char symname[KSYM_NAME_LEN];
+		struct timer_list *timer = &dwork->timer;
+		unsigned int deferrable;
+
+		BUG_ON(!timer->flags);
+
+		deferrable = timer->flags & TIMER_DEFERRABLE;
+		if (lookup_symbol_name((unsigned long) dwork->work.func, symname) < 0) {
+			pr_info("%s: funcname %p,deferrable=%d\n", __func__,  dwork->work.func, deferrable);
+		}
+		else {
+			pr_info("%s: funcname %s,deferrable=%d\n", __func__,  symname, deferrable);
+		}
+	}
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
+
 	/* should have been called from irqsafe timer with irq already off */
 	__queue_work(dwork->cpu, dwork->wq, &dwork->work);
 }
@@ -1564,6 +1594,14 @@ bool queue_delayed_work_on(int cpu, struct workqueue_struct *wq,
 	local_irq_save(flags);
 
 	if (!test_and_set_bit(WORK_STRUCT_PENDING_BIT, work_data_bits(work))) {
+#ifdef CONFIG_SHARP_PNP_SLEEP_DEBUG
+		if (sh_debug_mask & SH_DEBUG_WORKQUEUE_STARTED) {
+			pr_info("%s: name %s, pid %d delay=%ld\n",__func__,  current->comm, current->pid, delay);
+			if( !strncmp(current->comm, "kworker", 7) ) {
+				dump_stack();
+			}
+		}
+#endif /* CONFIG_SHARP_PNP_SLEEP_DEBUG */
 		__queue_delayed_work(cpu, wq, dwork, delay);
 		ret = true;
 	}

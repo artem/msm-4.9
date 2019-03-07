@@ -23,6 +23,26 @@
 #include <linux/compat.h>
 #include <linux/slab.h>
 
+/* SH_AUDIO_DRIVER -> */ /*A-004*/
+#ifdef CONFIG_SH_AUDIO_DRIVER /* For LKM */
+
+#ifdef CONFIG_SND_SOC_TREBLE_ENABLE
+#include <linux/notifier.h>
+#include "sharp/shaudio_sdm845.h"
+#include "sharp/shaudio_wcd934x_notifier.h"
+#else
+#ifdef CONFIG_SND_SOC_NXP_CHIP
+extern int tfa98xx_enable_cal_bit(int func);
+extern int tfa98xx_check_mtpex(int *val);
+extern int tfa98xx_check_impedance(int *val);
+#endif /* CONFIG_SND_SOC_NXP_CHIP */
+#endif /* CONFIG_SND_SOC_TREBLE_ENABLE */
+#endif /* CONFIG_SH_AUDIO_DRIVER */ /* For LKM */
+/* SH_AUDIO_DRIVER <- */ /*A-004*/
+#ifdef CONFIG_SH_AUDIO_DRIVER /* B-003 */
+extern int msm_routing_set_a2dp_mode(int mode);
+#endif /* CONFIG_SH_AUDIO_DRIVER */ /* B-003 */
+
 struct snd_ctl_elem_list32 {
 	u32 offset;
 	u32 space;
@@ -90,6 +110,89 @@ struct snd_ctl_elem_info32 {
 	} value;
 	unsigned char reserved[64];
 } __attribute__((packed));
+
+#ifdef CONFIG_SH_AUDIO_DRIVER /* A-004 */
+#ifdef CONFIG_SND_SOC_NXP_CHIP
+static int snd_ctl_enable_cal_bit_compat(int __user *_state)
+{
+	int func;
+	if(get_user(func, _state)) {
+		return -EFAULT;
+	}
+#ifdef CONFIG_SND_SOC_TREBLE_ENABLE
+	return snd_tfa98xx_proxy_enable_cal_bit(func);
+#else
+	return tfa98xx_enable_cal_bit(func);
+#endif /* CONFIG_SND_SOC_TREBLE_ENABLE */
+}
+
+static int snd_ctl_check_nxp_state_compat(struct snd_ctl_elem_nxp_state __user *_state)
+{
+	int ret = 0;
+	struct snd_ctl_elem_nxp_state state;
+
+#ifdef CONFIG_SND_SOC_TREBLE_ENABLE
+	ret = snd_tfa98xx_proxy_check_mtpex(&state.mtpex_state);
+	ret = snd_tfa98xx_proxy_check_impedance(&state.impedance_state);
+#else
+	ret = snd_tfa98xx_proxy_check_mtpex(&state.mtpex_state);
+	ret = snd_tfa98xx_proxy_check_impedance(&state.impedance_state);
+#endif /* CONFIG_SND_SOC_TREBLE_ENABLE */
+
+	if (copy_to_user(_state, &state, sizeof(state)))
+		return -EFAULT;
+
+	return 0;
+}
+#endif /* CONFIG_SND_SOC_NXP_CHIP */
+#endif /* CONFIG_SH_AUDIO_DRIVER */ /* A-004 */
+
+#ifdef CONFIG_SH_AUDIO_DRIVER /* B-003 */
+static int snd_ctl_set_mode_a2dp(int __user *_state)
+{
+	int mode;
+	if(get_user(mode, _state)){
+		return -EFAULT;
+	}
+	msm_routing_set_a2dp_mode(mode);
+    return 0;
+}
+#endif /* CONFIG_SH_AUDIO_DRIVER *//* B-003 */
+
+#ifdef CONFIG_SH_AUDIO_DRIVER /* A-006 */
+static int snd_ctl_hp_state_compat(struct snd_ctl_elem_hp_state __user *_state)
+{
+
+	struct snd_ctl_elem_hp_state state;
+#ifdef CONFIG_SND_SOC_TREBLE_ENABLE
+	state.hp_state = snd_wcd934x_proxy_msm_headset_hp_state();
+	state.button_state = snd_wcd934x_proxy_msm_headset_bu_state();
+#else
+	state.hp_state = msm_headset_hp_state();
+	state.button_state = msm_headset_bu_state();
+#endif /* CONFIG_SND_SOC_TREBLE_ENABLE */
+
+	if (copy_to_user(_state, &state, sizeof(state)))
+		return -EFAULT;
+
+	return 0;
+}
+
+static int snd_ctl_set_bias_mode_compat(int __user *_state)
+{
+	int mode;
+
+	if(get_user(mode, _state)) {
+		return -EFAULT;
+	}
+#ifdef CONFIG_SND_SOC_TREBLE_ENABLE
+	snd_wcd934x_proxy_diag_codec_set_bias_mode(mode);
+#else
+	diag_codec_set_bias_mode(mode);
+#endif /* CONFIG_SND_SOC_TREBLE_ENABLE */
+	return 0;
+}
+#endif /* CONFIG_SH_AUDIO_DRIVER */ /* A-006 */
 
 static int snd_ctl_elem_info_compat(struct snd_ctl_file *ctl,
 				    struct snd_ctl_elem_info32 __user *data32)
@@ -452,6 +555,9 @@ static inline long snd_ctl_ioctl_compat(struct file *file, unsigned int cmd, uns
 	struct snd_kctl_ioctl *p;
 	void __user *argp = compat_ptr(arg);
 	int err;
+#ifdef CONFIG_SH_AUDIO_DRIVER /* A-006 */
+	int __user *ip = argp;
+#endif /* CONFIG_SH_AUDIO_DRIVER */ /* A-006 */
 
 	ctl = file->private_data;
 	if (snd_BUG_ON(!ctl || !ctl->card))
@@ -482,12 +588,30 @@ static inline long snd_ctl_ioctl_compat(struct file *file, unsigned int cmd, uns
 		return snd_ctl_elem_add_compat(ctl, argp, 0);
 	case SNDRV_CTL_IOCTL_ELEM_REPLACE32:
 		return snd_ctl_elem_add_compat(ctl, argp, 1);
+#ifdef CONFIG_SH_AUDIO_DRIVER /* A-006 */
+	case SNDRV_CTL_IOCTL_HP_STATE:
+		return snd_ctl_hp_state_compat(argp);
+	case SNDRV_CTL_IOCTL_SET_BIAS_MODE:
+		return snd_ctl_set_bias_mode_compat(ip);
+#endif /* CONFIG_SH_AUDIO_DRIVER */ /* A-006 */
+#ifdef CONFIG_SH_AUDIO_DRIVER /* A-004 */
+#ifdef CONFIG_SND_SOC_NXP_CHIP
+	case SNDRV_CTL_IOCTL_NXP_CAL_BIT:
+		return snd_ctl_enable_cal_bit_compat(ip);
+	case SNDRV_CTL_IOCTL_NXP_STATE:
+		return snd_ctl_check_nxp_state_compat(argp);
+#endif /* CONFIG_SND_SOC_NXP_CHIP */
+#endif /* CONFIG_SH_AUDIO_DRIVER */ /* A-004 */
 #ifdef CONFIG_X86_X32
 	case SNDRV_CTL_IOCTL_ELEM_READ_X32:
 		return snd_ctl_elem_read_user_x32(ctl->card, argp);
 	case SNDRV_CTL_IOCTL_ELEM_WRITE_X32:
 		return snd_ctl_elem_write_user_x32(ctl, argp);
 #endif /* CONFIG_X86_X32 */
+#ifdef CONFIG_SH_AUDIO_DRIVER /* B-003 */
+	case SNDRV_CTL_IOCTL_SET_MODE_A2DP:
+		return snd_ctl_set_mode_a2dp(ip);
+#endif /* CONFIG_SH_AUDIO_DRIVER */ /* B-003 */
 	}
 
 	down_read(&snd_ioctl_rwsem);

@@ -59,7 +59,7 @@
 
 #define MAX_BAM_DESCRIPTOR_COUNT	(8 * 1024 - 2)
 
-#define TSPP_BUFFER_SIZE		(500 * 1024) /* 500KB */
+#define TSPP_BUFFER_SIZE		(500 * 1024 * 3) /* 1500KB */
 
 #define TSPP_DEFAULT_DESCRIPTOR_SIZE	(TSPP_RAW_TTS_SIZE)
 
@@ -84,7 +84,7 @@ enum mem_buffer_allocation_mode {
 };
 
 /* module parameters for load time configuration */
-static int allocation_mode = MPQ_DMX_TSPP_INTERNAL_ALLOC;
+static int allocation_mode = MPQ_DMX_TSPP_CONTIGUOUS_PHYS_ALLOC;
 static int tspp_out_buffer_size = TSPP_BUFFER_SIZE;
 static int tspp_desc_size = TSPP_DEFAULT_DESCRIPTOR_SIZE;
 static int tspp_notification_size =

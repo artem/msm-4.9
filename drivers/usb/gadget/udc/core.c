@@ -828,6 +828,38 @@ out:
 }
 EXPORT_SYMBOL_GPL(usb_gadget_activate);
 
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+/**
+ * usb_gadget_is_selfpowered - check if the device is selfpowered
+ * @gadget:the peripheral being checked
+ *
+ * Returns true(one) if the device is self-powered.
+ * zero if vbus is bus-powered.
+ * negative errno without support.
+ */
+int usb_gadget_is_selfpowered(struct usb_gadget *gadget)
+{
+	if (!gadget->ops->is_selfpowered)
+		return -EOPNOTSUPP;
+	return gadget->ops->is_selfpowered(gadget);
+}
+EXPORT_SYMBOL_GPL(usb_gadget_is_selfpowered);
+
+/**
+ * usb_gadget_force_fullspeed - set fullspeed.
+ * @gadget:the device being declared is fullspeed connect
+ *
+ * returns zero on success, else negative errno.
+ */
+int usb_gadget_force_fullspeed( struct usb_gadget *gadget )
+{
+	if (!gadget->ops->set_fullspeed)
+		return -EOPNOTSUPP;
+	return gadget->ops->set_fullspeed(gadget, 1);
+}
+EXPORT_SYMBOL_GPL(usb_gadget_force_fullspeed);
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
+
 /* ------------------------------------------------------------------------- */
 
 #ifdef	CONFIG_HAS_DMA

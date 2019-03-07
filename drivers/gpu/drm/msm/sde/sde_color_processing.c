@@ -1799,8 +1799,13 @@ static void sde_cp_notify_ad_event(struct drm_crtc *crtc_drm, void *arg)
 	scale = (output_bl * MAX_AD_BL_SCALE_LEVEL) / input_bl;
 	event.length = sizeof(u32);
 	event.type = DRM_EVENT_AD_BACKLIGHT;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00017 */
+	msm_mode_object_event_notify(&crtc_drm->base, crtc_drm->dev,
+			&event, (u8 *)&scale, false);
+#else /* CONFIG_SHARP_DISPLAY */
 	msm_mode_object_event_notify(&crtc_drm->base, crtc_drm->dev,
 			&event, (u8 *)&scale);
+#endif /* CONFIG_SHARP_DISPLAY */
 }
 
 int sde_cp_ad_interrupt(struct drm_crtc *crtc_drm, bool en,
@@ -2072,8 +2077,13 @@ static void sde_cp_notify_hist_event(struct drm_crtc *crtc_drm, void *arg)
 	/* send histogram event with blob id */
 	event.length = sizeof(u32);
 	event.type = DRM_EVENT_HISTOGRAM;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00017 */
+	msm_mode_object_event_notify(&crtc_drm->base, crtc_drm->dev,
+			&event, (u8 *)(&crtc->hist_blob->base.id), false);
+#else /* CONFIG_SHARP_DISPLAY */
 	msm_mode_object_event_notify(&crtc_drm->base, crtc_drm->dev,
 			&event, (u8 *)(&crtc->hist_blob->base.id));
+#endif /* CONFIG_SHARP_DISPLAY */
 }
 
 int sde_cp_hist_interrupt(struct drm_crtc *crtc_drm, bool en,

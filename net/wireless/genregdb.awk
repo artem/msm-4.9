@@ -34,9 +34,9 @@ BEGIN {
 }
 
 function parse_country_head() {
-	country=$2
-	sub(/:/, "", country)
-	printf "static const struct ieee80211_regdomain regdom_%s = {\n", country
+	sub(/:/, "", $2)
+	country=substr($2, 0, 2)
+	printf "static const struct ieee80211_regdomain regdom_%s = {\n", $2
 	printf "\t.alpha2 = \"%s\",\n", country
 	if ($NF ~ /DFS-ETSI/)
 		printf "\t.dfs_region = NL80211_DFS_ETSI,\n"
@@ -46,7 +46,7 @@ function parse_country_head() {
 		printf "\t.dfs_region = NL80211_DFS_JP,\n"
 	printf "\t.reg_rules = {\n"
 	active = 1
-	regdb = regdb "\t&regdom_" country ",\n"
+	regdb = regdb "\t&regdom_" $2 ",\n"
 }
 
 function parse_reg_rule()

@@ -35,6 +35,10 @@
 #include <soc/qcom/watchdog.h>
 #include <soc/qcom/minidump.h>
 
+#if defined(CONFIG_SHARP_HANDLE_PANIC)
+#include <soc/qcom/sharp/shrlog_restart.h>
+#endif /* CONFIG_SHARP_HANDLE_PANIC */
+
 #define EMERGENCY_DLOAD_MAGIC1    0x322A4F99
 #define EMERGENCY_DLOAD_MAGIC2    0xC67E4350
 #define EMERGENCY_DLOAD_MAGIC3    0x77777777
@@ -158,6 +162,7 @@ static bool get_dload_mode(void)
 	return dload_mode_enabled;
 }
 
+#if 0
 static void enable_emergency_dload_mode(void)
 {
 	int ret;
@@ -184,6 +189,7 @@ static void enable_emergency_dload_mode(void)
 	if (ret)
 		pr_err("Failed to set secure EDLOAD mode: %d\n", ret);
 }
+#endif
 
 static int dload_set(const char *val, const struct kernel_param *kp)
 {
@@ -243,6 +249,74 @@ static void scm_disable_sdi(void)
 		pr_err("Failed to disable secure wdog debug: %d\n", ret);
 }
 
+#if defined(CONFIG_SHARP_SUPPORT_DLOAD_BOOTPARAM)
+static enum {
+	SHARP_BOOT_DLOAD_NOT_GIVEN,
+	SHARP_BOOT_DLOAD_NODLOAD,
+	SHARP_BOOT_DLOAD_FULL,
+	SHARP_BOOT_DLOAD_MINI,
+} sharp_msm_dload_bootparam = SHARP_BOOT_DLOAD_NOT_GIVEN;
+static int __init sharp_msm_dload_set(char *str)
+{
+	if ((strcmp(str, "full") == 0) || (strcmp(str, "1") == 0))
+		sharp_msm_dload_bootparam = SHARP_BOOT_DLOAD_FULL;
+#ifdef CONFIG_QCOM_MINIDUMP
+	else if (strcmp(str, "mini") == 0)
+		sharp_msm_dload_bootparam = SHARP_BOOT_DLOAD_MINI;
+#endif
+	else if ((strcmp(str, "none") == 0) || (strcmp(str, "0") == 0))
+		sharp_msm_dload_bootparam = SHARP_BOOT_DLOAD_NODLOAD;
+	return 1;
+}
+static int sharp_msm_set_boot_dload_mode(void)
+{
+	switch(sharp_msm_dload_bootparam) {
+	case SHARP_BOOT_DLOAD_NODLOAD:
+		download_mode = 0;
+		break;
+	case SHARP_BOOT_DLOAD_FULL:
+		download_mode = 1;
+		dload_type = SCM_DLOAD_FULLDUMP;
+		break;
+	case SHARP_BOOT_DLOAD_MINI:
+		download_mode = 1;
+		dload_type = SCM_DLOAD_MINIDUMP;
+		break;
+	case SHARP_BOOT_DLOAD_NOT_GIVEN:
+	default:
+		break;
+	}
+	return download_mode;
+}
+__setup("download_mode=", sharp_msm_dload_set);
+#endif /* CONFIG_SHARP_SUPPORT_DLOAD_BOOTPARAM */
+#if defined(CONFIG_SHARP_HANDLE_PANIC)
+static struct sharp_msm_restart_callback *shrlog_cb = NULL;
+int sharp_msm_set_restart_callback(struct sharp_msm_restart_callback *cb)
+{
+	int old = download_mode;
+	shrlog_cb = cb;
+	if (!shrlog_cb)
+		return 0;
+	if (!restart_reason)
+		return 0;
+	if (shrlog_cb->restart_addr_set)
+		(*(shrlog_cb->restart_addr_set))(restart_reason);
+	if (shrlog_cb->preset_reason)
+		download_mode = (*(shrlog_cb->preset_reason))(old);
+#if defined(CONFIG_SHARP_SUPPORT_DLOAD_BOOTPARAM)
+	do {
+		download_mode = sharp_msm_set_boot_dload_mode();
+	} while(0);
+#endif /* CONFIG_SHARP_SUPPORT_DLOAD_BOOTPARAM */
+	if (download_mode == old)
+		return 0;
+	set_dload_mode(download_mode);
+	return 0;
+}
+EXPORT_SYMBOL(sharp_msm_set_restart_callback);
+#endif /* CONFIG_SHARP_HANDLE_PANIC */
+
 void msm_set_restart_mode(int mode)
 {
 	restart_mode = mode;
@@ -296,6 +370,15 @@ static void msm_restart_prepare(const char *cmd)
 		need_warm_reset = (get_dload_mode() ||
 				(cmd != NULL && cmd[0] != '\0'));
 	}
+#if defined(CONFIG_SHARP_HANDLE_PANIC)
+	if (shrlog_cb && shrlog_cb->warm_reset_ow) {
+		need_warm_reset = (*(shrlog_cb->warm_reset_ow))(need_warm_reset,
+								cmd, 
+								get_dload_mode(),
+								restart_mode,
+								in_panic);
+	}
+#endif /* CONFIG_SHARP_HANDLE_PANIC */
 
 	/* Hard reset the PMIC unless memory contents must be maintained. */
 	if (need_warm_reset)
@@ -353,13 +436,20 @@ static void msm_restart_prepare(const char *cmd)
 				__raw_writel(0x6f656d00 | (code & 0xff),
 					     restart_reason);
 			}
+#if 0
 		} else if (!strncmp(cmd, "edl", 3)) {
 			enable_emergency_dload_mode();
+#endif
 		} else {
 			__raw_writel(0x77665501, restart_reason);
 		}
 	}
 
+#if defined(CONFIG_SHARP_HANDLE_PANIC)
+	if (shrlog_cb && shrlog_cb->restart_reason_ow)
+		(*(shrlog_cb->restart_reason_ow))(cmd, get_dload_mode(),
+						  restart_mode, in_panic);
+#endif /* CONFIG_SHARP_HANDLE_PANIC */
 	flush_cache_all();
 
 	/*outer_flush_all is not supported by 64bit kernel*/
@@ -419,6 +509,11 @@ static void do_msm_restart(enum reboot_mode reboot_mode, const char *cmd)
 static void do_msm_poweroff(void)
 {
 	pr_notice("Powering off the SoC\n");
+
+#ifdef CONFIG_SHARP_HANDLE_PANIC
+	if (shrlog_cb && shrlog_cb->poweroff_ow)
+		(*(shrlog_cb->poweroff_ow))();
+#endif /* CONFIG_SHARP_HANDLE_PANIC */
 
 	set_dload_mode(0);
 	scm_disable_sdi();
@@ -568,11 +663,11 @@ static int msm_restart_probe(struct platform_device *pdev)
 	struct resource *mem;
 	struct device_node *np;
 	int ret = 0;
-
+	
 #ifdef CONFIG_QCOM_DLOAD_MODE
 	if (scm_is_call_available(SCM_SVC_BOOT, SCM_DLOAD_CMD) > 0)
 		scm_dload_supported = true;
-
+	
 	atomic_notifier_chain_register(&panic_notifier_list, &panic_blk);
 	np = of_find_compatible_node(NULL, NULL, DL_MODE_PROP);
 	if (!np) {
@@ -673,6 +768,24 @@ skip_sysfs_create:
 	if (scm_is_call_available(SCM_SVC_PWR, SCM_IO_DEASSERT_PS_HOLD) > 0)
 		scm_deassert_ps_hold_supported = true;
 
+#ifdef CONFIG_SHARP_HANDLE_PANIC
+	if (shrlog_cb) {
+		if (shrlog_cb->restart_addr_set)
+			(*(shrlog_cb->restart_addr_set))(restart_reason);
+		if (shrlog_cb->preset_reason)
+			download_mode = (*(shrlog_cb->preset_reason))(download_mode);
+	}
+#endif /* CONFIG_SHARP_HANDLE_PANIC */
+#ifdef CONFIG_SHARP_HANDLE_DLOAD_MINIDEFAULT
+	do {
+		dload_type = SCM_DLOAD_MINIDUMP;
+	} while(0);
+#endif /* CONFIG_SHARP_HANDLE_DLOAD_MINIDEFAULT */
+#if defined(CONFIG_SHARP_SUPPORT_DLOAD_BOOTPARAM)
+	do {
+		download_mode = sharp_msm_set_boot_dload_mode();
+	} while(0);
+#endif /* CONFIG_SHARP_SUPPORT_DLOAD_BOOTPARAM */
 	set_dload_mode(download_mode);
 	if (!download_mode)
 		scm_disable_sdi();

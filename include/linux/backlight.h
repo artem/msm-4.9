@@ -46,6 +46,10 @@ enum backlight_notification {
 	BACKLIGHT_UNREGISTERED,
 };
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00064 */
+#define BKL_CURR_MAX_BRIGHTNESS	0xFFF
+#endif /*  CONFIG_SHARP_DISPLAY */
+
 struct backlight_device;
 struct fb_info;
 
@@ -89,6 +93,12 @@ struct backlight_properties {
 #define BL_CORE_DRIVER2		(1 << 30)	/* reserved for driver specific use */
 #define BL_CORE_DRIVER1		(1 << 31)	/* reserved for driver specific use */
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00064 */
+	bool prev_state;
+	bool curr_boost_req;
+	bool curr_boosted;
+	unsigned long last_level;
+#endif /*  CONFIG_SHARP_DISPLAY */
 };
 
 struct backlight_device {
@@ -122,6 +132,11 @@ struct backlight_device {
 	bool fb_bl_on[FB_MAX];
 
 	int use_count;
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00064 */
+	struct delayed_work curr_boost_work;
+	struct workqueue_struct *ordered_workqueue;
+#endif /*  CONFIG_SHARP_DISPLAY */
 };
 
 static inline int backlight_update_status(struct backlight_device *bd)

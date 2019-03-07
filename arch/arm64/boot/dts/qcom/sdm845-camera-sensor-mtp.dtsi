@@ -430,7 +430,10 @@
 		sensor-position-roll = <270>;
 		sensor-position-pitch = <0>;
 		sensor-position-yaw = <0>;
-		led-flash-src = <&led_flash_iris>;
+/* COORDINATOR Qualcomm_PostCS5 BUILDERR MODIFY start */
+//		led-flash-src = <&led_flash_iris>;
+		led-flash-src = <0>;
+/* COORDINATOR Qualcomm_PostCS5 BUILDERR MODIFY end */
 		cam_vio-supply = <&pm8998_lvs1>;
 		cam_vana-supply = <&camera_vana_ldo>;
 		cam_vdig-supply = <&camera_ldo>;

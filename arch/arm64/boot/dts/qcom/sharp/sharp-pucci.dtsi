@@ -1,0 +1,295 @@
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+/*****************************************/
+/*  Add SHARP include                    */
+/*****************************************/
+#include "sharp_pinctrl/sharp-pinctrl-pucci.dtsi"
+#include "vib/sharp-dio-vib.dtsi"
+/* SH_AUDIO_DRIVER -> */ /*A-001*/
+#include "shaudio/sharp-pucci-audio.dtsi"
+/* SH_AUDIO_DRIVER <- */ /*A-001*/
+#include "fingerprint/sharp-pucchi-fpsensor.dtsi"
+#include "hall/sharp-hall.dtsi"
+#include "shdisp/sharp-shdisp-pucci.dtsi"
+#include "pmic/sharp-pm8998-pucci.dtsi"
+#include "pmic/sharp-pmi8998-pucci.dtsi"
+
+/*----------------------------------------*/
+/* Qualcomm settings.                     */
+/*----------------------------------------*/
+/*------------------------------*/
+/*  QUP0                        */
+/*------------------------------*/
+&qupv3_se0_spi {
+	status = "ok";
+	sensorhub@0 {
+		status = "ok";
+		compatible = "sharp,sensorhub";
+		reg = <0>;
+		spi-max-frequency = <2000000>;
+		spi-cpol;
+		spi-cpha;
+		qcom,shub-gpio-reset = <&tlmm 59 0>;
+		qcom,shub-gpio-int0 = <&tlmm 122 0>;
+		qcom,shub-gpio-brmp = <&tlmm 61 0>;
+		pinctrl-names = "shub_reset_active","shub_reset_suspend",
+						"shub_int0_active","shub_int0_suspend",
+						"shub_int0_pullup","shub_int0_pulldown",
+						"shub_brmp_active","shub_brmp_suspend";
+		pinctrl-0 = <&shub_reset_active>;
+		pinctrl-1 = <&shub_reset_suspend>;
+		pinctrl-2 = <&shub_int0_active>;
+		pinctrl-3 = <&shub_int0_suspend>;
+		pinctrl-4 = <&shub_int0_pullup>;
+		pinctrl-5 = <&shub_int0_pulldown>;
+		pinctrl-6 = <&shub_brmp_active>;
+		pinctrl-7 = <&shub_brmp_suspend>;
+		shub,shub_acc_axis_val = <0>;
+		shub,shub_gyro_axis_val = <0>;
+		shub,shub_mag_axis_val = <0>;
+	};
+};
+
+&soc {
+	sharp,shub_acc {
+		status = "ok";
+		compatible = "sharp,shub_acc";
+	};
+
+	sharp,shub_diag {
+		status = "ok";
+		compatible = "sharp,shub_diag";
+	};
+
+	sharp,shub_exif {
+		status = "ok";
+		compatible = "sharp,shub_exif";
+	};
+
+	sharp,shub_game_rotation_vec {
+		status = "ok";
+		compatible = "sharp,shub_rot_gyro";
+	};
+
+	sharp,shub_grav {
+		status = "ok";
+		compatible = "sharp,shub_grav";
+	};
+
+	sharp,shub_gyro {
+		status = "ok";
+		compatible = "sharp,shub_gyro";
+	};
+
+	sharp,shub_gyro_uncal {
+		status = "ok";
+		compatible = "sharp,shub_gyrounc";
+	};
+
+	sharp,shub_linear_acc {
+		status = "ok";
+		compatible = "sharp,shub_linearacc";
+	};
+
+	sharp,shub_mag {
+		status = "ok";
+		compatible = "sharp,shub_mag";
+	};
+
+	sharp,shub_mag_rotation_vec {
+		status = "ok";
+		compatible = "sharp,shub_rot_mag";
+	};
+
+	sharp,shub_mag_uncalib {
+		status = "ok";
+		compatible = "sharp,shub_mag_unc";
+	};
+
+	sharp,shub_mcu {
+		status = "ok";
+		compatible = "sharp,shub_mcu";
+	};
+
+	sharp,shub_orientation {
+		status = "ok";
+		compatible = "sharp,shub_orien";
+	};
+
+	sharp,shub_pedo {
+		status = "ok";
+		compatible = "sharp,shub_pedo";
+	};
+
+	sharp,shub_pedodet {
+		status = "ok";
+		compatible = "sharp,shub_pedodet";
+	};
+
+	sharp,shub_rotation_vec {
+		status = "ok";
+		compatible = "sharp,shub_rot";
+	};
+
+	sharp,shub_significant {
+		status = "ok";
+		compatible = "sharp,shub_signif";
+	};
+
+	sharp,shub_device_orientation {
+		status = "ok";
+		compatible = "sharp,shub_dev_orien";
+	};
+};
+
+
+/*------------------------------*/
+/*  QUP1                        */
+/*------------------------------*/
+/* NOT USE */
+
+
+/*------------------------------*/
+/*  QUP2                        */
+/*------------------------------*/
+/* NOT USE */
+
+
+/*------------------------------*/
+/*  QUP3                        */
+/*------------------------------*/
+&qupv3_se3_i2c {
+	status = "ok";
+	cxd224x-i2c@28 {
+		status = "ok";
+		compatible = "cxd224x-i2c";
+		reg = <0x28>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <95 0>;
+		cxd224x,irq_gpio  = <&tlmm 95 0x00>;
+		cxd224x,wake_gpio = <&tlmm 12 0x00>;
+		cxd224x,rst_gpio  = <&pmi8998_gpios 2 0x00>;
+		pinctrl-names = "cxd224x_default_int","cxd224x_default_wake";
+		pinctrl-0 = <&nfc_nint_active>;
+		pinctrl-1 = <&nfc_pon_active>;
+	};
+};
+
+
+/*------------------------------*/
+/*  QUP4                        */
+/*------------------------------*/
+/* NOT USE */
+
+
+/*------------------------------*/
+/*  QUP5                        */
+/*------------------------------*/
+&qupv3_se5_i2c {
+	status = "ok";
+};
+
+
+/*------------------------------*/
+/*  QUP6                        */
+/*------------------------------*/
+/* use qcom settings (except GPIO 46) */
+
+
+/*------------------------------*/
+/*  QUP7                        */
+/*------------------------------*/
+&qupv3_se7_i2c {
+	status = "ok";
+};
+
+
+/*------------------------------*/
+/*  QUP8                        */
+/*------------------------------*/
+/* use qcom settings */
+
+
+/*------------------------------*/
+/*  QUP9                        */
+/*------------------------------*/
+&qupv3_se9_2uart {
+	status = "ok";
+};
+
+
+/*------------------------------*/
+/*  QUP10                       */
+/*------------------------------*/
+/* NOT USE */
+
+
+/*------------------------------*/
+/*  QUP11                       */
+/*------------------------------*/
+&qupv3_se11_i2c {
+	status = "disabled";
+/* SH_AUDIO_DRIVER -> */ /*A-004*/
+	nxp_tfa98xx: tfa98xx@34 {
+		compatible = "nxp,tfa98xx";
+		reg = <0x34>;
+		reset-gpio = <&tlmm 63 0x00>;
+		irq-gpio = <&tlmm 52 0x00>;
+	};
+/* SH_AUDIO_DRIVER <- */ /*A-004*/
+};
+
+
+/*------------------------------*/
+/*  QUP12                       */
+/*------------------------------*/
+/* NOT USE */
+
+
+/*------------------------------*/
+/*  QUP13                       */
+/*------------------------------*/
+/* NOT USE */
+
+
+/*------------------------------*/
+/*  QUP14                       */
+/*------------------------------*/
+/* QUP11 I2C */
+
+
+/*------------------------------*/
+/*  QUP15                       */
+/*------------------------------*/
+/* can be accessed from TZ */
+
+
+/*----------------------------------------*/
+/* Add SHARP settings.                    */
+/*----------------------------------------*/
+&soc {
+	snfc_en {
+		compatible = "snfc_en";
+		qcom,nfc-nint   = <&tlmm 95 0x00>;
+		qcom,nfc-status = <&tlmm 96 0x00>;
+		qcom,nfc-clkreq = <&pm8998_gpios 21 0x00>;
+		pinctrl-names = "nfc_pon_active","nfc_pon_suspend",
+						"nfc_status_active","nfc_status_suspend";
+		pinctrl-0 = <&nfc_pon_active>;
+		pinctrl-1 = <&nfc_pon_suspend>;
+		pinctrl-2 = <&nfc_status_active>;
+		pinctrl-3 = <&nfc_status_suspend>;
+	};
+};
+
+#include "camera/sharp-pucci-camera-sensor.dtsi"
+

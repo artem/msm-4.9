@@ -1,0 +1,17 @@
+#
+# Battery Control Configuration
+#
+
+menu "SHARP Battery Driver"
+
+comment "Battery Control Configuration"
+
+config SHARP_BATTERY_MODULE
+	tristate "SHARP Battery Module Support"
+	default n
+
+config PM_SUPPORT_BATT_TRACEABILITY
+	bool "SHARP Battery traceability"
+	default n
+
+endmenu

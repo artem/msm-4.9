@@ -35,6 +35,54 @@
 #endif
 #include <trace/events/power.h>
 
+#ifdef CONFIG_SHARP_PNP_CLOCK_DEBUG
+enum {
+	SH_DEBUG_CLK_FIX = 1U << 0,
+};
+static int sh_debug_mask = 0;
+module_param_named(
+	sh_debug_mask, sh_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+#endif /* CONFIG_SHARP_PNP_CLOCK_DEBUG */
+
+#ifdef CONFIG_SHARP_PNP_CLOCK
+static unsigned int sh_max_freq_silver = UINT_MAX;
+static unsigned int sh_max_freq_gold = UINT_MAX;
+static unsigned int sh_max_freq_silver_target = UINT_MAX;
+static unsigned int sh_max_freq_gold_target = UINT_MAX;
+unsigned int sh_get_max_freq(struct cpufreq_policy *policy)
+{
+	if (policy->cpu >= 4)
+		return sh_max_freq_gold;
+	else
+		return sh_max_freq_silver;
+}
+
+void sh_set_max_freq(struct cpufreq_policy *policy, unsigned int max_freq)
+{
+	if (policy->cpu >= 4)
+		sh_max_freq_gold = max_freq;
+	else
+		sh_max_freq_silver = max_freq;
+}
+
+unsigned int sh_get_max_freq_target(struct cpufreq_policy *policy)
+{
+	if (policy->cpu >= 4)
+		return sh_max_freq_gold_target;
+	else
+		return sh_max_freq_silver_target;
+}
+
+void sh_set_max_freq_target(struct cpufreq_policy *policy, unsigned int max_freq)
+{
+	if (policy->cpu >= 4)
+		sh_max_freq_gold_target = max_freq;
+	else
+		sh_max_freq_silver_target = max_freq;
+}
+#endif /* CONFIG_SHARP_PNP_CLOCK */
+
 static LIST_HEAD(cpufreq_policy_list);
 
 static inline bool policy_is_inactive(struct cpufreq_policy *policy)
@@ -211,6 +259,16 @@ int cpufreq_generic_init(struct cpufreq_policy *policy,
 	return 0;
 }
 EXPORT_SYMBOL_GPL(cpufreq_generic_init);
+
+#ifdef CONFIG_SHARP_PNP_CLOCK
+struct cpufreq_policy *sh_cpufreq_cpu_get_raw(unsigned int cpu)
+{
+	struct cpufreq_policy *policy = per_cpu(cpufreq_cpu_data, cpu);
+
+	return policy;
+}
+EXPORT_SYMBOL_GPL(sh_cpufreq_cpu_get_raw);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 struct cpufreq_policy *cpufreq_cpu_get_raw(unsigned int cpu)
 {
@@ -746,7 +804,14 @@ show_one(cpuinfo_min_freq, cpuinfo.min_freq);
 show_one(cpuinfo_max_freq, cpuinfo.max_freq);
 show_one(cpuinfo_transition_latency, cpuinfo.transition_latency);
 show_one(scaling_min_freq, min);
+#ifdef CONFIG_SHARP_PNP_CLOCK
+static ssize_t show_scaling_max_freq(struct cpufreq_policy *policy, char *buf)
+{
+	return sprintf(buf, "%u\n", sh_get_max_freq_target(policy));
+}
+#else /* CONFIG_SHARP_PNP_CLOCK */
 show_one(scaling_max_freq, max);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 static ssize_t show_scaling_cur_freq(struct cpufreq_policy *policy, char *buf)
 {
@@ -792,7 +857,28 @@ static ssize_t store_##file_name					\
 }
 
 store_one(scaling_min_freq, min);
+#ifdef CONFIG_SHARP_PNP_CLOCK
+static ssize_t store_scaling_max_freq(struct cpufreq_policy *policy,
+					const char *buf, size_t count)
+{
+	int ret;
+	struct cpufreq_policy new_policy;
+	unsigned int max = 0;
+
+	memcpy(&new_policy, policy, sizeof(*policy));
+
+	ret = sscanf(buf, "%u", &max);
+	if (ret != 1)
+		return -EINVAL;
+
+	sh_set_max_freq(policy, max);
+
+	ret = cpufreq_set_policy(policy, &new_policy);
+	return ret ? ret : count;
+}
+#else /* CONFIG_SHARP_PNP_CLOCK */
 store_one(scaling_max_freq, max);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 /**
  * show_cpuinfo_cur_freq - current CPU frequency as detected by hardware
@@ -2058,7 +2144,11 @@ int __cpufreq_driver_target(struct cpufreq_policy *policy,
 		return -ENODEV;
 
 	/* Make sure that target_freq is within supported range */
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	target_freq = clamp_val(target_freq, policy->min, sh_get_max_freq_target(policy));
+#else /* CONFIG_SHARP_PNP_CLOCK */
 	target_freq = clamp_val(target_freq, policy->min, policy->max);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 	pr_debug("target for CPU %u: %u kHz, relation %u, requested %u kHz\n",
 		 policy->cpu, target_freq, relation, old_target_freq);
@@ -2260,6 +2350,45 @@ EXPORT_SYMBOL_GPL(cpufreq_unregister_governor);
 /*********************************************************************
  *                          POLICY INTERFACE                         *
  *********************************************************************/
+#ifdef CONFIG_SHARP_PNP_CLOCK
+void sh_cpufreq_frequency_table_target(struct cpufreq_policy *policy,
+				   unsigned int *target_freq,
+				   unsigned int relation)
+{
+	struct cpufreq_frequency_table *pos, *freq_table = policy->freq_table;
+	unsigned int result_freq = *target_freq;
+
+	switch (relation) {
+	case CPUFREQ_RELATION_H:
+		result_freq = policy->cpuinfo.min_freq;
+		break;
+	case CPUFREQ_RELATION_L:
+		result_freq = policy->cpuinfo.max_freq;
+		break;
+	default:
+		break;
+	}
+
+	cpufreq_for_each_valid_entry(pos, freq_table) {
+		switch (relation) {
+		case CPUFREQ_RELATION_H:
+			if (result_freq < pos->frequency && pos->frequency <= *target_freq) {
+				result_freq = pos->frequency;
+			}
+			break;
+		case CPUFREQ_RELATION_L:
+			if (result_freq > pos->frequency && pos->frequency >= *target_freq) {
+				result_freq = pos->frequency;
+			}
+			break;
+		default:
+			break;
+		}
+	}
+
+	*target_freq = result_freq;
+}
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 /**
  * cpufreq_get_policy - get the current cpufreq_policy
@@ -2295,6 +2424,11 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 	struct cpufreq_governor *old_gov;
 	int ret;
 
+#ifdef CONFIG_SHARP_PNP_CLOCK_DEBUG
+	unsigned int prev_policy_min = new_policy->min;
+	unsigned int prev_policy_max = sh_get_max_freq(new_policy);
+#endif /* CONFIG_SHARP_PNP_CLOCK_DEBUG */
+
 	pr_debug("setting new policy for CPU %u: %u - %u kHz\n",
 		 new_policy->cpu, new_policy->min, new_policy->max);
 
@@ -2312,9 +2446,26 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 	if (ret)
 		return ret;
 
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	sh_set_release_limit_freq(new_policy);
+	blocking_notifier_call_chain(&cpufreq_policy_notifier_list,
+			SH_CPUFREQ_BASE_LIMIT, new_policy);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
+
 	/* adjust if necessary - all reasons */
 	blocking_notifier_call_chain(&cpufreq_policy_notifier_list,
 			CPUFREQ_ADJUST, new_policy);
+
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	/* adjust if necessary - hardware incompatibility*/
+	blocking_notifier_call_chain(&cpufreq_policy_notifier_list,
+			CPUFREQ_INCOMPATIBLE, new_policy);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
+
+#ifdef CONFIG_SHARP_PNP_CLOCK_DEBUG
+	if (sh_debug_mask & SH_DEBUG_CLK_FIX)
+		cpufreq_verify_within_limits(new_policy, prev_policy_min, prev_policy_max);
+#endif /* CONFIG_SHARP_PNP_CLOCK_DEBUG */
 
 	/*
 	 * verify the cpu speed can be set within this limit, which might be
@@ -2331,6 +2482,9 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 	scale_max_freq_capacity(policy->cpus, policy->max);
 	scale_min_freq_capacity(policy->cpus, policy->min);
 
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	sh_set_max_freq_target(new_policy, sh_get_max_freq(new_policy));
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 	policy->min = new_policy->min;
 	policy->max = new_policy->max;
 	trace_cpu_frequency_limits(policy->max, policy->min, policy->cpu);
@@ -2386,6 +2540,45 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 
 	return ret;
 }
+
+#ifdef CONFIG_SHARP_PNP_CLOCK
+static DEFINE_MUTEX(sh_update_try_mutex);
+static struct workqueue_struct *sh_update_try_wq;
+static struct delayed_work sh_update_try_work;
+static unsigned int sh_update_try_cnt = 0;
+#define SH_UPDATE_TRY_PERIOD_MS	10
+#define SH_UPDATE_TRY_CNT		3
+void sh_cpufreq_update_policy_try(void)
+{
+	mutex_lock(&sh_update_try_mutex);
+	sh_update_try_cnt = SH_UPDATE_TRY_CNT;
+	cancel_delayed_work(&sh_update_try_work);
+	queue_delayed_work(sh_update_try_wq, &sh_update_try_work, 0);
+	mutex_unlock(&sh_update_try_mutex);
+}
+EXPORT_SYMBOL(sh_cpufreq_update_policy_try);
+
+static void sh_cpufreq_update_policy_work(struct work_struct *work)
+{
+	int cpu;
+
+	if (!get_online_cpus_try()) {
+		cancel_delayed_work(&sh_update_try_work);
+		for_each_online_cpu(cpu) {
+			cpufreq_update_policy(cpu);
+		}
+		put_online_cpus();
+	} else {
+		mutex_lock(&sh_update_try_mutex);
+		pr_debug("%s: get_online_cpus_try failed. retry_cnt=%u\n", __func__, sh_update_try_cnt);
+		if (sh_update_try_cnt > 0 && !delayed_work_pending(&sh_update_try_work)) {
+			queue_delayed_work(sh_update_try_wq, &sh_update_try_work, msecs_to_jiffies(SH_UPDATE_TRY_PERIOD_MS));
+			sh_update_try_cnt--;
+		}
+		mutex_unlock(&sh_update_try_mutex);
+	}
+}
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 /**
  *	cpufreq_update_policy - re-evaluate an existing cpufreq policy
@@ -2628,6 +2821,12 @@ int cpufreq_register_driver(struct cpufreq_driver *driver_data)
 	hp_online = ret;
 	ret = 0;
 
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	sh_update_try_wq = create_singlethread_workqueue("cpufreq_update_policy_wq");
+	if (!sh_update_try_wq)
+		return -ENOMEM;
+	INIT_DELAYED_WORK(&sh_update_try_work, sh_cpufreq_update_policy_work);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 	pr_info("driver %s up and running\n", driver_data->name);
 	goto out;
 
@@ -2667,6 +2866,9 @@ int cpufreq_unregister_driver(struct cpufreq_driver *driver)
 	subsys_interface_unregister(&cpufreq_interface);
 	remove_boost_sysfs_file();
 	cpuhp_remove_state_nocalls(hp_online);
+#ifdef CONFIG_SHARP_PNP_CLOCK
+	destroy_workqueue(sh_update_try_wq);
+#endif /* CONFIG_SHARP_PNP_CLOCK */
 
 	write_lock_irqsave(&cpufreq_driver_lock, flags);
 

@@ -1,0 +1,220 @@
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+
+// write down for overlayDTS
+
+// change wled-electric-current and enable-list ///////////////////////////////////////////////////
+&pmi8998_wled {
+	qcom,fs-curr-ua = <25000>;
+	qcom,led-strings-list = [00 01 02];
+
+	sharp,wled-linear-params = <
+	//	x	y
+		32	44
+		48	71
+		80	141
+		144	292
+		224	503
+		369	920
+		513	1278
+		802	1791
+		1059	2110
+		1429	2458
+		1750	2711
+		2151	2956
+		2633	3276
+		3083	3528
+		3613	3833
+		4095	4095
+	>;
+
+	sharp,wled-sink-entries {
+		sharp,wled-sink-entry@0 {	// Normal
+			sharp,wled-sink-params = <
+			//	a(x10)	b	c(x10)	d	t
+				10	0	10	0	4095	// sink1
+				10	0	10	0	4095	// sink2
+				10	0	10	0	4095	// sink3
+				0	0	0	0	0	// sink4
+			>;
+		};
+
+		sharp,wled-sink-entry@1 {	// VR
+			sharp,wled-sink-params = <
+			//	a(x10)	b	c(x10)	d	t
+				10	0	10	0	4095	// sink1
+				10	0	10	0	4095	// sink2
+				10	0	10	0	4095	// sink3
+				0	0	0	0	0	// sink4
+			>;
+		};
+	};
+};
+
+// change lab/ibb setting(voltage) ////////////////////////////////////////////////////////////////
+&ibb_regulator {
+	/delete-property/qcom,qpnp-ibb-use-default-voltage;
+	qcom,qpnp-ibb-init-voltage = <5800000>;
+	qcom,qpnp-ibb-init-lcd-voltage = <5800000>;
+	qcom,qpnp-ibb-lab-pwrup-delay = <4000>;
+	qcom,qpnp-ibb-lab-pwrdn-delay = <1000>;
+};
+
+&lab_regulator {
+	/delete-property/qcom,qpnp-lab-use-default-voltage;
+	qcom,qpnp-lab-init-voltage = <5800000>;
+	qcom,qpnp-lab-init-lcd-voltage = <5800000>;
+};
+
+
+// change panel regulators(vddio/vsp(lab)/vsn(ibb) settings(voltage, wait) ////////////////////////
+&dsi_panel_pwr_supply {
+
+	qcom,panel-supply-entry@0 {
+		qcom,supply-post-on-sleep = <10>;
+		qcom,supply-post-off-sleep = <60>;
+	};
+
+	qcom,panel-supply-entry@1 {
+		qcom,supply-post-on-sleep = <9>;            // lab(4) + ibb(5)
+		qcom,supply-post-off-sleep = <5>;
+	};
+
+	qcom,panel-supply-entry@2 {
+		/delete-property/qcom,supply-post-on-sleep;
+//		qcom,supply-post-on-sleep = <5>;
+		qcom,supply-pre-off-sleep = <80>;
+		qcom,supply-post-off-sleep = <3>;
+	};
+};
+
+
+// add panels /////////////////////////////////////////////////////////////////////////////////////
+#include "sharp-shdisp-dsi-panel-rosetta-dual-qe-1080p-cmd.dtsi"
+#include "sharp-shdisp-dsi-panel-rosetta-dual-mv-1080p-cmd.dtsi"
+#include "sharp-shdisp-panel-det.dtsi"
+#include "sharp-shled-pucci.dtsi"
+
+// add chain-node for panel ////////////////////////////////////////////////////////////////////////
+&soc {
+	dsi_shdisp_rosetta_dual_qe_cmd_display: qcom,dsi-display@50 {
+		compatible = "qcom,dsi-display";
+		label = "shdisp_rosetta_dual_qe_cmd_display";
+		qcom,display-type = "primary";
+		qcom,dsi-display-active;
+
+		qcom,dsi-ctrl = <&mdss_dsi0 &mdss_dsi1>;
+		qcom,dsi-phy = <&mdss_dsi_phy0 &mdss_dsi_phy1>;
+		clocks = <&mdss_dsi0_pll BYTECLK_MUX_0_CLK>,
+			<&mdss_dsi0_pll PCLK_MUX_0_CLK>,
+			<&pm8998_div_clk1 0>;
+		clock-names = "src_byte_clk", "src_pixel_clk", "consumer_s-div_clk-name";
+
+		pinctrl-names = "panel_active", "panel_suspend";
+		pinctrl-0 = <&sde_te_active>;
+		pinctrl-1 = <&sde_te_suspend>;
+		qcom,platform-te-gpio = <&tlmm 10 0>;
+		qcom,platform-reset-gpio = <&tlmm 6 0>;
+
+		qcom,dsi-panel = <&dsi_shdisp_rosetta_dual_qe_cmd>;
+		vddio-supply = <&pm8998_l14>;
+		lab-supply = <&lab_regulator>;
+		ibb-supply = <&ibb_regulator>;
+	};
+
+	dsi_shdisp_rosetta_dual_mv_cmd_display: qcom,dsi-display@51 {
+		compatible = "qcom,dsi-display";
+		label = "shdisp_rosetta_dual_mv_cmd_display";
+		qcom,display-type = "primary";
+		qcom,dsi-display-active;
+
+		qcom,dsi-ctrl = <&mdss_dsi0 &mdss_dsi1>;
+		qcom,dsi-phy = <&mdss_dsi_phy0 &mdss_dsi_phy1>;
+		clocks = <&mdss_dsi0_pll BYTECLK_MUX_0_CLK>,
+			<&mdss_dsi0_pll PCLK_MUX_0_CLK>,
+			<&pm8998_div_clk1 0>;
+		clock-names = "src_byte_clk", "src_pixel_clk", "consumer_s-div_clk-name";
+
+		pinctrl-names = "panel_active", "panel_suspend";
+		pinctrl-0 = <&sde_te_active>;
+		pinctrl-1 = <&sde_te_suspend>;
+		qcom,platform-te-gpio = <&tlmm 10 0>;
+		qcom,platform-reset-gpio = <&tlmm 6 0>;
+
+		qcom,dsi-panel = <&dsi_shdisp_rosetta_dual_mv_cmd>;
+		vddio-supply = <&pm8998_l14>;
+		lab-supply = <&lab_regulator>;
+		ibb-supply = <&ibb_regulator>;
+	};
+};
+
+// delete Qualcom default-active panel ////////////////////////////////////////////////////////////
+&dsi_nt35597_truly_dsc_cmd_display {
+	/delete-property/qcom,dsi-display-active;
+};
+
+// change Display port pin config /////////////////////////////////////////////////////////////////
+&sde_dp_aux_active {
+	mux {
+		pins = "gpio43", "gpio44";
+	};
+
+	config {
+		pins = "gpio43", "gpio44";
+	};
+};
+
+&sde_dp_aux_suspend {
+	mux {
+		pins = "gpio43", "gpio44";
+	};
+
+	config {
+		pins = "gpio43", "gpio44";
+	};
+};
+
+&sde_dp {
+	qcom,aux-sel-gpio = <&tlmm 44 0>;
+};
+
+&red_led {
+	qcom,use-blink;
+	qcom,duty-pcts = [00 64];
+	qcom,lut-flags = <27>;
+	qcom,pause-hi = <120>;
+	qcom,pause-lo = <4830>;
+	qcom,pwm-us = <1000>;
+	qcom,ramp-step-ms = <30>;
+	qcom,start-idx = <0>;
+};
+&green_led {
+	qcom,use-blink;
+	qcom,duty-pcts = [00 64];
+	qcom,lut-flags = <27>;
+	qcom,pause-hi = <120>;
+	qcom,pause-lo = <4830>;
+	qcom,pwm-us = <1000>;
+	qcom,ramp-step-ms = <30>;
+	qcom,start-idx = <0>;
+};
+&blue_led {
+	qcom,use-blink;
+	qcom,duty-pcts = [00 64];
+	qcom,lut-flags = <27>;
+	qcom,pause-hi = <120>;
+	qcom,pause-lo = <4830>;
+	qcom,pwm-us = <1000>;
+	qcom,ramp-step-ms = <30>;
+	qcom,start-idx = <0>;
+};

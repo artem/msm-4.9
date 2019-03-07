@@ -17,6 +17,10 @@ AFLAGS_system_certificates.o := -I$(srctree)
 quiet_cmd_extract_certs  = EXTRACT_CERTS   $(patsubst "%",%,$(2))
       cmd_extract_certs  = scripts/extract-cert $(2) $@ || ( rm $@; exit 1)
 
+ifeq ($(CONFIG_SYSTEM_TRUSTED_KEYS),"verity.x509.pem")
+SYSTEM_TRUSTED_KEYS_SRCPREFIX := $(srctree)/certs/
+endif
+
 targets += x509_certificate_list
 $(obj)/x509_certificate_list: scripts/extract-cert $(SYSTEM_TRUSTED_KEYS_SRCPREFIX)$(SYSTEM_TRUSTED_KEYS_FILENAME) FORCE
 	$(call if_changed,extract_certs,$(SYSTEM_TRUSTED_KEYS_SRCPREFIX)$(CONFIG_SYSTEM_TRUSTED_KEYS))
@@ -85,6 +89,10 @@ endif
 
 $(eval $(call config_filename,MODULE_SIG_KEY))
 
+ifeq ($(CONFIG_MODULE_SIG_KEY),"verity.pem")
+MODULE_SIG_KEY_SRCPREFIX := $(obj)/
+endif
+
 # If CONFIG_MODULE_SIG_KEY isn't a PKCS#11 URI, depend on it
 ifeq ($(patsubst pkcs11:%,%,$(firstword $(MODULE_SIG_KEY_FILENAME))),$(firstword $(MODULE_SIG_KEY_FILENAME)))
 X509_DEP := $(MODULE_SIG_KEY_SRCPREFIX)$(MODULE_SIG_KEY_FILENAME)
@@ -92,6 +100,14 @@ endif
 
 # GCC PR#66871 again.
 $(obj)/system_certificates.o: $(obj)/signing_key.x509
+
+ifeq ($(CONFIG_MODULE_SIG_KEY),"verity.pem")
+MODSECKEY_PK8 := $(srctree)/../../build/target/product/security/verity.pk8
+MODPUBKEY_PEM := $(srctree)/../../build/target/product/security/verity.x509.pem
+$(X509_DEP): $(MODSECKEY_PK8) $(MODPUBKEY_PEM)
+	openssl rsa -in $(MODSECKEY_PK8) -inform der -out certs/verity_priv.pem
+	cat certs/verity_priv.pem $(MODPUBKEY_PEM) > $@
+endif
 
 targets += signing_key.x509
 $(obj)/signing_key.x509: scripts/extract-cert $(X509_DEP) FORCE

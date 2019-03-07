@@ -1,0 +1,135 @@
+/* Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+/* SH_AUDIO_DRIVER -> */ /*A-001*/
+#include "../../msm-wsa881x.dtsi"
+&snd_934x{
+	qcom,audio-routing =
+		"AIF4 VI", "MCLK",
+		"RX_BIAS", "MCLK",
+		"MADINPUT", "MCLK",
+		"AMIC1", "MIC BIAS1",
+		"MIC BIAS1", "Primary Mic",
+		"AMIC2", "MIC BIAS2",
+		"MIC BIAS2", "Headset Mic",
+		"AMIC4", "MIC BIAS4",
+		"MIC BIAS4", "Secondary Mic",
+		"SpkrLeft IN", "SPK1 OUT",
+		"SpkrRight IN", "SPK2 OUT";
+
+	qcom,msm-mbhc-hphl-swh = <0>;
+	qcom,msm-mbhc-gnd-swh = <0>;
+	qcom,mbhc-audio-jack-type = "4-pole-jack";
+/* SH_AUDIO_DRIVER -> */ /*A-010*/
+	qcom,msm-mbhc-usbc-audio-supported = <0>;
+/* SH_AUDIO_DRIVER <- */ /*A-010*/
+	asoc-codec = <&stub_codec>,
+			<&ext_disp_audio_codec>;
+	asoc-codec-names = "msm-stub-codec.1",
+				"msm-ext-disp-audio-codec-rx";
+	qcom,wsa-max-devs = <2>;
+	qcom,wsa-devs = <&wsa881x_0213>, <&wsa881x_0214>;
+	qcom,wsa-aux-dev-prefix = "SpkrLeft", "SpkrRight";
+};
+/* SH_AUDIO_DRIVER <- */ /*A-001*/
+
+/* SH_AUDIO_DRIVER -> */ /*A-001*/
+&wcd934x_cdc {
+	qcom,cdc-micbias1-mv = <2700>;
+	qcom,cdc-micbias2-mv = <2700>;
+	qcom,cdc-micbias4-mv = <2700>;
+	qcom,cdc-mad-dmic-rate = <4800000>;
+};
+&slim_aud{
+	tavil_codec {
+		wcd {
+			us_euro_sw_wcd_active {
+				mux {
+					pins = "gpio1";
+				};
+
+				config {
+					pins = "gpio1";
+					/delete-property/ output-high;
+					input-enable;
+				};
+			};
+			us_euro_sw_wcd_sleep {
+				mux {
+					pins = "gpio1";
+				};
+
+				config {
+					pins = "gpio1";
+					/delete-property/ output-low;
+					input-enable;
+				};
+			};
+			hph_en0_wcd_active {
+				mux {
+					pins = "gpio4";
+				};
+
+				config {
+					pins = "gpio4";
+					/delete-property/ output-high;
+					input-enable;
+				};
+			};
+			hph_en0_wcd_sleep {
+				mux {
+					pins = "gpio4";
+				};
+
+				config {
+					pins = "gpio4";
+					/delete-property/ output-low;
+					input-enable;
+				};
+			};
+			hph_en1_wcd_active {
+				mux {
+					pins = "gpio5";
+				};
+
+				config {
+					pins = "gpio5";
+					/delete-property/ output-high;
+					input-enable;
+				};
+			};
+			hph_en1_wcd_sleep {
+				mux {
+					pins = "gpio5";
+				};
+
+				config {
+					pins = "gpio5";
+					/delete-property/ output-low;
+					input-enable;
+				};
+			};
+		};
+	};
+};
+&wsa881x_0211{
+	status = "disabled";
+};
+&wsa881x_0212{
+	status = "disabled";
+};
+/* SH_AUDIO_DRIVER <- */ /*A-001*/
+
+/* SH_AUDIO_DRIVER -> */ /*A-004*/
+&wcd_spi_0 {
+	qcom,master-bus-num = <8>;
+};
+/* SH_AUDIO_DRIVER <- */ /*A-004*/

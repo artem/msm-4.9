@@ -833,7 +833,15 @@ static struct clk_rcg2 cam_cc_lrme_clk_src = {
 };
 
 static const struct freq_tbl ftbl_cam_cc_mclk0_clk_src[] = {
+/* SHLOCAL_CAMERA_DRIVERS-> */
+	F(6000000, P_CAM_CC_PLL0_OUT_EVEN, 10, 1, 10),
+	F(6060606,  P_CAM_CC_PLL0_OUT_EVEN, 1, 1, 99),
+	F(6250000,  P_CAM_CC_PLL0_OUT_EVEN, 1, 1, 96),
+/* SHLOCAL_CAMERA_DRIVERS<- */
 	F(8000000, P_CAM_CC_PLL2_OUT_EVEN, 10, 1, 6),
+/* SHLOCAL_CAMERA_DRIVERS-> */
+	F(10000000, P_CAM_CC_PLL0_OUT_EVEN, 6, 1, 10),
+/* SHLOCAL_CAMERA_DRIVERS<- */
 	F(19200000, P_BI_TCXO, 1, 0, 0),
 	F(24000000, P_CAM_CC_PLL2_OUT_EVEN, 10, 1, 2),
 	F(33333333, P_CAM_CC_PLL0_OUT_EVEN, 2, 1, 9),

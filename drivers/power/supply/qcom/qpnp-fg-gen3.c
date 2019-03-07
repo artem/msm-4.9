@@ -19,6 +19,10 @@
 #include <linux/of_batterydata.h>
 #include <linux/platform_device.h>
 #include <linux/thermal.h>
+#ifdef CONFIG_BATTERY_SHARP
+#include <linux/rtc.h>
+#include <linux/cpufreq.h>
+#endif /* CONFIG_BATTERY_SHARP */
 #include <linux/iio/consumer.h>
 #include <linux/qpnp/qpnp-revid.h>
 #include "fg-core.h"
@@ -38,6 +42,10 @@
 #define SLOPE_LIMIT_OFFSET		0
 #define CUTOFF_CURR_WORD		4
 #define CUTOFF_CURR_OFFSET		0
+#ifdef CONFIG_BATTERY_SHARP
+#define IBATT_CUTOFF_WORD		4
+#define IBATT_CUTOFF_OFFSET		0
+#endif /* CONFIG_BATTERY_SHARP */
 #define CUTOFF_VOLT_WORD		5
 #define CUTOFF_VOLT_OFFSET		0
 #define SYS_TERM_CURR_WORD		6
@@ -248,6 +256,10 @@ static struct fg_sram_param pmi8998_v1_sram_params[] = {
 		1, 512, 1000000, 0, fg_encode_default, NULL),
 	PARAM(SLOPE_LIMIT, SLOPE_LIMIT_WORD, SLOPE_LIMIT_OFFSET, 1, 8192, 1000,
 		0, fg_encode_default, NULL),
+#ifdef CONFIG_BATTERY_SHARP
+	PARAM(IBATT_CUTOFF, IBATT_CUTOFF_WORD, IBATT_CUTOFF_OFFSET, 3,
+		1, 1, 0, fg_encode_current, NULL),
+#endif /* CONFIG_BATTERY_SHARP */
 };
 
 static struct fg_sram_param pmi8998_v2_sram_params[] = {
@@ -336,6 +348,10 @@ static struct fg_sram_param pmi8998_v2_sram_params[] = {
 		1, 512, 1000000, 0, fg_encode_default, NULL),
 	PARAM(SLOPE_LIMIT, SLOPE_LIMIT_WORD, SLOPE_LIMIT_OFFSET, 1, 8192, 1000,
 		0, fg_encode_default, NULL),
+#ifdef CONFIG_BATTERY_SHARP
+	PARAM(IBATT_CUTOFF, IBATT_CUTOFF_WORD, IBATT_CUTOFF_OFFSET, 3,
+		1, 1, 0, fg_encode_current, NULL),
+#endif /* CONFIG_BATTERY_SHARP */
 };
 
 static struct fg_alg_flag pmi8998_v1_alg_flags[] = {
@@ -413,6 +429,18 @@ static int fg_sram_dump_period_ms = 20000;
 module_param_named(
 	sram_dump_period_ms, fg_sram_dump_period_ms, int, 0600
 );
+
+#ifdef CONFIG_BATTERY_SHARP
+static int fg_sram_update_period_ms = 30000;
+module_param_named(
+	sram_update_period_ms, fg_sram_update_period_ms, int, S_IRUSR | S_IWUSR
+);
+
+static int fg_cancel_full_capacity = 99;
+//module_param_named(
+//	cancel_full_cap, fg_cancel_full_capacity, int, S_IRUSR | S_IWUSR
+//);
+#endif /* CONFIG_BATTERY_SHARP */
 
 static int fg_restart;
 static bool fg_sram_dump;
@@ -998,6 +1026,9 @@ static int fg_get_batt_profile(struct fg_chip *chip)
 	struct device_node *batt_node, *profile_node;
 	const char *data;
 	int rc, len;
+#ifdef CONFIG_BATTERY_SHARP
+	const char *batt_type;
+#endif /* CONFIG_BATTERY_SHARP */
 
 	batt_node = of_find_node_by_name(node, "qcom,battery-data");
 	if (!batt_node) {
@@ -1005,8 +1036,14 @@ static int fg_get_batt_profile(struct fg_chip *chip)
 		return -ENXIO;
 	}
 
+#ifdef CONFIG_BATTERY_SHARP
+	batt_type = "sharp";
+	profile_node = of_batterydata_get_best_profile(batt_node,
+				chip->batt_id_ohms / 1000, batt_type);
+#else
 	profile_node = of_batterydata_get_best_profile(batt_node,
 				chip->batt_id_ohms / 1000, NULL);
+#endif /* CONFIG_BATTERY_SHARP */
 	if (IS_ERR(profile_node))
 		return PTR_ERR(profile_node);
 
@@ -1043,6 +1080,15 @@ static int fg_get_batt_profile(struct fg_chip *chip)
 		chip->bp.vbatt_full_mv = -EINVAL;
 	}
 
+#ifdef CONFIG_BATTERY_SHARP
+	rc = of_property_read_u32(profile_node, "qcom,nom-batt-capacity-mah",
+			&chip->bp.nom_batt_cap_mah);
+	if (rc < 0) {
+		pr_err("battery nominal capacity unavailable, rc:%d\n", rc);
+		chip->bp.nom_batt_cap_mah = -EINVAL;
+	}
+#endif /* CONFIG_BATTERY_SHARP */
+
 	data = of_get_property(profile_node, "qcom,fg-profile-data", &len);
 	if (!data) {
 		pr_err("No profile data available\n");
@@ -1059,6 +1105,31 @@ static int fg_get_batt_profile(struct fg_chip *chip)
 
 	return 0;
 }
+
+#ifdef CONFIG_BATTERY_SHARP
+static int sh_fg_get_skin_temp(struct fg_chip *chip, int *val)
+{
+	int rc, temp = -EINVAL;
+	static int prev_temp = -EINVAL;
+
+	if (!chip->skin_temp_chan)
+		return -EINVAL;
+
+	rc = iio_read_channel_processed(chip->skin_temp_chan, &temp);
+	if (rc < 0) {
+		pr_err("Error in reading skin_temp channel, rc:%d set previous temperature:%d\n", rc, prev_temp);
+		*val = prev_temp;
+		return 0;
+	}
+
+	fg_dbg(chip, FG_STATUS, "skin_temp: %d\n", temp);
+
+	*val = temp;
+	prev_temp = temp;
+
+	return 0;
+}
+#endif /* CONFIG_BATTERY_SHARP */
 
 static inline void get_batt_temp_delta(int delta, u8 *val)
 {
@@ -1411,7 +1482,32 @@ static void fg_cap_learning_post_process(struct fg_chip *chip)
 {
 	int64_t max_inc_val, min_dec_val, old_cap;
 	int rc;
+#ifdef CONFIG_BATTERY_SHARP
+	static bool set_once = false;
 
+	if(set_once)
+	{
+		max_inc_val = chip->cl.learned_cc_uah
+				* (1000 + chip->dt.cl_max_cap_inc_2nd);
+		do_div(max_inc_val, 1000);
+
+		min_dec_val = chip->cl.learned_cc_uah
+				* (1000 - chip->dt.cl_max_cap_dec_2nd);
+		do_div(min_dec_val, 1000);
+	}
+	else
+	{
+		max_inc_val = chip->cl.learned_cc_uah
+				* (1000 + chip->dt.cl_max_cap_inc);
+		do_div(max_inc_val, 1000);
+
+		min_dec_val = chip->cl.learned_cc_uah
+				* (1000 - chip->dt.cl_max_cap_dec);
+		do_div(min_dec_val, 1000);
+
+		set_once = true;
+	}
+#else /* CONFIG_BATTERY_SHARP */
 	if (is_qnovo_en(chip)) {
 		fg_dbg(chip, FG_CAP_LEARN, "applying skew %d on current learnt capacity %lld\n",
 			QNOVO_CL_SKEW_DECIPCT, chip->cl.final_cc_uah);
@@ -1427,6 +1523,7 @@ static void fg_cap_learning_post_process(struct fg_chip *chip)
 	min_dec_val = chip->cl.learned_cc_uah
 			* (1000 - chip->dt.cl_max_cap_dec);
 	min_dec_val = div64_u64(min_dec_val, 1000);
+#endif /* CONFIG_BATTERY_SHARP */
 
 	old_cap = chip->cl.learned_cc_uah;
 	if (chip->cl.final_cc_uah > max_inc_val)
@@ -1483,7 +1580,11 @@ static int fg_cap_learning_process_full_data(struct fg_chip *chip)
 			CC_SOC_30BIT);
 
 	/* If the delta is < 50%, then skip processing full data */
+#ifdef CONFIG_BATTERY_SHARP
+	if (cc_soc_delta_pct < 30) {
+#else
 	if (cc_soc_delta_pct < 50) {
+#endif /* CONFIG_BATTERY_SHARP */
 		pr_err("cc_soc_delta_pct: %d\n", cc_soc_delta_pct);
 		return -ERANGE;
 	}
@@ -1837,6 +1938,11 @@ static int fg_charge_full_update(struct fg_chip *chip)
 	}
 
 	chip->health = prop.intval;
+#ifdef CONFIG_BATTERY_SHARP
+	if(!is_input_present(chip))
+		recharge_soc = fg_cancel_full_capacity;
+	else
+#endif /* CONFIG_BATTERY_SHARP */
 	recharge_soc = chip->dt.recharge_soc_thr;
 	recharge_soc = DIV_ROUND_CLOSEST(recharge_soc * FULL_SOC_RAW,
 				FULL_CAPACITY);
@@ -1855,11 +1961,18 @@ static int fg_charge_full_update(struct fg_chip *chip)
 	}
 	msoc = DIV_ROUND_CLOSEST(msoc_raw * FULL_CAPACITY, FULL_SOC_RAW);
 
+#ifdef CONFIG_BATTERY_SHARP
+	fg_dbg(chip, FG_STATUS, "recharge: %d, input: %d\n", recharge_soc, is_input_present(chip));
+#endif /* CONFIG_BATTERY_SHARP */
 	fg_dbg(chip, FG_STATUS, "msoc: %d bsoc: %x health: %d status: %d full: %d\n",
 		msoc, bsoc, chip->health, chip->charge_status,
 		chip->charge_full);
 	if (chip->charge_done && !chip->charge_full) {
+#ifdef CONFIG_BATTERY_SHARP
+		if (msoc >= 97 && (chip->health == POWER_SUPPLY_HEALTH_GOOD || chip->health == POWER_SUPPLY_HEALTH_COOL)){
+#else
 		if (msoc >= 99 && chip->health == POWER_SUPPLY_HEALTH_GOOD) {
+#endif /* CONFIG_BATTERY_SHARP */
 			fg_dbg(chip, FG_STATUS, "Setting charge_full to true\n");
 			chip->charge_full = true;
 			/*
@@ -1877,7 +1990,11 @@ static int fg_charge_full_update(struct fg_chip *chip)
 			fg_dbg(chip, FG_STATUS, "Terminated charging @ SOC%d\n",
 				msoc);
 		}
+#ifdef CONFIG_BATTERY_SHARP
+	} else if (msoc_raw <= recharge_soc
+#else
 	} else if ((msoc_raw <= recharge_soc || !chip->charge_done)
+#endif /* CONFIG_BATTERY_SHARP */
 			&& chip->charge_full) {
 		if (chip->dt.linearize_soc) {
 			chip->delta_soc = FULL_CAPACITY - msoc;
@@ -2136,6 +2253,10 @@ static int fg_adjust_recharge_soc(struct fg_chip *chip)
 				return 0;
 			}
 		} else {
+#ifdef CONFIG_BATTERY_SHARP
+			/* Charging, do nothing */
+			return 0;
+#else
 			if (!chip->recharge_soc_adjusted)
 				return 0;
 
@@ -2145,6 +2266,7 @@ static int fg_adjust_recharge_soc(struct fg_chip *chip)
 			/* Restore the default value */
 			new_recharge_soc = recharge_soc;
 			chip->recharge_soc_adjusted = false;
+#endif /* CONFIG_BATTERY_SHARP */
 		}
 	} else {
 		/* Restore the default value */
@@ -2746,12 +2868,20 @@ static const char *fg_get_cycle_count(struct fg_chip *chip)
 	return buf;
 }
 
+#ifdef CONFIG_BATTERY_SHARP
+#define CC_SOC_AUTO_CLEAR_WORD        19
+#define CC_SOC_AUTO_CLEAR_OFFSET    0
+#define CC_SOC_AUTO_CLEAR_BIT        BIT(3)
+#endif /* CONFIG_BATTERY_SHARP */
 static void status_change_work(struct work_struct *work)
 {
 	struct fg_chip *chip = container_of(work,
 			struct fg_chip, status_change_work);
 	union power_supply_propval prop = {0, };
 	int rc, batt_temp;
+#ifdef CONFIG_BATTERY_SHARP
+	u8 val;
+#endif /* CONFIG_BATTERY_SHARP */
 
 	if (!batt_psy_initialized(chip)) {
 		fg_dbg(chip, FG_STATUS, "Charger not available?!\n");
@@ -2824,6 +2954,30 @@ static void status_change_work(struct work_struct *work)
 	}
 
 	fg_ttf_update(chip);
+
+#ifdef CONFIG_BATTERY_SHARP
+	if(chip->prev_charge_status == POWER_SUPPLY_STATUS_DISCHARGING && chip->charge_status == POWER_SUPPLY_STATUS_CHARGING)
+	{
+		rc = fg_sram_read(chip, CC_SOC_AUTO_CLEAR_WORD, CC_SOC_AUTO_CLEAR_OFFSET, &val, 1, FG_IMA_DEFAULT);
+		if(rc < 0)
+			pr_err("failed to read cc_soc auto clear rc=%d\n", rc);
+		else
+		{
+			fg_dbg(chip, FG_STATUS, "CC_SOC auto clear=0x%x\n", val);
+			if(val & CC_SOC_AUTO_CLEAR_BIT)
+				fg_dbg(chip, FG_STATUS, "CC_SOC auto clear bit is set, OK.\n");
+			else
+			{
+				fg_dbg(chip, FG_STATUS, "CC_SOC auto clear bit is not set, set it.\n");
+				val |= CC_SOC_AUTO_CLEAR_BIT;
+				rc = fg_sram_write(chip, CC_SOC_AUTO_CLEAR_WORD, CC_SOC_AUTO_CLEAR_OFFSET, &val, 1, FG_IMA_DEFAULT);
+				if(rc < 0)
+				    pr_err("Error in writing CC SOC AUTO CLEAR, rc=%d\n", rc);
+			}
+		}
+	}
+#endif /* CONFIG_BATTERY_SHARP */
+
 	chip->prev_charge_status = chip->charge_status;
 out:
 	fg_dbg(chip, FG_STATUS, "charge_status:%d charge_type:%d charge_done:%d\n",
@@ -3221,6 +3375,112 @@ static struct kernel_param_ops fg_sram_dump_ops = {
 };
 
 module_param_cb(sram_dump_en, &fg_sram_dump_ops, &fg_sram_dump, 0644);
+
+#ifdef CONFIG_BATTERY_SHARP
+static int get_current_time(unsigned long *now_tm_sec)
+{
+	struct rtc_time tm;
+	struct rtc_device *rtc;
+	int rc;
+
+	rtc = rtc_class_open(CONFIG_RTC_HCTOSYS_DEVICE);
+	if (rtc == NULL) {
+		pr_err("%s: unable to open rtc device (%s)\n",
+			__FILE__, CONFIG_RTC_HCTOSYS_DEVICE);
+		return -EINVAL;
+	}
+
+	rc = rtc_read_time(rtc, &tm);
+	if (rc) {
+		pr_err("Error reading rtc device (%s) : %d\n",
+			CONFIG_RTC_HCTOSYS_DEVICE, rc);
+		goto close_time;
+	}
+
+	rc = rtc_valid_tm(&tm);
+	if (rc) {
+		pr_err("Invalid RTC time (%s): %d\n",
+			CONFIG_RTC_HCTOSYS_DEVICE, rc);
+		goto close_time;
+	}
+	rtc_tm_to_time(&tm, now_tm_sec);
+
+close_time:
+	rtc_class_close(rtc);
+	return rc;
+}
+
+#define CC_SOC_MOV_AVG_SAMPLE	1
+#define SH_CALC_CURRENT_AVG(cc_soc, update_time) div64_s64((div64_s64(cc_soc * chip->cl.nom_cap_uah, CC_SOC_30BIT) * 3600), update_time)
+static void update_current_avg(struct fg_chip *chip)
+{
+	int i, rc = 0;
+	static int pre_cc_soc = 0;
+	static int delta_cc_soc[CC_SOC_MOV_AVG_SAMPLE] = {0};
+	static unsigned long pre_update_time = 0;
+	static unsigned long delta_update_time[CC_SOC_MOV_AVG_SAMPLE] = {0};
+	static int cur_index = 0;
+	static bool call_once = true;
+	int temp_delta_cc_soc = 0;
+	unsigned long temp_delta_update_time = 0;
+	int64_t sum_cc_soc = 0;
+	int64_t sum_update_time = 0;
+	int cc_soc;
+	int temp_current;
+
+	mutex_lock(&chip->current_avg_lock);
+
+	rc = fg_get_sram_prop(chip, FG_SRAM_CC_SOC, &cc_soc);
+	if (!rc) pr_info("cc_soc:%d, nom_cap_uah:%lld, --> %d%%\n", cc_soc, chip->cl.nom_cap_uah, (int)div64_s64((int64_t)cc_soc * 100, CC_SOC_30BIT));
+
+	if (!rc) {
+		if (!call_once) {
+			temp_delta_cc_soc = pre_cc_soc - cc_soc;
+			temp_delta_update_time = chip->last_current_avg_update_time - pre_update_time;
+
+			delta_cc_soc[cur_index] = temp_delta_cc_soc;
+			delta_update_time[cur_index] = temp_delta_update_time;
+			for (i = 0; i < CC_SOC_MOV_AVG_SAMPLE; i++) {
+				sum_update_time += delta_update_time[i];
+				sum_cc_soc += delta_cc_soc[i];
+				pr_debug("cc_soc:delta_update_time[%d]:%lu, delta_cc_soc[%d]:%d\n", i, delta_update_time[i], i, delta_cc_soc[i]);
+			}
+
+			if (sum_update_time != 0) {
+				chip->current_avg = SH_CALC_CURRENT_AVG(sum_cc_soc, sum_update_time);
+				pr_info("cc_soc: sum_update_time:%lld, sum_cc_soc:%lld, current_avg:%lld\n", sum_update_time, sum_cc_soc, chip->current_avg);
+			} else {
+				pr_info("cc_soc: current_avg is not update.\n");
+			}
+		} else {
+			fg_get_battery_current(chip, &temp_current);
+			chip->current_avg = temp_current;
+			if (cur_index >= (CC_SOC_MOV_AVG_SAMPLE-1)) call_once = false;
+			pr_info("cc_soc: current-->current_avg:%lld\n", chip->current_avg);
+		}
+		cur_index++;
+		if (cur_index >= CC_SOC_MOV_AVG_SAMPLE) cur_index = 0;
+		pre_cc_soc = cc_soc;
+		pre_update_time = chip->last_current_avg_update_time;
+		get_current_time(&chip->last_current_avg_update_time);
+	}
+
+	mutex_unlock(&chip->current_avg_lock);
+}
+
+static void update_current_avg_work(struct work_struct *work)
+{
+	struct fg_chip *chip = container_of(work,
+				struct fg_chip,
+				update_current_avg_work.work);
+
+	update_current_avg(chip);
+
+	schedule_delayed_work(
+		&chip->update_current_avg_work,
+		msecs_to_jiffies(fg_sram_update_period_ms));
+}
+#endif /* CONFIG_BATTERY_SHARP */
 
 static int fg_restart_sysfs(const char *val, const struct kernel_param *kp)
 {
@@ -3917,6 +4177,17 @@ static int fg_psy_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CC_STEP_SEL:
 		pval->intval = chip->ttf.cc_step.sel;
 		break;
+#ifdef CONFIG_BATTERY_SHARP
+	case POWER_SUPPLY_PROP_SKIN_TEMP:
+		rc = sh_fg_get_skin_temp(chip, &pval->intval);
+		break;
+	case POWER_SUPPLY_PROP_CURRENT_AVG:
+		pval->intval = chip->current_avg;
+		break;
+	case POWER_SUPPLY_PROP_BATTERY_FULL_DESIGN:
+		pval->intval = chip->bp.nom_batt_cap_mah;
+		break;
+#endif /* CONFIG_BATTERY_SHARP */
 	default:
 		pr_err("unsupported property %d\n", psp);
 		rc = -EINVAL;
@@ -4074,6 +4345,41 @@ static int fg_notifier_cb(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
+#ifdef CONFIG_BATTERY_SHARP
+static DEFINE_PER_CPU(unsigned int, limit_freq) = UINT_MAX;
+static DEFINE_PER_CPU(unsigned int, pre_limit_freq) = UINT_MAX;
+static int limit_lock_callback(struct notifier_block *nb, unsigned long event, void *data)
+{
+	struct cpufreq_policy *policy = (struct cpufreq_policy*)data;
+	int cpu;
+
+	for_each_possible_cpu(cpu) {
+		if (per_cpu(limit_freq, cpu) != per_cpu(pre_limit_freq, cpu)) {
+			pr_debug("limit lock callback event=%lu\n", event);
+			pr_debug("CPU%d limit_freq=%u\n", cpu, per_cpu(limit_freq, cpu));
+			per_cpu(pre_limit_freq, cpu) = per_cpu(limit_freq, cpu);
+		}
+	}
+
+	switch(event)
+	{
+		case CPUFREQ_INCOMPATIBLE:
+			cpufreq_verify_within_limits(policy, 0, per_cpu(limit_freq, policy->cpu));
+			break;
+		default:
+			/* nothing todo.*/
+			break;
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block limit_lock_notifier =
+{
+	.notifier_call = limit_lock_callback,
+};
+#endif /* CONFIG_BATTERY_SHARP */
+
 static enum power_supply_property fg_psy_props[] = {
 	POWER_SUPPLY_PROP_CAPACITY,
 	POWER_SUPPLY_PROP_CAPACITY_RAW,
@@ -4103,6 +4409,11 @@ static enum power_supply_property fg_psy_props[] = {
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE,
 	POWER_SUPPLY_PROP_CC_STEP,
 	POWER_SUPPLY_PROP_CC_STEP_SEL,
+#ifdef CONFIG_BATTERY_SHARP
+	POWER_SUPPLY_PROP_SKIN_TEMP,
+	POWER_SUPPLY_PROP_CURRENT_AVG,
+	POWER_SUPPLY_PROP_BATTERY_FULL_DESIGN,
+#endif /* CONFIG_BATTERY_SHARP */
 };
 
 static const struct power_supply_desc fg_psy_desc = {
@@ -4120,10 +4431,17 @@ static const struct power_supply_desc fg_psy_desc = {
 
 #define DEFAULT_ESR_CHG_TIMER_RETRY	8
 #define DEFAULT_ESR_CHG_TIMER_MAX	16
+#ifdef CONFIG_BATTERY_SHARP
+#define DEFAULT_SHBATT_IBATT_CUTOFF 2867
+#endif /* CONFIG_BATTERY_SHARP */
 static int fg_hw_init(struct fg_chip *chip)
 {
 	int rc;
 	u8 buf[4], val;
+#ifdef CONFIG_BATTERY_SHARP
+	u32 temp;
+	struct device_node *node = chip->dev->of_node;
+#endif /* CONFIG_BATTERY_SHARP */
 
 	fg_encode(chip->sp, FG_SRAM_CUTOFF_VOLT, chip->dt.cutoff_volt_mv, buf);
 	rc = fg_sram_write(chip, chip->sp[FG_SRAM_CUTOFF_VOLT].addr_word,
@@ -4202,8 +4520,12 @@ static int fg_hw_init(struct fg_chip *chip)
 	}
 
 	if (chip->dt.delta_soc_thr > 0 && chip->dt.delta_soc_thr < 100) {
+#ifdef CONFIG_BATTERY_SHARP
+		buf[0] = chip->dt.delta_soc_thr;
+#else /* CONFIG_BATTERY_SHARP */
 		fg_encode(chip->sp, FG_SRAM_DELTA_MSOC_THR,
 			chip->dt.delta_soc_thr, buf);
+#endif /* CONFIG_BATTERY_SHARP */
 		rc = fg_sram_write(chip,
 				chip->sp[FG_SRAM_DELTA_MSOC_THR].addr_word,
 				chip->sp[FG_SRAM_DELTA_MSOC_THR].addr_byte,
@@ -4214,8 +4536,12 @@ static int fg_hw_init(struct fg_chip *chip)
 			return rc;
 		}
 
+#ifdef CONFIG_BATTERY_SHARP
+		buf[0] = chip->dt.delta_soc_thr;
+#else /* CONFIG_BATTERY_SHARP */
 		fg_encode(chip->sp, FG_SRAM_DELTA_BSOC_THR,
 			chip->dt.delta_soc_thr, buf);
+#endif /* CONFIG_BATTERY_SHARP */
 		rc = fg_sram_write(chip,
 				chip->sp[FG_SRAM_DELTA_BSOC_THR].addr_word,
 				chip->sp[FG_SRAM_DELTA_BSOC_THR].addr_byte,
@@ -4259,6 +4585,24 @@ static int fg_hw_init(struct fg_chip *chip)
 			return rc;
 		}
 	}
+
+#ifdef CONFIG_BATTERY_SHARP
+	/* Expressly set recharge voltage one time */
+	if(chip->dt.auto_recharge_soc)
+	{
+		fg_dbg(chip, FG_STATUS, "Setting recharge voltage to %dmV\n", chip->dt.recharge_volt_thr_mv);
+		fg_encode(chip->sp, FG_SRAM_RECHARGE_VBATT_THR, chip->dt.recharge_volt_thr_mv, &val);
+		rc = fg_sram_write(chip,
+				chip->sp[FG_SRAM_RECHARGE_VBATT_THR].addr_word,
+				chip->sp[FG_SRAM_RECHARGE_VBATT_THR].addr_byte,
+				&val, chip->sp[FG_SRAM_RECHARGE_VBATT_THR].len,
+				FG_IMA_DEFAULT);
+		if (rc < 0) {
+			pr_err("Error in writing recharge_vbatt_thr, rc=%d\n", rc);
+			return rc;
+		}
+	}
+#endif /* CONFIG_BATTERY_SHARP */
 
 	if (chip->dt.rsense_sel >= SRC_SEL_BATFET &&
 			chip->dt.rsense_sel < SRC_SEL_RESERVED) {
@@ -4404,6 +4748,22 @@ static int fg_hw_init(struct fg_chip *chip)
 			return rc;
 		}
 	}
+
+#ifdef CONFIG_BATTERY_SHARP
+	rc = of_property_read_u32(node, "qcom,ibatt-cutoff", &temp);
+
+	if (rc < 0)
+		chip->dt.ibatt_cutoff = DEFAULT_SHBATT_IBATT_CUTOFF;
+	else
+		chip->dt.ibatt_cutoff = temp;
+
+	fg_encode(chip->sp, FG_SRAM_IBATT_CUTOFF, chip->dt.ibatt_cutoff,buf);
+	rc = fg_sram_write(chip,
+			chip->sp[FG_SRAM_IBATT_CUTOFF].addr_word,
+			chip->sp[FG_SRAM_IBATT_CUTOFF].addr_byte, buf,
+			chip->sp[FG_SRAM_IBATT_CUTOFF].len,
+			FG_IMA_DEFAULT);
+#endif /* CONFIG_BATTERY_SHARP */
 
 	return 0;
 }
@@ -4648,11 +5008,59 @@ static irqreturn_t fg_delta_msoc_irq_handler(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+#ifdef CONFIG_BATTERY_SHARP
+#define DEFAULT_CPUFREQ_SILVER_SOC_EMPTY_CLOCK_LIMIT 	1132800	/* silver(CPU0~CPU3): */
+#define DEFAULT_CPUFREQ_GOLD_SOC_EMPTY_CLOCK_LIMIT 		1132800	/* gold(CPU4~CPU7): */
+void cpu_clock_limit_lock(struct fg_chip *chip)
+{
+	int cpu;
+
+	dev_dbg(chip->dev, "%s\n",__func__);
+
+	for_each_possible_cpu(cpu) {
+		if (cpu <= 3) {
+			per_cpu(limit_freq, cpu) = chip->dt.empty_soc_silver_freq_khz;
+		}
+		if (cpu >= 4) {
+			per_cpu(limit_freq, cpu) = chip->dt.empty_soc_gold_freq_khz;
+		}
+	}
+	sh_cpufreq_update_policy_try();
+}
+
+void cpu_clock_limit_unlock(struct fg_chip *chip)
+{
+	int cpu;
+
+	dev_dbg(chip->dev, "%s\n",__func__);
+
+	for_each_possible_cpu(cpu) {
+		if (cpu <= 3) {
+			per_cpu(limit_freq, cpu) = UINT_MAX;
+		}
+		if (cpu >= 4) {
+			per_cpu(limit_freq, cpu) = UINT_MAX;
+		}
+	}
+
+//	sh_cpufreq_update_policy_try();
+}
+#endif /* CONFIG_BATTERY_SHARP */
+
 static irqreturn_t fg_empty_soc_irq_handler(int irq, void *data)
 {
 	struct fg_chip *chip = data;
 
 	fg_dbg(chip, FG_IRQ, "irq %d triggered\n", irq);
+
+#ifdef CONFIG_BATTERY_SHARP
+	if (is_batt_empty(chip)) {
+		cpu_clock_limit_lock(chip);
+	} else {
+		cpu_clock_limit_unlock(chip);
+	}
+#endif /* CONFIG_BATTERY_SHARP */
+
 	if (batt_psy_initialized(chip))
 		power_supply_changed(chip->batt_psy);
 
@@ -5019,6 +5427,18 @@ static int fg_parse_dt(struct fg_chip *chip)
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_BATTERY_SHARP
+	chip->skin_temp_chan = iio_channel_get(chip->dev, "skin_temp");
+	if (IS_ERR(chip->skin_temp_chan)) {
+		if (PTR_ERR(chip->skin_temp_chan) != -EPROBE_DEFER)
+			pr_err("skin_temp_chan unavailable %ld\n",
+				PTR_ERR(chip->skin_temp_chan));
+		rc = PTR_ERR(chip->skin_temp_chan);
+		chip->skin_temp_chan = NULL;
+		return rc;
+	}
+#endif /* CONFIG_BATTERY_SHARP */
+
 	if (of_get_available_child_count(node) == 0) {
 		dev_err(chip->dev, "No child nodes specified!\n");
 		return -ENXIO;
@@ -5342,6 +5762,32 @@ static int fg_parse_dt(struct fg_chip *chip)
 			chip->dt.bmd_en_delay_ms = temp;
 	}
 
+#ifdef CONFIG_BATTERY_SHARP
+	rc = of_property_read_u32(node, "qcom,cl-max-increment-2nd", &temp);
+	if (rc < 0)
+		chip->dt.cl_max_cap_inc_2nd = DEFAULT_CL_MAX_INC_DECIPERC;
+	else
+		chip->dt.cl_max_cap_inc_2nd = temp;
+
+	rc = of_property_read_u32(node, "qcom,cl-max-decrement-2nd", &temp);
+	if (rc < 0)
+		chip->dt.cl_max_cap_dec_2nd = DEFAULT_CL_MAX_DEC_DECIPERC;
+	else
+		chip->dt.cl_max_cap_dec_2nd = temp;
+
+	rc = of_property_read_u32(node, "qcom,empty-soc-silver-freq-khz", &temp);
+	if (rc < 0)
+		chip->dt.empty_soc_silver_freq_khz = DEFAULT_CPUFREQ_SILVER_SOC_EMPTY_CLOCK_LIMIT;
+	else
+		chip->dt.empty_soc_silver_freq_khz = temp;
+
+	rc = of_property_read_u32(node, "qcom,empty-soc-gold-freq-khz", &temp);
+	if (rc < 0)
+		chip->dt.empty_soc_gold_freq_khz = DEFAULT_CPUFREQ_GOLD_SOC_EMPTY_CLOCK_LIMIT;
+	else
+		chip->dt.empty_soc_gold_freq_khz = temp;
+#endif /* CONFIG_BATTERY_SHARP */
+
 	return 0;
 }
 
@@ -5368,6 +5814,13 @@ static void fg_cleanup(struct fg_chip *chip)
 
 	if (chip->batt_id_chan)
 		iio_channel_release(chip->batt_id_chan);
+
+#ifdef CONFIG_BATTERY_SHARP
+	if (chip->skin_temp_chan)
+		iio_channel_release(chip->skin_temp_chan);
+	if(cpufreq_unregister_notifier(&limit_lock_notifier, CPUFREQ_POLICY_NOTIFIER) != 0)
+		pr_err("%s: cpufreq_unregister_notifier failed.\n", __func__);
+#endif /* CONFIG_BATTERY_SHARP */
 
 	dev_set_drvdata(chip->dev, NULL);
 }
@@ -5444,6 +5897,18 @@ static int fg_gen3_probe(struct platform_device *pdev)
 		}
 	}
 
+#ifdef CONFIG_BATTERY_SHARP
+	chip->skin_temp_chan = iio_channel_get(chip->dev, "skin_temp");
+	if (IS_ERR(chip->skin_temp_chan)) {
+		if (PTR_ERR(chip->skin_temp_chan) != -EPROBE_DEFER)
+			pr_err("skin_temp_chan unavailable %ld\n",
+				PTR_ERR(chip->skin_temp_chan));
+		rc = PTR_ERR(chip->skin_temp_chan);
+		chip->skin_temp_chan = NULL;
+		return rc;
+	}
+#endif /* CONFIG_BATTERY_SHARP */
+
 	chip->pl_disable_votable = find_votable("PL_DISABLE");
 	if (chip->pl_disable_votable == NULL) {
 		rc = -EPROBE_DEFER;
@@ -5488,6 +5953,9 @@ static int fg_gen3_probe(struct platform_device *pdev)
 	mutex_init(&chip->cyc_ctr.lock);
 	mutex_init(&chip->cl.lock);
 	mutex_init(&chip->ttf.lock);
+#ifdef CONFIG_BATTERY_SHARP
+	mutex_init(&chip->current_avg_lock);
+#endif /* CONFIG_BATTERY_SHARP */
 	mutex_init(&chip->charge_full_lock);
 	mutex_init(&chip->qnovo_esr_ctrl_lock);
 	spin_lock_init(&chip->suspend_lock);
@@ -5495,6 +5963,9 @@ static int fg_gen3_probe(struct platform_device *pdev)
 	init_completion(&chip->soc_ready);
 	INIT_DELAYED_WORK(&chip->profile_load_work, profile_load_work);
 	INIT_DELAYED_WORK(&chip->pl_enable_work, pl_enable_work);
+#ifdef CONFIG_BATTERY_SHARP
+	INIT_DELAYED_WORK(&chip->update_current_avg_work, update_current_avg_work);
+#endif /* CONFIG_BATTERY_SHARP */
 	INIT_WORK(&chip->status_change_work, status_change_work);
 	INIT_DELAYED_WORK(&chip->ttf_work, ttf_work);
 	INIT_DELAYED_WORK(&chip->sram_dump_work, sram_dump_work);
@@ -5555,6 +6026,17 @@ static int fg_gen3_probe(struct platform_device *pdev)
 	/* Keep BATT_MISSING_IRQ disabled until we require it */
 	vote(chip->batt_miss_irq_en_votable, BATT_MISS_IRQ_VOTER, false, 0);
 
+#ifdef CONFIG_BATTERY_SHARP
+	if(cpufreq_register_notifier(&limit_lock_notifier, CPUFREQ_POLICY_NOTIFIER) != 0)
+	{
+		dev_err(chip->dev, "cpufreq_register_notifier failed.\n");
+	}
+	else
+	{
+		dev_dbg(chip->dev, "cpufreq_register_notifier succeeded.\n");
+	}
+#endif /* CONFIG_BATTERY_SHARP */
+
 	rc = fg_debugfs_create(chip);
 	if (rc < 0) {
 		dev_err(chip->dev, "Error in creating debugfs entries, rc:%d\n",
@@ -5589,6 +6071,11 @@ static int fg_gen3_probe(struct platform_device *pdev)
 	device_init_wakeup(chip->dev, true);
 	schedule_delayed_work(&chip->profile_load_work, 0);
 
+#ifdef CONFIG_BATTERY_SHARP
+	if (chip->last_current_avg_update_time == 0)
+		schedule_delayed_work(&chip->update_current_avg_work, 0);
+#endif /* CONFIG_BATTERY_SHARP */
+
 	pr_debug("FG GEN3 driver probed successfully\n");
 	return 0;
 exit:
@@ -5612,6 +6099,10 @@ static int fg_gen3_suspend(struct device *dev)
 	cancel_delayed_work_sync(&chip->ttf_work);
 	if (fg_sram_dump)
 		cancel_delayed_work_sync(&chip->sram_dump_work);
+#ifdef CONFIG_BATTERY_SHARP
+	cancel_delayed_work(&chip->update_current_avg_work);
+#endif /* CONFIG_BATTERY_SHARP */
+
 	return 0;
 }
 
@@ -5619,6 +6110,9 @@ static int fg_gen3_resume(struct device *dev)
 {
 	struct fg_chip *chip = dev_get_drvdata(dev);
 	int rc;
+#ifdef CONFIG_BATTERY_SHARP
+	unsigned long current_time = 0, next_update_time, time_left;
+#endif /* CONFIG_BATTERY_SHARP */
 
 	rc = fg_esr_timer_config(chip, false);
 	if (rc < 0)
@@ -5637,6 +6131,22 @@ static int fg_gen3_resume(struct device *dev)
 	spin_lock(&chip->suspend_lock);
 	chip->suspended = false;
 	spin_unlock(&chip->suspend_lock);
+
+#ifdef CONFIG_BATTERY_SHARP
+	cancel_delayed_work(&chip->update_current_avg_work);
+	get_current_time(&current_time);
+	next_update_time = chip->last_current_avg_update_time
+		+ (fg_sram_update_period_ms / 1000);
+
+	if (next_update_time > current_time)
+		time_left = next_update_time - current_time;
+	else
+		time_left = 0;
+
+	schedule_delayed_work(
+		&chip->update_current_avg_work,
+		msecs_to_jiffies(time_left * 1000));
+#endif /* CONFIG_BATTERY_SHARP */
 
 	return 0;
 }

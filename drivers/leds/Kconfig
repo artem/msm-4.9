@@ -733,6 +733,18 @@ config LEDS_QPNP_VIBRATOR
 	  manually or by the DTEST lines.It uses the android timed-output
 	  framework.
 
+config LEDS_SHARP_QPNP_HAPTIC
+	tristate "SHARP Haptic customize"
+	default n
+    help
+	  Say 'y' here if you want to enable the Haptic driver for the SHARP customize.
+
+config LEDS_SHARP
+	bool "SHARP LEDS DRIVER"
+	default n
+	help
+	  Say 'y' here if you want to enable the LEDS driver for the SHARP customize.
+
 comment "LED Triggers"
 source "drivers/leds/trigger/Kconfig"
 

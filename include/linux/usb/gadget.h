@@ -433,6 +433,10 @@ struct usb_gadget_ops {
 			struct usb_endpoint_descriptor *,
 			struct usb_ss_ep_comp_descriptor *);
 	int	(*restart)(struct usb_gadget *);
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+	int	(*is_selfpowered) (struct usb_gadget *);
+	int	(*set_fullspeed) (struct usb_gadget *, unsigned long);
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 };
 
 /**
@@ -682,6 +686,10 @@ int usb_gadget_connect(struct usb_gadget *gadget);
 int usb_gadget_disconnect(struct usb_gadget *gadget);
 int usb_gadget_deactivate(struct usb_gadget *gadget);
 int usb_gadget_activate(struct usb_gadget *gadget);
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+int usb_gadget_is_selfpowered(struct usb_gadget *gadget);
+int usb_gadget_force_fullspeed( struct usb_gadget *gadget );
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 #else
 static inline int usb_gadget_frame_number(struct usb_gadget *gadget)
 { return 0; }
@@ -705,6 +713,12 @@ static inline int usb_gadget_deactivate(struct usb_gadget *gadget)
 { return 0; }
 static inline int usb_gadget_activate(struct usb_gadget *gadget)
 { return 0; }
+#ifdef CONFIG_USB_ANDROID_SHARP_CUST
+static inline int usb_gadget_is_selfpowered(struct usb_gadget *gadget)
+{ return 0; }
+static inline int usb_gadget_force_fullspeed( struct usb_gadget *gadget )
+{ return 0; }
+#endif /* CONFIG_USB_ANDROID_SHARP_CUST */
 #endif /* CONFIG_USB_GADGET */
 
 /*-------------------------------------------------------------------------*/

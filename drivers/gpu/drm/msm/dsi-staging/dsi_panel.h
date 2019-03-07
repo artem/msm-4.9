@@ -127,6 +127,34 @@ enum esd_check_status_mode {
 	ESD_MODE_MAX
 };
 
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00014 */
+struct dsi_panel_gmm {
+	struct dsi_cmd_desc *panel_typ_cmds;
+	enum dsi_cmd_set_state state;
+	u32 count;
+};
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00057 */
+struct dsi_panel_linear_param {
+	int	x;
+	int	y;
+};
+
+struct dsi_panel_linear_params {
+	int	cnt;
+	struct dsi_panel_linear_param *param;
+};
+#endif /* CONFIG_SHARP_DISPLAY */
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00067 */
+struct dsi_panel_mfr_ctrl {
+	struct dsi_panel_cmd_set mfr_cmds;
+	int upper;
+	int lower;
+};
+#endif /* CONFIG_SHARP_DISPLAY */
+
 struct drm_panel_esd_config {
 	bool esd_enabled;
 	bool cmd_channel;
@@ -189,6 +217,26 @@ struct dsi_panel {
 	enum dsi_dms_mode dms_mode;
 
 	bool sync_broadcast_en;
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00011 */
+	struct clk * ext_clk;
+	int ext_clk_post_on_sleep_ms;
+	int ext_clk_post_off_sleep_ms;
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00014 */
+	struct dsi_panel_gmm volt_cmds;
+	struct dsi_panel_gmm gmm_cmds;
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00053 */
+	int vcc_gpio;
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00057 */
+	struct dsi_panel_linear_params linear_params;
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00067 */
+	int num_mfr;
+	int mfr_idx;
+	struct dsi_panel_mfr_ctrl *mfr_config;
+#endif /* CONFIG_SHARP_DISPLAY */
 };
 
 static inline bool dsi_panel_ulps_feature_enabled(struct dsi_panel *panel)
@@ -289,5 +337,12 @@ int dsi_panel_parse_esd_reg_read_configs(struct dsi_panel *panel,
 				struct device_node *of_node);
 
 void dsi_panel_ext_bridge_put(struct dsi_panel *panel);
+
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00011 */
+int dsi_panel_set_ext_clk_state(struct dsi_panel *panel, bool enable);
+#endif /* CONFIG_SHARP_DISPLAY */
+#ifdef CONFIG_SHARP_DISPLAY /* CUST_ID_00067 */
+int dsi_panel_backlight_mfr(struct dsi_panel *panel, int value);
+#endif /* CONFIG_SHARP_DISPLAY */
 
 #endif /* _DSI_PANEL_H_ */

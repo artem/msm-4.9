@@ -239,6 +239,9 @@ struct thermal_zone_device {
 	int passive_delay;
 	int polling_delay;
 	int temperature;
+#ifdef CONFIG_BATTERY_SHARP
+	int debug_temperature;
+#endif /* CONFIG_BATTERY_SHARP */
 	int last_temperature;
 	int emul_temperature;
 	int passive;

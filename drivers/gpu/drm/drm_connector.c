@@ -1090,7 +1090,12 @@ int drm_mode_getconnector(struct drm_device *dev, void *data,
 			if (!drm_mode_expose_to_userspace(mode, file_priv))
 				continue;
 
+#if defined(CONFIG_SHARP_DISPLAY) && defined(CONFIG_ARCH_PUCCI) /* CUST_ID_00060 */
+			drm_mode_convert_to_umode(&u_mode, mode,
+				connector->connector_type == DRM_MODE_CONNECTOR_DSI);
+#else /* CONFIG_SHARP_DISPLAY */
 			drm_mode_convert_to_umode(&u_mode, mode);
+#endif /* CONFIG_SHARP_DISPLAY */
 			if (copy_to_user(mode_ptr + copied,
 					 &u_mode, sizeof(u_mode))) {
 				ret = -EFAULT;

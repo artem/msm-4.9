@@ -207,38 +207,52 @@ static int32_t cam_a5_download_fw(void *device_priv)
 
 	if (!core_info->fw_elf) {
 		CAM_ERR(CAM_ICP, "Invalid elf size");
-		rc = -EINVAL;
-		goto fw_download_failed;
+		return -EINVAL;
 	}
 
 	fw_start = core_info->fw_elf->data;
 	rc = cam_icp_validate_fw(fw_start);
 	if (rc) {
 		CAM_ERR(CAM_ICP, "fw elf validation failed");
-		goto fw_download_failed;
+/* sony extension begin */
+		release_firmware(core_info->fw_elf);
+		core_info->fw_elf = NULL;
+/* sony extension end */
+		return -EINVAL;
 	}
 
 	rc = cam_icp_get_fw_size(fw_start, &fw_size);
 	if (rc) {
 		CAM_ERR(CAM_ICP, "unable to get fw size");
-		goto fw_download_failed;
+/* sony extension begin */
+#if 1
+		goto fw_get_failed;
+#else
+		return rc;
+#endif
+/* sony extension end */
 	}
 
 	if (core_info->fw_buf_len < fw_size) {
 		CAM_ERR(CAM_ICP, "mismatch in fw size: %u %llu",
 			fw_size, core_info->fw_buf_len);
-		rc = -EINVAL;
-		goto fw_download_failed;
+		goto fw_alloc_failed;
 	}
 
 	rc = cam_icp_program_fw(fw_start, core_info);
 	if (rc) {
 		CAM_ERR(CAM_ICP, "fw program is failed");
-		goto fw_download_failed;
+		goto fw_program_failed;
 	}
 
-fw_download_failed:
+	return 0;
+fw_program_failed:
+fw_alloc_failed:
+/* sony extension begin */
+fw_get_failed:
 	release_firmware(core_info->fw_elf);
+	core_info->fw_elf = NULL;
+/* sony extension end */
 	return rc;
 }
 
@@ -322,6 +336,12 @@ int cam_a5_deinit_hw(void *device_priv,
 			core_info->cpas_start = false;
 	}
 
+/* sony extension begin */
+	if (core_info->fw_elf) {
+		release_firmware(core_info->fw_elf);
+		core_info->fw_elf = NULL;
+	}
+/* sony extension end */
 	return rc;
 }
 
@@ -388,6 +408,7 @@ int cam_a5_process_cmd(void *device_priv, uint32_t cmd_type,
 	switch (cmd_type) {
 	case CAM_ICP_A5_CMD_FW_DOWNLOAD:
 		rc = cam_a5_download_fw(device_priv);
+
 		break;
 	case CAM_ICP_A5_CMD_SET_FW_BUF: {
 		struct cam_icp_a5_set_fw_buf_info *fw_buf_info = cmd_args;
